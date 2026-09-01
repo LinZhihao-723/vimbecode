@@ -3,5 +3,17 @@
 version = 3
 
 [[package]]
-name = "vimbecode"
+name = "vbc-ci"
+version = "0.0.0"
+
+[[package]]
+name = "vbc-editor"
+version = "0.0.0"
+
+[[package]]
+name = "vbc-layout"
+version = "0.0.0"
+
+[[package]]
+name = "vbc-oracle"
 version = "0.0.0"

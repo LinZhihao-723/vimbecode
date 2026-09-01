@@ -1,0 +1,13 @@
+[package]
+name = "vbc-editor"
+description = "The vimbecode editor built on top of the text layout engine."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
