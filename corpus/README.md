@@ -13,18 +13,23 @@ The quick brown fox
 """
 keys = "wdw"                                    # vim notation, for example `dw` or `iabc<Esc>`
 viewport_width = 40                             # cells
-viewport_height = 24                            # screen lines, optional, 24 by default
+viewport_height = 24                            # text window lines, optional, 24 by default
 tags = ["ascii", "wrap"]                        # at least one
 options = { tabstop = 4 }                       # optional, see below
 ```
 
-A case is replayed in the viewport it declares: the engine is given a window `viewport_width`
-cells wide and `viewport_height` lines tall, stripped of line numbers, sign column and fold
-column, so the declared width is the width of the text itself. `viewport_height` is what `H`, `M`,
-`L` and the half-page scrolls are measured against.
+A case is replayed in the viewport it declares: the engine is given a text window `viewport_width`
+cells wide and `viewport_height` lines tall, stripped of line numbers, sign column, fold column,
+status line and tab line. The declared width is the width of the text itself, and the declared
+height is the number of screen lines the buffer is drawn on -- the command line an editor keeps
+below its text window is not one of them, so vim is asked for a screen one line taller than the
+viewport. `viewport_height` is what `H`, `M`, `L` and the half-page scrolls are measured against:
+on a buffer with lines to spare, `L` lands on the `viewport_height`-th line of the window.
 
-vim will not open a window narrower than twelve cells or shorter than two lines, and quietly
-widens a narrower one, so a case declaring less than that is not laid out where it says it is.
+A viewport is between 12 and 10000 cells wide and between 1 and 999 lines tall, and the loader
+rejects a case declaring anything outside that. vim quietly widens a narrower window, quietly
+shrinks a larger screen, and keeps no window shorter than one text line, so a case outside the
+range would not be laid out where it says it is.
 
 ## Options
 
@@ -58,7 +63,7 @@ can see which code points a case actually contains. Escapes are not processed in
 ## Adding a case
 
 The loader rejects a section that would contribute an unusable case: an unknown field or tag, an
-empty key sequence, an untagged case, a zero-width or zero-height viewport, a zero tabstop, an
+empty key sequence, an untagged case, a viewport outside the range above, a zero tabstop, an
 identifier repeated anywhere in the corpus, or a file that is not valid UTF-8. Every failure names
 the offending file. The case count and the per-tag breakdown are asserted in
 `corpus::tests::case_count_and_tag_breakdown_are_stable`, so adding a case means updating those two
