@@ -209,6 +209,9 @@ impl Corpus {
         Ok(Self { cases })
     }
 
+    /// # Returns
+    ///
+    /// Every case the corpus holds, in corpus order.
     #[must_use]
     pub fn cases(&self) -> &[Case] {
         &self.cases
@@ -649,6 +652,61 @@ tags = ["ascii"]
         Corpus::load_dir(&default_dir()).expect("the repository's corpus must load")
     }
 
+    /// # Returns
+    ///
+    /// Whether the text holds a Chinese, Japanese, or Korean character, counting the fullwidth
+    /// forms and the CJK punctuation that come with them.
+    fn contains_cjk(text: &str) -> bool {
+        text.chars().any(|character| {
+            matches!(character,
+                '\u{1100}'..='\u{11FF}'
+                    | '\u{3000}'..='\u{30FF}'
+                    | '\u{3400}'..='\u{4DBF}'
+                    | '\u{4E00}'..='\u{9FFF}'
+                    | '\u{AC00}'..='\u{D7AF}'
+                    | '\u{F900}'..='\u{FAFF}'
+                    | '\u{FF00}'..='\u{FFEF}')
+        })
+    }
+
+    /// # Returns
+    ///
+    /// Whether the text holds an emoji, a joiner, or a selector that turns a character into one.
+    fn contains_emoji(text: &str) -> bool {
+        text.chars().any(|character| {
+            matches!(character,
+                '\u{200D}'
+                    | '\u{20E3}'
+                    | '\u{FE0F}'
+                    | '\u{2600}'..='\u{27BF}'
+                    | '\u{1F000}'..='\u{1FAFF}')
+        })
+    }
+
+    /// # Returns
+    ///
+    /// Whether the text holds a regional indicator, the code point flags are built from.
+    fn contains_regional_indicator(text: &str) -> bool {
+        text.chars()
+            .any(|character| matches!(character, '\u{1F1E6}'..='\u{1F1FF}'))
+    }
+
+    /// # Returns
+    ///
+    /// Whether the text holds a code point that composes onto the one before it, either a
+    /// combining mark or a conjoining Hangul jamo.
+    fn contains_combining_mark(text: &str) -> bool {
+        text.chars().any(|character| {
+            matches!(character,
+                '\u{0300}'..='\u{036F}'
+                    | '\u{1160}'..='\u{11FF}'
+                    | '\u{1AB0}'..='\u{1AFF}'
+                    | '\u{1DC0}'..='\u{1DFF}'
+                    | '\u{20D0}'..='\u{20FF}'
+                    | '\u{FE20}'..='\u{FE2F}')
+        })
+    }
+
     #[test]
     fn repository_corpus_loads() {
         let corpus = load_repository_corpus();
@@ -656,15 +714,9 @@ tags = ["ascii"]
     }
 
     #[test]
-    fn every_case_has_non_empty_keys_and_a_valid_utf8_buffer() {
+    fn every_case_has_non_empty_keys_and_an_intact_buffer() {
         for case in load_repository_corpus().cases() {
             assert!(!case.keys.is_empty(), "case `{}` has no keys", case.id);
-            assert_eq!(
-                str::from_utf8(case.buffer.as_bytes()),
-                Ok(case.buffer.as_str()),
-                "case `{}` has a buffer that is not valid UTF-8",
-                case.id
-            );
             assert!(
                 !case.buffer.contains(char::REPLACEMENT_CHARACTER),
                 "case `{}` has a buffer holding a replacement character",
@@ -736,12 +788,104 @@ tags = ["ascii"]
                 let case = cases
                     .get(id.as_str())
                     .unwrap_or_else(|| panic!("the word-motion grid must hold the case `{id}`"));
+                let mut keys = case.keys.chars();
+                let anchor = keys.next().expect("a case's keys must not be empty");
                 assert!(
-                    case.keys.contains(motion),
-                    "the case `{id}` does not replay `{motion}`"
+                    '0' == anchor || '$' == anchor,
+                    "the case `{id}` does not anchor the cursor before moving"
+                );
+                let repeats = keys.filter(|key| *key == motion).count();
+                assert_eq!(
+                    case.keys.chars().count() - 1,
+                    repeats,
+                    "the case `{id}` replays keys other than `{motion}`"
+                );
+                assert!(0 < repeats, "the case `{id}` does not replay `{motion}`");
+            }
+        }
+    }
+
+    #[test]
+    fn every_tag_describes_the_case_it_labels() {
+        for case in load_repository_corpus().cases() {
+            for tag in &case.tags {
+                let described = match tag {
+                    // `code` names the shape of the text, and `ambiwidth` and `word-motion` name
+                    // what a group of cases is read for, so no property of a single case decides
+                    // them. They are covered by `both_ambiwidth_settings_are_covered` and by
+                    // `word_motion_grid_covers_every_motion_and_scenario`.
+                    Tag::Ambiwidth | Tag::Code | Tag::WordMotion => true,
+                    Tag::Ascii => case.buffer.is_ascii(),
+                    Tag::Breakindent => case.options.breakindent,
+                    Tag::Cjk => contains_cjk(&case.buffer),
+                    Tag::Combining | Tag::Nfd => contains_combining_mark(&case.buffer),
+                    Tag::Emoji => contains_emoji(&case.buffer),
+                    Tag::Flag => contains_regional_indicator(&case.buffer),
+                    Tag::Nowrap => !case.options.wrap,
+                    Tag::Showbreak => !case.options.showbreak.is_empty(),
+                    Tag::Tab => case.buffer.contains('\t'),
+                    Tag::Wrap => case.options.wrap,
+                };
+                assert!(
+                    described,
+                    "the case `{}` is tagged `{tag:?}` but holds nothing the tag names",
+                    case.id
                 );
             }
         }
+    }
+
+    #[test]
+    fn every_case_carries_the_tags_its_content_and_options_call_for() {
+        for case in load_repository_corpus().cases() {
+            assert_eq!(
+                !case.options.wrap,
+                case.tags.contains(&Tag::Nowrap),
+                "the case `{}` disagrees with its `nowrap` tag",
+                case.id
+            );
+            if case.options.breakindent {
+                assert!(
+                    case.tags.contains(&Tag::Breakindent),
+                    "the case `{}` sets 'breakindent' but is not tagged `breakindent`",
+                    case.id
+                );
+            }
+            if !case.options.showbreak.is_empty() {
+                assert!(
+                    case.tags.contains(&Tag::Showbreak),
+                    "the case `{}` sets 'showbreak' but is not tagged `showbreak`",
+                    case.id
+                );
+            }
+            if case.buffer.contains('\t') {
+                assert!(
+                    case.tags.contains(&Tag::Tab),
+                    "the case `{}` holds a tab but is not tagged `tab`",
+                    case.id
+                );
+            }
+            if contains_regional_indicator(&case.buffer) {
+                assert!(
+                    case.tags.contains(&Tag::Flag),
+                    "the case `{}` holds a regional indicator but is not tagged `flag`",
+                    case.id
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn both_ambiwidth_settings_are_covered() {
+        let corpus = load_repository_corpus();
+        let settings: BTreeSet<AmbiWidth> = corpus
+            .with_tag(Tag::Ambiwidth)
+            .map(|case| case.options.ambiwidth)
+            .collect();
+        assert_eq!(
+            settings,
+            BTreeSet::from([AmbiWidth::Single, AmbiWidth::Double])
+        );
     }
 
     #[test]

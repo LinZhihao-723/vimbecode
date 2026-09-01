@@ -51,3 +51,8 @@ anywhere in the corpus, or a file that is not valid UTF-8. Every failure names t
 The case count and the per-tag breakdown are asserted in
 `corpus::tests::case_count_and_tag_breakdown_are_stable`, so adding a case means updating those two
 constants.
+
+Tags are checked against the case they label: a tag naming a class of code point requires the
+buffer to hold one, a tag naming a display option requires the option to be set, and a case whose
+buffer or options call for a tag has to carry it. A case holding a tab is tagged `tab` whatever
+else it exercises.
