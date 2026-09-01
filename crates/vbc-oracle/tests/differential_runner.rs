@@ -369,6 +369,36 @@ fn a_report_names_the_case_the_status_and_the_dimensions() -> anyhow::Result<()>
 }
 
 #[test]
+fn a_report_names_the_display_position_dimension_in_its_json() -> anyhow::Result<()> {
+    let cases = [case("display-only-case", &[Tag::Wrap])];
+    let report = runner::run_cases(
+        &cases,
+        &Stub::matching("reference"),
+        &Stub::broken("subject", Perturbation::DisplayPosition),
+    );
+
+    let rendered: Value = serde_json::from_str(&report.to_json()?)?;
+
+    assert_eq!(
+        rendered["cases"][0]["dimensions"],
+        json!(["display-position"])
+    );
+    assert_eq!(
+        rendered["cases"][0]["divergences"],
+        json!([
+            {
+                "DisplayPosition": {
+                    "left": {"row": 0, "column": 2},
+                    "right": {"row": 1, "column": 2},
+                },
+            },
+        ])
+    );
+
+    Ok(())
+}
+
+#[test]
 fn an_engine_that_cannot_replay_a_case_is_reported_as_a_failure() -> anyhow::Result<()> {
     let cases = [case("failing-case", &[Tag::Ascii])];
     let report = runner::run_cases(

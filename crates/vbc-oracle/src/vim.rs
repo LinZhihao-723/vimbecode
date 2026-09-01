@@ -3,11 +3,10 @@
 //! A run launches vim with no user configuration and no plugins, feeds it a starting buffer and a
 //! key sequence, and reports the [`EditorState`] vim ends in. A corpus case is replayed in the
 //! viewport and under the display options the case declares, so a key sequence whose outcome
-//! depends on the layout is replayed against the layout the case describes. Where vim drew the
-//! cursor is read back from vim's own `winline()` and `wincol()`, which measure the cursor against
-//! the window and so account for wrapping and horizontal scrolling, and a layout difference that
-//! leaves the cursor's byte offset alone is reported through them. vim never touches a terminal,
-//! so a run works the same on a developer's machine and in CI.
+//! depends on the layout is replayed against the layout the case describes. The reported state
+//! covers where vim drew the cursor, so a layout difference that leaves the cursor's byte offset
+//! alone is reported too. vim never touches a terminal, so a run works the same on a developer's
+//! machine and in CI.
 
 use std::{
     collections::BTreeMap,
