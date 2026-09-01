@@ -1,5 +1,7 @@
-# Three viewport widths crossed with 'breakindent' and 'showbreak', plus the 'nowrap' variants
-# where the viewport scrolls horizontally instead.
+# Several viewport widths crossed with 'breakindent' and 'showbreak', plus the 'nowrap' variants
+# where the viewport scrolls horizontally instead. The decorated variants are laid out at
+# twenty-four columns: vim keeps at least twenty cells of text next to a repeated indent, so
+# 'breakindent' has no effect at all in a twenty-column viewport.
 
 [[case]]
 id = "wrap-w20-plain"
@@ -12,35 +14,56 @@ viewport_width = 20
 tags = ["wrap"]
 
 [[case]]
-id = "wrap-w20-breakindent"
-description = "The same line at twenty columns with continuation lines carrying the indent."
+id = "wrap-w20-boundary-exact"
+description = "A line whose wrap boundary falls exactly on the twentieth cell of the viewport."
+buffer = """
+abcdefghijklmnopqrstuvwxyz0123456789
+"""
+keys = "gj"
+viewport_width = 20
+viewport_height = 10
+tags = ["ascii", "wrap"]
+
+[[case]]
+id = "wrap-w24-plain"
+description = "The same line at twenty-four columns with no continuation decoration."
 buffer = """
     the indented sentence that wraps a few times before it finally ends here
 """
 keys = "gjgj"
-viewport_width = 20
+viewport_width = 24
+tags = ["wrap"]
+
+[[case]]
+id = "wrap-w24-breakindent"
+description = "The same line at twenty-four columns with continuation lines carrying the indent."
+buffer = """
+    the indented sentence that wraps a few times before it finally ends here
+"""
+keys = "gjgj"
+viewport_width = 24
 tags = ["wrap", "breakindent"]
 options = { breakindent = true }
 
 [[case]]
-id = "wrap-w20-showbreak"
-description = "The same line at twenty columns with a continuation marker."
+id = "wrap-w24-showbreak"
+description = "The same line at twenty-four columns with a continuation marker."
 buffer = """
     the indented sentence that wraps a few times before it finally ends here
 """
 keys = "gjgj"
-viewport_width = 20
+viewport_width = 24
 tags = ["wrap", "showbreak"]
 options = { showbreak = "> " }
 
 [[case]]
-id = "wrap-w20-breakindent-showbreak"
-description = "The same line at twenty columns with both the indent and the continuation marker."
+id = "wrap-w24-breakindent-showbreak"
+description = "The same line at twenty-four columns with both the indent and the marker."
 buffer = """
     the indented sentence that wraps a few times before it finally ends here
 """
 keys = "gjgj"
-viewport_width = 20
+viewport_width = 24
 tags = ["wrap", "breakindent", "showbreak"]
 options = { breakindent = true, showbreak = "> " }
 
@@ -50,7 +73,7 @@ description = "The same line at forty columns with no continuation decoration."
 buffer = """
     the indented sentence that wraps a few times before it finally ends here
 """
-keys = "g$"
+keys = "gjg$"
 viewport_width = 40
 tags = ["wrap"]
 
@@ -60,7 +83,7 @@ description = "The same line at forty columns with both the indent and the conti
 buffer = """
     the indented sentence that wraps a few times before it finally ends here
 """
-keys = "g$"
+keys = "gjg$"
 viewport_width = 40
 tags = ["wrap", "breakindent", "showbreak"]
 options = { breakindent = true, showbreak = "+++ " }

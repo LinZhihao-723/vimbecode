@@ -42,9 +42,9 @@ pub trait Engine {
     fn replay(&self, case: &Case) -> Result<EditorState, Self::Error>;
 }
 
-/// The driver replays a case's starting buffer and keys. Neither a case's viewport width nor its
-/// display options are applied, so a case whose outcome depends on them -- one moving by screen
-/// line, for instance -- is replayed under vim's own defaults.
+/// The driver replays a case's starting buffer and keys in the case's viewport and under its
+/// display options, so a case whose outcome depends on them -- one moving by screen line, for
+/// instance -- is replayed against the layout the case describes.
 impl Engine for VimDriver {
     type Error = VimError;
 
@@ -53,7 +53,7 @@ impl Engine for VimDriver {
     }
 
     fn replay(&self, case: &Case) -> Result<EditorState, Self::Error> {
-        self.run(&case.buffer, &case.keys)
+        self.run_case(case)
     }
 }
 

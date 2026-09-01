@@ -13,9 +13,15 @@ The quick brown fox
 """
 keys = "wdw"                                    # vim notation, for example `dw` or `iabc<Esc>`
 viewport_width = 40                             # cells
+viewport_height = 24                            # screen lines, optional, 24 by default
 tags = ["ascii", "wrap"]                        # at least one
 options = { tabstop = 4 }                       # optional, see below
 ```
+
+A case is replayed in the viewport it declares: the engine is given a window `viewport_width`
+cells wide and `viewport_height` lines tall, stripped of line numbers, sign column and fold
+column, so the declared width is the width of the text itself. `viewport_height` is what `H`, `M`,
+`L` and the half-page scrolls are measured against.
 
 ## Options
 
@@ -26,7 +32,10 @@ options = { tabstop = 4 }                       # optional, see below
 | `wrap` | `true` | Whether a line too long for the viewport continues on the next screen line. |
 | `breakindent` | `false` | Whether continuation screen lines repeat the line's indent. |
 | `showbreak` | `""` | The marker put in front of a continuation screen line. |
+| `linebreak` | `false` | Whether a line too long for the viewport breaks at a word boundary. |
 | `tabstop` | `8` | The number of cells a tab advances to. |
+| `shiftwidth` | `8` | The number of cells `>>` shifts by, zero to follow `tabstop`. |
+| `expandtab` | `false` | Whether an inserted tab is spelled with spaces. |
 | `ambiwidth` | `"single"` | How ambiguous-width characters are measured: `"single"` or `"double"`. |
 
 ## Tags
@@ -46,9 +55,9 @@ can see which code points a case actually contains. Escapes are not processed in
 ## Adding a case
 
 The loader rejects a section that would contribute an unusable case: an unknown field or tag, an
-empty key sequence, an untagged case, a zero-width viewport, a zero tabstop, an identifier repeated
-anywhere in the corpus, or a file that is not valid UTF-8. Every failure names the offending file.
-The case count and the per-tag breakdown are asserted in
+empty key sequence, an untagged case, a zero-width or zero-height viewport, a zero tabstop, an
+identifier repeated anywhere in the corpus, or a file that is not valid UTF-8. Every failure names
+the offending file. The case count and the per-tag breakdown are asserted in
 `corpus::tests::case_count_and_tag_breakdown_are_stable`, so adding a case means updating those two
 constants.
 

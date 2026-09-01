@@ -37,7 +37,7 @@ description = "Ambiguous-width characters measured as one cell."
 buffer = '''
 α ± … │ 中文 ambiguous width test
 '''
-keys = "$"
+keys = "g$"
 viewport_width = 20
 tags = ["cjk", "ambiwidth", "wrap"]
 options = { ambiwidth = "single" }
@@ -48,7 +48,7 @@ description = "The same ambiguous-width characters measured as two cells."
 buffer = '''
 α ± … │ 中文 ambiguous width test
 '''
-keys = "$"
+keys = "g$"
 viewport_width = 20
 tags = ["cjk", "ambiwidth", "wrap"]
 options = { ambiwidth = "double" }
