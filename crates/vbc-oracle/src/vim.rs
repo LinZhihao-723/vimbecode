@@ -455,6 +455,9 @@ const PRE_COMMANDS: &str = "set encoding=utf-8 fileencodings= fileformats=unix n
 /// The registers a differential run compares.
 const CAPTURED_REGISTERS: &str = "\"-0123456789abcdefghijklmnopqrstuvwxyz";
 
+/// The screen lines vim keeps for its command line, below the text window a case is laid out in.
+const COMMAND_LINE_HEIGHT: u16 = 1;
+
 /// Distinguishes the workspaces of concurrent runs in the same process.
 static WORKSPACE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -631,8 +634,10 @@ fn parse_patch_level(line: &str) -> Option<u32> {
 
 /// Builds the ex commands that lay a case's buffer out the way the case asks for.
 ///
-/// The commands also strip the window of its gutter, so that the case's viewport width is the
-/// width of the text and not of the text plus vim's chrome.
+/// The commands also strip the window of vim's chrome -- its gutter, its status line and its tab
+/// line -- and ask vim for a screen one line taller than the case's viewport, the line vim keeps
+/// for its command line. A case's viewport is therefore the text window alone: as many cells wide
+/// and as many lines tall as the case declares, every one of them drawing the buffer.
 ///
 /// # Returns
 ///
@@ -640,13 +645,14 @@ fn parse_patch_level(line: &str) -> Option<u32> {
 fn build_prelude(case: &Case) -> String {
     let options = &case.options;
     format!(
-        "set columns={width} lines={height}\n\
+        "set columns={width} lines={lines}\n\
          set nonumber norelativenumber signcolumn=no foldcolumn=0\n\
+         set laststatus=0 showtabline=0 cmdheight={COMMAND_LINE_HEIGHT}\n\
          set {wrap} {breakindent} {linebreak} {expandtab}\n\
          set tabstop={tabstop} shiftwidth={shiftwidth} ambiwidth={ambiwidth}\n\
          let &showbreak = '{showbreak}'\n",
         width = case.viewport_width,
-        height = case.viewport_height,
+        lines = u32::from(case.viewport_height) + u32::from(COMMAND_LINE_HEIGHT),
         wrap = switch("wrap", options.wrap),
         breakindent = switch("breakindent", options.breakindent),
         linebreak = switch("linebreak", options.linebreak),
@@ -1252,8 +1258,9 @@ mod tests {
         let prelude = build_prelude(&case);
 
         for command in [
-            "set columns=24 lines=12",
+            "set columns=24 lines=13",
             "set nonumber norelativenumber signcolumn=no foldcolumn=0",
+            "set laststatus=0 showtabline=0 cmdheight=1",
             "set nowrap breakindent nolinebreak expandtab",
             "set tabstop=4 shiftwidth=2 ambiwidth=double",
             "let &showbreak = 'it''s > '",
@@ -1261,6 +1268,41 @@ mod tests {
             assert!(
                 prelude.contains(command),
                 "the prelude does not run `{command}`: {prelude}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_prelude_asks_vim_for_the_case_viewport_plus_the_command_line() {
+        use std::collections::BTreeSet;
+
+        use crate::corpus::{
+            Options, Tag, DEFAULT_VIEWPORT_HEIGHT, MAXIMUM_VIEWPORT_HEIGHT, MINIMUM_VIEWPORT_HEIGHT,
+        };
+
+        for height in [
+            MINIMUM_VIEWPORT_HEIGHT,
+            10,
+            DEFAULT_VIEWPORT_HEIGHT,
+            MAXIMUM_VIEWPORT_HEIGHT,
+        ] {
+            let case = Case {
+                id: "sample".to_owned(),
+                description: "A case the tests build.".to_owned(),
+                buffer: BUFFER.to_owned(),
+                keys: "gj".to_owned(),
+                viewport_width: 24,
+                viewport_height: height,
+                tags: BTreeSet::from([Tag::Wrap]),
+                options: Options::default(),
+            };
+
+            let prelude = build_prelude(&case);
+
+            let expected = format!("lines={}", u32::from(height) + 1);
+            assert!(
+                prelude.contains(&expected),
+                "a case {height} lines tall does not run `set {expected}`: {prelude}"
             );
         }
     }

@@ -28,6 +28,15 @@ const WRAP_VARIANTS: [(&str, u64); 4] = [
 /// The keys of a replay that does nothing, against which a case's own keys are measured.
 const IDLE_KEYS: &str = "<Esc>";
 
+/// The one line a probe of the window's own size is replayed against.
+const PLACEHOLDER_LINE: &str = "placeholder\n";
+
+/// The keys that leave the text window's height, as vim measures it, in the buffer.
+const REPORT_WINDOW_HEIGHT_KEYS: &str = "<Cmd>call setline(1, string(winheight(0)))<CR>";
+
+/// The keys that leave the text window's width, as vim measures it, in the buffer.
+const REPORT_WINDOW_WIDTH_KEYS: &str = "<Cmd>call setline(1, string(winwidth(0)))<CR>";
+
 /// # Returns
 ///
 /// The repository's corpus on success.
@@ -309,7 +318,35 @@ fn clearing_an_option_a_case_sets_changes_its_layout() -> anyhow::Result<()> {
 }
 
 #[test]
-fn a_case_is_laid_out_in_a_viewport_as_tall_as_it_asks_for() -> anyhow::Result<()> {
+fn a_case_is_laid_out_in_a_text_window_as_tall_as_it_asks_for() -> anyhow::Result<()> {
+    let corpus = repository_corpus()?;
+    let driver = VimDriver::new()?;
+
+    for height in [
+        corpus::MINIMUM_VIEWPORT_HEIGHT,
+        5,
+        10,
+        corpus::DEFAULT_VIEWPORT_HEIGHT,
+    ] {
+        let probe = Case {
+            buffer: PLACEHOLDER_LINE.to_owned(),
+            keys: REPORT_WINDOW_HEIGHT_KEYS.to_owned(),
+            viewport_height: height,
+            ..case(&corpus, "wrap-w20-plain").clone()
+        };
+
+        assert_eq!(
+            replay(&driver, &probe)?.buffer,
+            format!("{height}\n"),
+            "a case {height} lines tall was laid out in a text window of another height, so the \
+             declared height is not the height of the text"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn the_lowest_line_of_the_screen_is_the_last_line_of_the_text_window() -> anyhow::Result<()> {
     let corpus = repository_corpus()?;
     let driver = VimDriver::new()?;
     let tall = Case {
@@ -323,17 +360,44 @@ fn a_case_is_laid_out_in_a_viewport_as_tall_as_it_asks_for() -> anyhow::Result<(
         ..tall.clone()
     };
 
+    for case in [&tall, &short] {
+        assert_eq!(
+            replay(&driver, case)?.cursor,
+            Cursor {
+                line: u64::from(case.viewport_height) - 1,
+                column: 0
+            },
+            "`L` did not land on the last of the {} lines the case is laid out in",
+            case.viewport_height
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn a_viewport_narrower_than_the_loader_accepts_is_widened_by_vim() -> anyhow::Result<()> {
+    let corpus = repository_corpus()?;
+    let driver = VimDriver::new()?;
+    let narrowest = Case {
+        buffer: PLACEHOLDER_LINE.to_owned(),
+        keys: REPORT_WINDOW_WIDTH_KEYS.to_owned(),
+        viewport_width: corpus::MINIMUM_VIEWPORT_WIDTH,
+        ..case(&corpus, "wrap-w20-plain").clone()
+    };
+    let narrower = Case {
+        viewport_width: corpus::MINIMUM_VIEWPORT_WIDTH - 1,
+        ..narrowest.clone()
+    };
+
     assert_eq!(
-        replay(&driver, &tall)?.cursor,
-        Cursor {
-            line: 22,
-            column: 0
-        }
+        replay(&driver, &narrowest)?.buffer,
+        format!("{}\n", corpus::MINIMUM_VIEWPORT_WIDTH),
+        "the narrowest viewport the loader accepts is not the width vim lays it out in"
     );
     assert_eq!(
-        replay(&driver, &short)?.cursor,
-        Cursor { line: 8, column: 0 },
-        "the lowest line on the screen is the one a shorter viewport ends at"
+        replay(&driver, &narrower)?.buffer,
+        format!("{}\n", corpus::MINIMUM_VIEWPORT_WIDTH),
+        "vim no longer widens a window under the loader's minimum, so the minimum is stale"
     );
     Ok(())
 }

@@ -22,6 +22,21 @@ pub const SECTION_EXTENSION: &str = "toml";
 /// The viewport height a case takes when its section leaves one out.
 pub const DEFAULT_VIEWPORT_HEIGHT: u16 = 24;
 
+/// The narrowest viewport a case may declare, in cells. vim quietly widens a window narrower than
+/// this, so a case declaring less would be laid out somewhere other than where it says.
+pub const MINIMUM_VIEWPORT_WIDTH: u16 = 12;
+
+/// The widest viewport a case may declare, in cells, beyond which vim quietly narrows the window.
+pub const MAXIMUM_VIEWPORT_WIDTH: u16 = 10_000;
+
+/// The shortest viewport a case may declare, in screen lines. vim keeps one screen line for its
+/// command line, so a text window this tall is the smallest one it opens.
+pub const MINIMUM_VIEWPORT_HEIGHT: u16 = 1;
+
+/// The tallest viewport a case may declare, in screen lines, beyond which vim quietly shortens the
+/// window.
+pub const MAXIMUM_VIEWPORT_HEIGHT: u16 = 999;
+
 /// How characters of ambiguous East Asian width are measured, mirroring vim's `'ambiwidth'`.
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -152,11 +167,15 @@ pub struct Case {
     /// The keys to replay, in vim's notation, for example `dw` or `iabc<Esc>`.
     pub keys: String,
 
-    /// The width of the viewport the buffer is laid out in, in cells.
+    /// The width of the viewport the buffer is laid out in, in cells, between
+    /// [`MINIMUM_VIEWPORT_WIDTH`] and [`MAXIMUM_VIEWPORT_WIDTH`].
     pub viewport_width: u16,
 
-    /// The height of the viewport the buffer is laid out in, in screen lines. A case that leaves
-    /// it out is laid out in a viewport [`DEFAULT_VIEWPORT_HEIGHT`] lines tall.
+    /// The height of the viewport the buffer is laid out in, in screen lines, between
+    /// [`MINIMUM_VIEWPORT_HEIGHT`] and [`MAXIMUM_VIEWPORT_HEIGHT`]. The viewport is the text
+    /// window alone: every one of its lines draws the buffer, and none of them is spent on the
+    /// command line an editor keeps below it. A case that leaves the height out is laid out in a
+    /// viewport [`DEFAULT_VIEWPORT_HEIGHT`] lines tall.
     #[serde(default = "default_viewport_height")]
     pub viewport_height: u16,
 
@@ -409,22 +428,28 @@ pub enum Error {
         id: String,
     },
 
-    /// A case's viewport is zero cells wide.
-    ZeroViewportWidth {
+    /// A case's viewport is outside the range of widths a window is laid out in.
+    ViewportWidthOutOfRange {
         /// The file declaring the case.
         path: PathBuf,
 
         /// The case's identifier.
         id: String,
+
+        /// The width the case declares.
+        width: u16,
     },
 
-    /// A case's viewport is zero lines tall.
-    ZeroViewportHeight {
+    /// A case's viewport is outside the range of heights a text window is laid out in.
+    ViewportHeightOutOfRange {
         /// The file declaring the case.
         path: PathBuf,
 
         /// The case's identifier.
         id: String,
+
+        /// The height the case declares.
+        height: u16,
     },
 
     /// A case's `'tabstop'` is zero, which vim rejects as well.
@@ -498,14 +523,18 @@ impl Display for Error {
                 "the case `{id}` in the section {} carries no tag",
                 path.display()
             ),
-            Self::ZeroViewportWidth { path, id } => write!(
+            Self::ViewportWidthOutOfRange { path, id, width } => write!(
                 f,
-                "the case `{id}` in the section {} has a zero-width viewport",
+                "the case `{id}` in the section {} declares a viewport {width} cells wide, \
+                 outside the {MINIMUM_VIEWPORT_WIDTH} to {MAXIMUM_VIEWPORT_WIDTH} cells a window \
+                 is laid out in",
                 path.display()
             ),
-            Self::ZeroViewportHeight { path, id } => write!(
+            Self::ViewportHeightOutOfRange { path, id, height } => write!(
                 f,
-                "the case `{id}` in the section {} has a zero-height viewport",
+                "the case `{id}` in the section {} declares a viewport {height} lines tall, \
+                 outside the {MINIMUM_VIEWPORT_HEIGHT} to {MAXIMUM_VIEWPORT_HEIGHT} lines a text \
+                 window is laid out in",
                 path.display()
             ),
             Self::ZeroTabstop { path, id } => write!(
@@ -570,8 +599,10 @@ struct Section {
 /// * [`Error::EmptyId`] if the case's identifier is empty.
 /// * [`Error::EmptyKeys`] if the case's key sequence is empty.
 /// * [`Error::NoTags`] if the case carries no tag.
-/// * [`Error::ZeroViewportWidth`] if the case's viewport is zero cells wide.
-/// * [`Error::ZeroViewportHeight`] if the case's viewport is zero lines tall.
+/// * [`Error::ViewportWidthOutOfRange`] if the case's viewport is not between
+///   [`MINIMUM_VIEWPORT_WIDTH`] and [`MAXIMUM_VIEWPORT_WIDTH`] cells wide.
+/// * [`Error::ViewportHeightOutOfRange`] if the case's viewport is not between
+///   [`MINIMUM_VIEWPORT_HEIGHT`] and [`MAXIMUM_VIEWPORT_HEIGHT`] lines tall.
 /// * [`Error::ZeroTabstop`] if the case's `'tabstop'` is zero.
 fn validate_case(case: &Case, path: &Path) -> Result<(), Error> {
     if case.id.is_empty() {
@@ -591,16 +622,18 @@ fn validate_case(case: &Case, path: &Path) -> Result<(), Error> {
             id: case.id.clone(),
         });
     }
-    if 0 == case.viewport_width {
-        return Err(Error::ZeroViewportWidth {
+    if !(MINIMUM_VIEWPORT_WIDTH..=MAXIMUM_VIEWPORT_WIDTH).contains(&case.viewport_width) {
+        return Err(Error::ViewportWidthOutOfRange {
             path: path.to_path_buf(),
             id: case.id.clone(),
+            width: case.viewport_width,
         });
     }
-    if 0 == case.viewport_height {
-        return Err(Error::ZeroViewportHeight {
+    if !(MINIMUM_VIEWPORT_HEIGHT..=MAXIMUM_VIEWPORT_HEIGHT).contains(&case.viewport_height) {
+        return Err(Error::ViewportHeightOutOfRange {
             path: path.to_path_buf(),
             id: case.id.clone(),
+            height: case.viewport_height,
         });
     }
     if 0 == case.options.tabstop {
@@ -624,7 +657,8 @@ mod tests {
 
     use super::{
         default_dir, AmbiWidth, Case, Corpus, Error, Options, Tag, DEFAULT_VIEWPORT_HEIGHT,
-        SECTION_EXTENSION,
+        MAXIMUM_VIEWPORT_HEIGHT, MAXIMUM_VIEWPORT_WIDTH, MINIMUM_VIEWPORT_HEIGHT,
+        MINIMUM_VIEWPORT_WIDTH, SECTION_EXTENSION,
     };
 
     /// The number of cases the repository's corpus holds.
@@ -788,14 +822,16 @@ tags = ["ascii"]
                 case.id
             );
             assert!(
-                0 < case.viewport_width,
-                "case `{}` has a zero-width viewport",
-                case.id
+                (MINIMUM_VIEWPORT_WIDTH..=MAXIMUM_VIEWPORT_WIDTH).contains(&case.viewport_width),
+                "case `{}` declares a viewport {} cells wide",
+                case.id,
+                case.viewport_width
             );
             assert!(
-                0 < case.viewport_height,
-                "case `{}` has a zero-height viewport",
-                case.id
+                (MINIMUM_VIEWPORT_HEIGHT..=MAXIMUM_VIEWPORT_HEIGHT).contains(&case.viewport_height),
+                "case `{}` declares a viewport {} lines tall",
+                case.id,
+                case.viewport_height
             );
         }
     }
@@ -991,18 +1027,55 @@ tags = ["ascii"]
     }
 
     #[test]
-    fn a_zero_height_viewport_is_rejected() {
-        let temp = TempCorpus::new("zero-height");
-        let section = format!("{VALID_SECTION}viewport_height = 0\n");
+    fn a_viewport_shorter_than_the_minimum_is_rejected() {
+        let temp = TempCorpus::new("short");
+        let height = MINIMUM_VIEWPORT_HEIGHT - 1;
+        let section = format!("{VALID_SECTION}viewport_height = {height}\n");
         temp.write("broken.toml", section.as_bytes());
         let error = temp
             .load()
-            .expect_err("a zero-height viewport must be rejected");
+            .expect_err("a viewport shorter than the minimum must be rejected");
         assert!(
-            matches!(error, Error::ZeroViewportHeight { .. }),
+            matches!(error, Error::ViewportHeightOutOfRange { height: reported, .. }
+                if reported == height),
             "{error:?}"
         );
         assert!(error.to_string().contains("broken.toml"), "{error}");
+    }
+
+    #[test]
+    fn a_viewport_taller_than_the_maximum_is_rejected() {
+        let temp = TempCorpus::new("tall");
+        let height = MAXIMUM_VIEWPORT_HEIGHT + 1;
+        let section = format!("{VALID_SECTION}viewport_height = {height}\n");
+        temp.write("broken.toml", section.as_bytes());
+        let error = temp
+            .load()
+            .expect_err("a viewport taller than the maximum must be rejected");
+        assert!(
+            matches!(error, Error::ViewportHeightOutOfRange { height: reported, .. }
+                if reported == height),
+            "{error:?}"
+        );
+        assert!(error.to_string().contains("broken.toml"), "{error}");
+    }
+
+    #[test]
+    fn a_viewport_at_the_edges_of_the_accepted_range_loads() {
+        for (width, height) in [
+            (MINIMUM_VIEWPORT_WIDTH, MINIMUM_VIEWPORT_HEIGHT),
+            (MAXIMUM_VIEWPORT_WIDTH, MAXIMUM_VIEWPORT_HEIGHT),
+        ] {
+            let temp = TempCorpus::new(&format!("edge-{width}x{height}"));
+            let section = format!(
+                "{}viewport_height = {height}\n",
+                VALID_SECTION.replace("viewport_width = 40", &format!("viewport_width = {width}"))
+            );
+            temp.write("sample.toml", section.as_bytes());
+            let corpus = temp.load().expect("the section must load");
+            assert_eq!(corpus.cases()[0].viewport_width, width);
+            assert_eq!(corpus.cases()[0].viewport_height, height);
+        }
     }
 
     #[test]
@@ -1131,18 +1204,57 @@ tags = ["ascii"]
     }
 
     #[test]
-    fn a_zero_width_viewport_is_rejected() {
-        let temp = TempCorpus::new("zero-width");
-        let section = VALID_SECTION.replace("viewport_width = 40", "viewport_width = 0");
+    fn a_viewport_narrower_than_the_minimum_is_rejected() {
+        for width in [0, MINIMUM_VIEWPORT_WIDTH - 1] {
+            let temp = TempCorpus::new(&format!("narrow-{width}"));
+            let section =
+                VALID_SECTION.replace("viewport_width = 40", &format!("viewport_width = {width}"));
+            temp.write("broken.toml", section.as_bytes());
+            let error = temp
+                .load()
+                .expect_err("a viewport narrower than the minimum must be rejected");
+            assert!(
+                matches!(error, Error::ViewportWidthOutOfRange { width: reported, .. }
+                    if reported == width),
+                "{error:?}"
+            );
+            assert!(error.to_string().contains("broken.toml"), "{error}");
+        }
+    }
+
+    #[test]
+    fn a_viewport_wider_than_the_maximum_is_rejected() {
+        let temp = TempCorpus::new("wide");
+        let width = MAXIMUM_VIEWPORT_WIDTH + 1;
+        let section =
+            VALID_SECTION.replace("viewport_width = 40", &format!("viewport_width = {width}"));
         temp.write("broken.toml", section.as_bytes());
         let error = temp
             .load()
-            .expect_err("a zero-width viewport must be rejected");
+            .expect_err("a viewport wider than the maximum must be rejected");
         assert!(
-            matches!(error, Error::ZeroViewportWidth { .. }),
+            matches!(error, Error::ViewportWidthOutOfRange { width: reported, .. }
+                if reported == width),
             "{error:?}"
         );
         assert!(error.to_string().contains("broken.toml"), "{error}");
+    }
+
+    #[test]
+    fn the_corpus_readme_documents_the_viewport_range_the_loader_enforces() {
+        let path = default_dir().join("README.md");
+        let readme = fs::read_to_string(&path).expect("the corpus README must be readable");
+        for sentence in [
+            format!("between {MINIMUM_VIEWPORT_WIDTH} and {MAXIMUM_VIEWPORT_WIDTH} cells wide"),
+            format!("between {MINIMUM_VIEWPORT_HEIGHT} and {MAXIMUM_VIEWPORT_HEIGHT} lines tall"),
+            format!("{DEFAULT_VIEWPORT_HEIGHT} by default"),
+        ] {
+            assert!(
+                readme.contains(&sentence),
+                "the corpus README does not say `{sentence}`, so its prose has drifted from the \
+                 range the loader enforces"
+            );
+        }
     }
 
     #[test]
