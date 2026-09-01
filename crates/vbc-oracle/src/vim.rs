@@ -20,7 +20,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::corpus::Case;
 use crate::state::{
@@ -36,7 +36,7 @@ pub const MINIMUM_VERSION: VimVersion = VimVersion {
 };
 
 /// The version of a vim binary, as reported by `vim --version`.
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 pub struct VimVersion {
     /// The major version.
     pub major: u32,

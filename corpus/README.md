@@ -62,9 +62,32 @@ empty key sequence, an untagged case, a zero-width or zero-height viewport, a ze
 identifier repeated anywhere in the corpus, or a file that is not valid UTF-8. Every failure names
 the offending file. The case count and the per-tag breakdown are asserted in
 `corpus::tests::case_count_and_tag_breakdown_are_stable`, so adding a case means updating those two
-constants.
+constants, and recording the baseline again as described below.
 
 Tags are checked against the case they label: a tag naming a class of code point requires the
 buffer to hold one, a tag naming a display option requires the option to be set, and a case whose
 buffer or options call for a tag has to carry it. A case holding a tab is tagged `tab` whatever
 else it exercises.
+
+## The baseline
+
+`baseline.json` is the golden record of the state vim ends every case in: buffer, cursor, display
+position, mode, and registers with their types. A differential run compares two engines with each
+other and so says nothing about the reference side moving; the baseline is what catches a rewritten
+capture, a different vim, or an edited case changing what vim is taken to say.
+
+```bash
+cargo run --bin differential-run -- --check-baseline   # report every case that no longer holds
+cargo run --bin differential-run -- --record-baseline  # write the states vim ends the cases in
+```
+
+The file's header records the vim version the states were captured from, a hash of everything the
+cases declare, and the version of the file's own schema. The hash and the schema version are
+checked against any vim, so an edited case fails the check until the baseline is recorded again.
+
+The recorded states are compared only when the check runs against the vim release series they were
+captured from, since two vim releases end a case in different states by themselves. The
+continuous-integration job installs that vim and checks the states strictly, and its
+`record-baseline` job -- run by hand from the Actions tab -- is where a new baseline is recorded:
+commit the artifact it uploads rather than a file recorded from whichever vim a developer has. A
+check run against another vim says so, and passes without comparing the states.
