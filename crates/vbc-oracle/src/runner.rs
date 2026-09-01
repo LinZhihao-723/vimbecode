@@ -13,7 +13,7 @@ use std::fmt::{Display, Formatter, Result as FmtResult};
 use serde::{Deserialize, Serialize};
 
 use crate::corpus::{Case, Corpus, Tag};
-use crate::state::{Divergence, EditorState, Register, RegisterType};
+use crate::state::{describe_register, Divergence, EditorState};
 use crate::vim::{Error as VimError, VimDriver};
 
 /// An engine a differential run replays cases against.
@@ -75,6 +75,22 @@ pub enum Dimension {
 
     /// The text and type held by a register.
     Register,
+}
+
+impl Dimension {
+    /// # Returns
+    ///
+    /// The dimensions the divergences fall in, without repetition and in the order the dimensions
+    /// are declared in.
+    #[must_use]
+    pub fn of(divergences: &[Divergence]) -> Vec<Self> {
+        divergences
+            .iter()
+            .map(Self::from)
+            .collect::<BTreeSet<Self>>()
+            .into_iter()
+            .collect()
+    }
 }
 
 impl Display for Dimension {
@@ -471,12 +487,12 @@ impl Display for CaseDiff<'_> {
                             writeln!(
                                 formatter,
                                 "    {reference:<width$} : {}",
-                                describe(left.as_ref())
+                                describe_register(left.as_ref())
                             )?;
                             writeln!(
                                 formatter,
                                 "    {subject:<width$} : {}",
-                                describe(right.as_ref())
+                                describe_register(right.as_ref())
                             )?;
                         }
                     }
@@ -527,10 +543,9 @@ fn compare<ReferenceEngineType: Engine, SubjectEngineType: Engine>(
     if divergences.is_empty() {
         return Outcome::Agreed;
     }
-    let dimensions: BTreeSet<Dimension> = divergences.iter().map(Dimension::from).collect();
 
     Outcome::Diverged {
-        dimensions: dimensions.into_iter().collect(),
+        dimensions: Dimension::of(&divergences),
         divergences,
     }
 }
@@ -561,22 +576,6 @@ fn join(dimensions: &[Dimension]) -> String {
         .map(ToString::to_string)
         .collect::<Vec<String>>()
         .join(", ")
-}
-
-/// # Returns
-///
-/// A register's type and text, or that it holds nothing.
-fn describe(register: Option<&Register>) -> String {
-    let Some(register) = register else {
-        return "holds nothing".to_owned();
-    };
-    let register_type = match register.register_type {
-        RegisterType::Charwise => "charwise",
-        RegisterType::Linewise => "linewise",
-        RegisterType::Blockwise => "blockwise",
-    };
-
-    format!("{register_type} {:?}", register.text)
 }
 
 /// # Returns

@@ -3,11 +3,16 @@
 //! The vimbecode editor cannot replay a case yet, so the subject side of a run is held by a second
 //! vim. A run therefore exercises the whole corpus end to end, and reports every case in which the
 //! two engines disagree.
+//!
+//! The same entry point records and checks the corpus baseline, which guards the reference side of
+//! a run: what a run compares says nothing about vim itself ending a case somewhere else than it
+//! used to.
 
 use std::env::args;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
+use vbc_oracle::baseline::{self, Baseline, Check};
 use vbc_oracle::corpus::{self, Case, Corpus, Tag};
 use vbc_oracle::runner::{self, Engine, Report};
 use vbc_oracle::state::EditorState;
@@ -21,14 +26,24 @@ Usage: differential-run [OPTIONS]
 Replays the differential corpus against both engines and reports every case in which they
 disagree, naming the dimensions they disagree in.
 
-Options:
-  --corpus <DIR>  The corpus directory to replay, defaulting to the repository's own corpus.
-  --tag <TAG>     Replay only the cases carrying this tag, for example `word-motion`.
-  --case <ID>     Replay only the case with this identifier.
-  --format <FMT>  `text`, the default, or `json`.
-  --help          Print this message.
+Given `--record-baseline` or `--check-baseline` it works on the corpus baseline instead: the state
+vim ends every case in, recorded once and checked afterwards, which is what guards the reference
+side of a run against silent drift.
 
-The exit status is zero exactly when every replayed case was compared and both engines agreed.";
+Options:
+  --corpus <DIR>        The corpus directory to replay, defaulting to the repository's own corpus.
+  --tag <TAG>           Replay only the cases carrying this tag, for example `word-motion`.
+  --case <ID>           Replay only the case with this identifier.
+  --format <FMT>        `text`, the default, or `json`.
+  --baseline <FILE>     The baseline to record or check, defaulting to the repository's own.
+  --record-baseline     Capture the state vim ends every corpus case in, and write the baseline.
+  --check-baseline      Report every case that no longer ends where the baseline records it.
+  --strict-vim-version  Fail a check that runs against another vim than the baseline was recorded
+                        from, instead of reporting that the recorded states were not compared.
+  --help                Print this message.
+
+The exit status is zero exactly when every replayed case was compared and both engines agreed, or,
+for a baseline check, when the baseline still holds.";
 
 /// How a run is printed.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -40,13 +55,29 @@ enum Format {
     Text,
 }
 
+/// What the entry point works on.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Mode {
+    /// The corpus is replayed against both engines.
+    Compare,
+
+    /// The state vim ends every corpus case in is captured and written as the baseline.
+    RecordBaseline,
+
+    /// The corpus is replayed against vim and compared with the baseline.
+    CheckBaseline,
+}
+
 /// What the entry point was asked to do.
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct Arguments {
     corpus: PathBuf,
+    baseline: PathBuf,
+    mode: Mode,
     tag: Option<Tag>,
     case: Option<String>,
     format: Format,
+    strict_vim_version: bool,
 }
 
 impl Arguments {
@@ -59,13 +90,17 @@ impl Arguments {
     /// # Errors
     ///
     /// Returns an error naming the option that could not be understood, the option whose value is
-    /// missing, or the value that is not one the option takes.
+    /// missing, the value that is not one the option takes, or the options that contradict each
+    /// other.
     fn parse(arguments: impl IntoIterator<Item = String>) -> Result<Option<Self>, String> {
         let mut parsed = Self {
             corpus: corpus::default_dir(),
+            baseline: baseline::default_path(),
+            mode: Mode::Compare,
             tag: None,
             case: None,
             format: Format::Text,
+            strict_vim_version: false,
         };
         let mut arguments = arguments.into_iter();
         while let Some(argument) = arguments.next() {
@@ -86,8 +121,21 @@ impl Arguments {
                         other => return Err(format!("`{other}` is not a format")),
                     };
                 }
+                "--baseline" => parsed.baseline = PathBuf::from(value()?),
+                "--record-baseline" => parsed.set_mode(Mode::RecordBaseline)?,
+                "--check-baseline" => parsed.set_mode(Mode::CheckBaseline)?,
+                "--strict-vim-version" => parsed.strict_vim_version = true,
                 other => return Err(format!("`{other}` is not an option")),
             }
+        }
+        if Mode::Compare != parsed.mode && (parsed.tag.is_some() || parsed.case.is_some()) {
+            return Err(
+                "`--tag` and `--case` replay part of the corpus, and a baseline covers all of it"
+                    .to_owned(),
+            );
+        }
+        if Mode::CheckBaseline != parsed.mode && parsed.strict_vim_version {
+            return Err("`--strict-vim-version` applies to `--check-baseline`".to_owned());
         }
 
         Ok(Some(parsed))
@@ -99,6 +147,22 @@ impl Arguments {
     fn selects(&self, case: &Case) -> bool {
         self.tag.is_none_or(|tag| case.tags.contains(&tag))
             && self.case.as_ref().is_none_or(|id| *id == case.id)
+    }
+
+    /// Puts the entry point in the given mode.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the entry point was already put in another mode.
+    fn set_mode(&mut self, mode: Mode) -> Result<(), String> {
+        if Mode::Compare != self.mode && mode != self.mode {
+            return Err(
+                "`--record-baseline` and `--check-baseline` cannot both be given".to_owned(),
+            );
+        }
+        self.mode = mode;
+
+        Ok(())
     }
 }
 
@@ -147,7 +211,29 @@ fn main() -> ExitCode {
     }
 }
 
-/// Loads the corpus, replays the selected cases against both engines, and prints the run.
+/// Loads the corpus and does what the entry point was asked to do with it.
+///
+/// # Returns
+///
+/// [`ExitCode::SUCCESS`] if the run or the check the entry point was asked for passed, and
+/// [`ExitCode::FAILURE`] otherwise.
+///
+/// # Errors
+///
+/// Returns an error saying why the corpus could not be loaded, or forwards what the requested work
+/// failed with.
+fn run(arguments: &Arguments) -> Result<ExitCode, String> {
+    let corpus = Corpus::load_dir(&arguments.corpus)
+        .map_err(|error| format!("The corpus could not be loaded: {error}"))?;
+
+    match arguments.mode {
+        Mode::Compare => compare(arguments, &corpus),
+        Mode::RecordBaseline => record_baseline(arguments, &corpus),
+        Mode::CheckBaseline => check_baseline(arguments, &corpus),
+    }
+}
+
+/// Replays the selected cases against both engines, and prints the run.
 ///
 /// # Returns
 ///
@@ -156,11 +242,9 @@ fn main() -> ExitCode {
 ///
 /// # Errors
 ///
-/// Returns an error saying why the corpus could not be loaded, why vim could not be used, why the
-/// selection matched no case, or why the run could not be printed.
-fn run(arguments: &Arguments) -> Result<ExitCode, String> {
-    let corpus = Corpus::load_dir(&arguments.corpus)
-        .map_err(|error| format!("The corpus could not be loaded: {error}"))?;
+/// Returns an error saying why vim could not be used, why the selection matched no case, or why
+/// the run could not be printed.
+fn compare(arguments: &Arguments, corpus: &Corpus) -> Result<ExitCode, String> {
     let cases: Vec<&Case> = corpus
         .cases()
         .iter()
@@ -181,6 +265,85 @@ fn run(arguments: &Arguments) -> Result<ExitCode, String> {
         ExitCode::SUCCESS
     } else {
         ExitCode::FAILURE
+    })
+}
+
+/// Captures the state vim ends every corpus case in, and writes it as the baseline.
+///
+/// # Returns
+///
+/// [`ExitCode::SUCCESS`], since a baseline that could not be recorded is reported as an error.
+///
+/// # Errors
+///
+/// Returns an error saying why vim could not be used, why a case could not be replayed, or why the
+/// baseline could not be written.
+fn record_baseline(arguments: &Arguments, corpus: &Corpus) -> Result<ExitCode, String> {
+    let reference = VimDriver::new().map_err(|error| format!("Vim is unusable: {error}"))?;
+    let baseline = Baseline::record(corpus, &reference)
+        .map_err(|error| format!("The baseline could not be recorded: {error}"))?;
+    baseline
+        .write(&arguments.baseline)
+        .map_err(|error| format!("The baseline could not be written: {error}"))?;
+    println!(
+        "recorded {} cases from vim {} into {}",
+        baseline.cases.len(),
+        baseline.header.vim_version,
+        arguments.baseline.display()
+    );
+
+    Ok(ExitCode::SUCCESS)
+}
+
+/// Replays the corpus against vim and reports every case that no longer ends where the baseline
+/// records it.
+///
+/// # Returns
+///
+/// [`ExitCode::SUCCESS`] if the baseline still holds, or if the recorded states were not compared
+/// and the command line allows that, and [`ExitCode::FAILURE`] otherwise.
+///
+/// # Errors
+///
+/// Returns an error saying why the baseline could not be read, why vim could not be used, why the
+/// baseline could not be checked at all, why the check could not be printed, or that the check ran
+/// against another vim than the baseline was recorded from.
+fn check_baseline(arguments: &Arguments, corpus: &Corpus) -> Result<ExitCode, String> {
+    let baseline = Baseline::read(&arguments.baseline)
+        .map_err(|error| format!("The baseline could not be read: {error}"))?;
+    let reference = VimDriver::new().map_err(|error| format!("Vim is unusable: {error}"))?;
+    let check = baseline
+        .check(corpus, &reference)
+        .map_err(|error| format!("The baseline could not be checked: {error}"))?;
+    match arguments.format {
+        Format::Text => print!("{check}"),
+        Format::Json => {
+            let json = serde_json::to_string_pretty(&check)
+                .map_err(|error| format!("The check could not be serialized: {error}"))?;
+            println!("{json}");
+        }
+    }
+
+    if let Check::Skipped { recorded, running } = &check {
+        if arguments.strict_vim_version {
+            return Err(format!(
+                "The baseline was recorded from vim {recorded} and this check ran against vim \
+                 {running}, which `--strict-vim-version` forbids: continuous integration pins vim \
+                 {}.{} and records the baseline there, so the recorded states can be checked \
+                 nowhere else",
+                recorded.major, recorded.minor
+            ));
+        }
+        eprintln!(
+            "warning: the recorded states were not compared; pass `--strict-vim-version` to make \
+             that a failure."
+        );
+    }
+
+    Ok(if check.drifted() {
+        ExitCode::FAILURE
+    } else {
+        ExitCode::SUCCESS
     })
 }
 
@@ -269,9 +432,12 @@ mod tests {
             parsed,
             Arguments {
                 corpus: corpus::default_dir(),
+                baseline: baseline::default_path(),
+                mode: Mode::Compare,
                 tag: None,
                 case: None,
                 format: Format::Text,
+                strict_vim_version: false,
             }
         );
 
@@ -296,9 +462,12 @@ mod tests {
             parsed,
             Arguments {
                 corpus: PathBuf::from("/somewhere/else"),
+                baseline: baseline::default_path(),
+                mode: Mode::Compare,
                 tag: Some(Tag::WordMotion),
                 case: Some("word-w-cjk-latin".to_owned()),
                 format: Format::Json,
+                strict_vim_version: false,
             }
         );
         assert_eq!(
@@ -342,6 +511,34 @@ mod tests {
         assert!(reject(&["--format", "yaml"]).contains("yaml"));
         assert!(reject(&["--tag", "not-a-tag"]).contains("not-a-tag"));
         assert!(reject(&["--format"]).contains("--format"));
+    }
+
+    #[test]
+    fn the_baseline_options_are_understood() -> anyhow::Result<()> {
+        let recording = accept(&["--record-baseline", "--baseline", "/somewhere/else.json"])?
+            .expect("a request to record a baseline is not a request for help");
+        assert_eq!(recording.mode, Mode::RecordBaseline);
+        assert_eq!(recording.baseline, PathBuf::from("/somewhere/else.json"));
+        assert!(!recording.strict_vim_version);
+
+        let checking = accept(&["--check-baseline", "--strict-vim-version"])?
+            .expect("a request to check a baseline is not a request for help");
+        assert_eq!(checking.mode, Mode::CheckBaseline);
+        assert_eq!(checking.baseline, baseline::default_path());
+        assert!(checking.strict_vim_version);
+
+        Ok(())
+    }
+
+    #[test]
+    fn a_command_line_that_contradicts_itself_is_rejected() {
+        assert!(reject(&["--record-baseline", "--check-baseline"]).contains("--check-baseline"));
+        assert!(reject(&["--check-baseline", "--tag", "ascii"]).contains("--tag"));
+        assert!(reject(&["--record-baseline", "--case", "cjk"]).contains("--case"));
+        assert!(reject(&["--strict-vim-version"]).contains("--check-baseline"));
+        assert!(
+            reject(&["--record-baseline", "--strict-vim-version"]).contains("--strict-vim-version")
+        );
     }
 
     #[test]

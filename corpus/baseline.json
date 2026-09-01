@@ -1,0 +1,1001 @@
+{
+  "header": {
+    "schema_version": 1,
+    "vim_version": {
+      "major": 9,
+      "minor": 1,
+      "patch": 697
+    },
+    "corpus_hash": "040fe7dda432ca7f7fc7b209b7a26540bec03dee43778802943416367588ac43"
+  },
+  "cases": {
+    "ascii-code-change-inside-parens": {
+      "buffer": "fn main() {\n    let total = compute(x);\n    println!(\"{total}\");\n}\n",
+      "cursor": {
+        "line": 1,
+        "column": 24
+      },
+      "display_position": {
+        "row": 1,
+        "column": 24
+      },
+      "mode": "Normal",
+      "registers": {
+        "\"": {
+          "text": "first, second",
+          "register_type": "Charwise"
+        },
+        "-": {
+          "text": "first, second",
+          "register_type": "Charwise"
+        }
+      }
+    },
+    "ascii-code-shift-indent": {
+      "buffer": "fn main() {\n\t\t\tlet total = 1;\n\t\t\tlet other = 2;\n}\n",
+      "cursor": {
+        "line": 2,
+        "column": 3
+      },
+      "display_position": {
+        "row": 2,
+        "column": 12
+      },
+      "mode": "Normal",
+      "registers": {}
+    },
+    "ascii-prose-delete-word": {
+      "buffer": "The brown fox jumps over the lazy dog while the sun sets behind the hill.\nPack my box with five dozen liquor jugs, then rest.\n",
+      "cursor": {
+        "line": 0,
+        "column": 4
+      },
+      "display_position": {
+        "row": 0,
+        "column": 4
+      },
+      "mode": "Normal",
+      "registers": {
+        "\"": {
+          "text": "quick ",
+          "register_type": "Charwise"
+        },
+        "-": {
+          "text": "quick ",
+          "register_type": "Charwise"
+        }
+      }
+    },
+    "ascii-prose-join-lines": {
+      "buffer": "The quick brown fox jumps over the lazy dog while the sun sets behind the hill.\n",
+      "cursor": {
+        "line": 0,
+        "column": 43
+      },
+      "display_position": {
+        "row": 0,
+        "column": 43
+      },
+      "mode": "Normal",
+      "registers": {}
+    },
+    "cjk-ambiwidth-double": {
+      "buffer": "α ± … │ 中文 ambiguous width test\n",
+      "cursor": {
+        "line": 0,
+        "column": 23
+      },
+      "display_position": {
+        "row": 0,
+        "column": 19
+      },
+      "mode": "Normal",
+      "registers": {}
+    },
+    "cjk-ambiwidth-single": {
+      "buffer": "α ± … │ 中文 ambiguous width test\n",
+      "cursor": {
+        "line": 0,
+        "column": 27
+      },
+      "display_position": {
+        "row": 0,
+        "column": 19
+      },
+      "mode": "Normal",
+      "registers": {}
+    },
+    "cjk-fullwidth-punctuation-back": {
+      "buffer": "你好，世界！这是一个测试。\n",
+      "cursor": {
+        "line": 0,
+        "column": 18
+      },
+      "display_position": {
+        "row": 0,
+        "column": 12
+      },
+      "mode": "Normal",
+      "registers": {}
+    },
+    "cjk-mixed-latin-delete-char": {
+      "buffer": "中文bc 英文def 结束done\n",
+      "cursor": {
+        "line": 0,
+        "column": 6
+      },
+      "display_position": {
+        "row": 0,
+        "column": 4
+      },
+      "mode": "Normal",
+      "registers": {
+        "\"": {
+          "text": "a",
+          "register_type": "Charwise"
+        },
+        "-": {
+          "text": "a",
+          "register_type": "Charwise"
+        }
+      }
+    },
+    "cjk-wide-cell-straddles-edge": {
+      "buffer": "这是一行很长的中文文用来测试换行的边界情况\n",
+      "cursor": {
+        "line": 0,
+        "column": 30
+      },
+      "display_position": {
+        "row": 1,
+        "column": 0
+      },
+      "mode": "Normal",
+      "registers": {
+        "\"": {
+          "text": "本",
+          "register_type": "Charwise"
+        },
+        "-": {
+          "text": "本",
+          "register_type": "Charwise"
+        }
+      }
+    },
+    "combining-hangul-jamo-decomposed": {
+      "buffer": "한  jamo\n",
+      "cursor": {
+        "line": 0,
+        "column": 10
+      },
+      "display_position": {
+        "row": 0,
+        "column": 5
+      },
+      "mode": "Normal",
+      "registers": {
+        "\"": {
+          "text": "한",
+          "register_type": "Charwise"
+        },
+        "-": {
+          "text": "한",
+          "register_type": "Charwise"
+        }
+      }
+    },
+    "combining-nfc-and-nfd-same-word": {
+      "buffer": "café latt\ncafé latt\n",
+      "cursor": {
+        "line": 1,
+        "column": 10
+      },
+      "display_position": {
+        "row": 1,
+        "column": 8
+      },
+      "mode": "Normal",
+      "registers": {
+        "\"": {
+          "text": "e",
+          "register_type": "Charwise"
+        },
+        "-": {
+          "text": "e",
+          "register_type": "Charwise"
+        }
+      }
+    },
+    "combining-nfd-acute-delete-cluster": {
+      "buffer": "café a lait\n",
+      "cursor": {
+        "line": 0,
+        "column": 8
+      },
+      "display_position": {
+        "row": 0,
+        "column": 6
+      },
+      "mode": "Normal",
+      "registers": {
+        "\"": {
+          "text": "u",
+          "register_type": "Charwise"
+        },
+        "-": {
+          "text": "u",
+          "register_type": "Charwise"
+        }
+      }
+    },
+    "combining-stacked-marks": {
+      "buffer": "stacked marks\n",
+      "cursor": {
+        "line": 0,
+        "column": 0
+      },
+      "display_position": {
+        "row": 0,
+        "column": 0
+      },
+      "mode": "Normal",
+      "registers": {
+        "\"": {
+          "text": " ",
+          "register_type": "Charwise"
+        },
+        "-": {
+          "text": " ",
+          "register_type": "Charwise"
+        }
+      }
+    },
+    "emoji-keycap-and-variation-selector": {
+      "buffer": "❤️ tag list\n",
+      "cursor": {
+        "line": 0,
+        "column": 0
+      },
+      "display_position": {
+        "row": 0,
+        "column": 0
+      },
+      "mode": "Normal",
+      "registers": {
+        "\"": {
+          "text": " ",
+          "register_type": "Charwise"
+        },
+        "-": {
+          "text": " ",
+          "register_type": "Charwise"
+        }
+      }
+    },
+    "emoji-skin-tone-modifier": {
+      "buffer": "ok 👍 👩‍💻 done\n",
+      "cursor": {
+        "line": 0,
+        "column": 7
+      },
+      "display_position": {
+        "row": 0,
+        "column": 5
+      },
+      "mode": "Normal",
+      "registers": {
+        "\"": {
+          "text": "🏽",
+          "register_type": "Charwise"
+        },
+        "-": {
+          "text": "🏽",
+          "register_type": "Charwise"
+        }
+      }
+    },
+    "emoji-zwj-family-delete-cluster": {
+      "buffer": "team ‍👩‍👧‍👦 rocks\n",
+      "cursor": {
+        "line": 0,
+        "column": 5
+      },
+      "display_position": {
+        "row": 0,
+        "column": 5
+      },
+      "mode": "Normal",
+      "registers": {
+        "\"": {
+          "text": "👨",
+          "register_type": "Charwise"
+        },
+        "-": {
+          "text": "👨",
+          "register_type": "Charwise"
+        }
+      }
+    },
+    "emoji-zwj-family-wrap-edge": {
+      "buffer": "aaaaaaaaaaaaaaaaaa 👨‍👩‍👧‍👦 tail\n",
+      "cursor": {
+        "line": 0,
+        "column": 18
+      },
+      "display_position": {
+        "row": 0,
+        "column": 18
+      },
+      "mode": "Normal",
+      "registers": {}
+    },
+    "flag-odd-regional-indicator-run": {
+      "buffer": "🇯🇺 tail\n",
+      "cursor": {
+        "line": 0,
+        "column": 4
+      },
+      "display_position": {
+        "row": 0,
+        "column": 2
+      },
+      "mode": "Normal",
+      "registers": {
+        "\"": {
+          "text": "🇵",
+          "register_type": "Charwise"
+        },
+        "-": {
+          "text": "🇵",
+          "register_type": "Charwise"
+        }
+      }
+    },
+    "flag-pair-delete-cluster": {
+      "buffer": "🇵🇺🇸 flags\n",
+      "cursor": {
+        "line": 0,
+        "column": 0
+      },
+      "display_position": {
+        "row": 0,
+        "column": 0
+      },
+      "mode": "Normal",
+      "registers": {
+        "\"": {
+          "text": "🇯",
+          "register_type": "Charwise"
+        },
+        "-": {
+          "text": "🇯",
+          "register_type": "Charwise"
+        }
+      }
+    },
+    "flag-wrap-narrow-viewport": {
+      "buffer": "🇯🇵 🇺🇸 🇨🇦 🇩🇪 🇫🇷 done\n",
+      "cursor": {
+        "line": 0,
+        "column": 35
+      },
+      "display_position": {
+        "row": 0,
+        "column": 19
+      },
+      "mode": "Normal",
+      "registers": {}
+    },
+    "nowrap-w20-cjk": {
+      "buffer": "这是一行很长的中文文本用来测试不换行时的水平滚动\n",
+      "cursor": {
+        "line": 0,
+        "column": 63
+      },
+      "display_position": {
+        "row": 0,
+        "column": 6
+      },
+      "mode": "Normal",
+      "registers": {}
+    },
+    "nowrap-w40-horizontal-scroll": {
+      "buffer": "    the indented sentence that runs far past the right edge of the viewport and keeps going\n",
+      "cursor": {
+        "line": 0,
+        "column": 70
+      },
+      "display_position": {
+        "row": 0,
+        "column": 0
+      },
+      "mode": "Normal",
+      "registers": {}
+    },
+    "tab-leading-indent-ts4": {
+      "buffer": "\tone level\n\t\ttwo levels\n\t\t\tthree levels\n",
+      "cursor": {
+        "line": 2,
+        "column": 10
+      },
+      "display_position": {
+        "row": 2,
+        "column": 19
+      },
+      "mode": "Normal",
+      "registers": {}
+    },
+    "tab-leading-indent-ts8": {
+      "buffer": "\tone level\n\t\ttwo levels\n\t\t\tthree levels\n",
+      "cursor": {
+        "line": 2,
+        "column": 2
+      },
+      "display_position": {
+        "row": 2,
+        "column": 23
+      },
+      "mode": "Normal",
+      "registers": {}
+    },
+    "tab-mid-line-column-alignment": {
+      "buffer": "a\tvalue\nabcdefg\tvalue\nabcdefgh\tvalue\n",
+      "cursor": {
+        "line": 2,
+        "column": 13
+      },
+      "display_position": {
+        "row": 2,
+        "column": 20
+      },
+      "mode": "Normal",
+      "registers": {}
+    },
+    "tab-mixed-with-cjk": {
+      "buffer": "中文\tvalue\n中文中\tvalue\n",
+      "cursor": {
+        "line": 1,
+        "column": 10
+      },
+      "display_position": {
+        "row": 1,
+        "column": 8
+      },
+      "mode": "Normal",
+      "registers": {}
+    },
+    "tab-wrapped-with-breakindent": {
+      "buffer": "\t\tthe indented line that has to wrap several times in a narrow viewport\n",
+      "cursor": {
+        "line": 0,
+        "column": 70
+      },
+      "display_position": {
+        "row": 4,
+        "column": 4
+      },
+      "mode": "Normal",
+      "registers": {}
+    },
+    "word-b-cjk-latin": {
+      "buffer": "中文abc 英文def 结束done\n",
+      "cursor": {
+        "line": 0,
+        "column": 16
+      },
+      "display_position": {
+        "row": 0,
+        "column": 12
+      },
+      "mode": "Normal",
+      "registers": {}
+    },
+    "word-b-combining": {
+      "buffer": "café naïve á̂ done\n",
+      "cursor": {
+        "line": 0,
+        "column": 7
+      },
+      "display_position": {
+        "row": 0,
+        "column": 5
+      },
+      "mode": "Normal",
+      "registers": {}
+    },
+    "word-b-kebab-case": {
+      "buffer": "data-source-name and other-value-2 end\n",
+      "cursor": {
+        "line": 0,
+        "column": 32
+      },
+      "display_position": {
+        "row": 0,
+        "column": 32
+      },
+      "mode": "Normal",
+      "registers": {}
+    },
+    "word-b-snake-case": {
+      "buffer": "let user_name_id = other_value_2;\n",
+      "cursor": {
+        "line": 0,
+        "column": 4
+      },
+      "display_position": {
+        "row": 0,
+        "column": 4
+      },
+      "mode": "Normal",
+      "registers": {}
+    },
+    "word-b-zwj-family": {
+      "buffer": "team 👨‍👩‍👧‍👦 rocks\n",
+      "cursor": {
+        "line": 0,
+        "column": 23
+      },
+      "display_position": {
+        "row": 0,
+        "column": 23
+      },
+      "mode": "Normal",
+      "registers": {}
+    },
+    "word-big-b-cjk-latin": {
+      "buffer": "中文abc 英文def 结束done\n",
+      "cursor": {
+        "line": 0,
+        "column": 10
+      },
+      "display_position": {
+        "row": 0,
+        "column": 8
+      },
+      "mode": "Normal",
+      "registers": {}
+    },
+    "word-big-b-combining": {
+      "buffer": "café naïve á̂ done\n",
+      "cursor": {
+        "line": 0,
+        "column": 15
+      },
+      "display_position": {
+        "row": 0,
+        "column": 11
+      },
+      "mode": "Normal",
+      "registers": {}
+    },
+    "word-big-b-kebab-case": {
+      "buffer": "data-source-name and other-value-2 end\n",
+      "cursor": {
+        "line": 0,
+        "column": 21
+      },
+      "display_position": {
+        "row": 0,
+        "column": 21
+      },
+      "mode": "Normal",
+      "registers": {}
+    },
+    "word-big-b-snake-case": {
+      "buffer": "let user_name_id = other_value_2;\n",
+      "cursor": {
+        "line": 0,
+        "column": 17
+      },
+      "display_position": {
+        "row": 0,
+        "column": 17
+      },
+      "mode": "Normal",
+      "registers": {}
+    },
+    "word-big-b-zwj-family": {
+      "buffer": "team 👨‍👩‍👧‍👦 rocks\n",
+      "cursor": {
+        "line": 0,
+        "column": 5
+      },
+      "display_position": {
+        "row": 0,
+        "column": 5
+      },
+      "mode": "Normal",
+      "registers": {}
+    },
+    "word-big-e-cjk-latin": {
+      "buffer": "中文abc 英文def 结束done\n",
+      "cursor": {
+        "line": 0,
+        "column": 18
+      },
+      "display_position": {
+        "row": 0,
+        "column": 14
+      },
+      "mode": "Normal",
+      "registers": {}
+    },
+    "word-big-e-combining": {
+      "buffer": "café naïve á̂ done\n",
+      "cursor": {
+        "line": 0,
+        "column": 13
+      },
+      "display_position": {
+        "row": 0,
+        "column": 9
+      },
+      "mode": "Normal",
+      "registers": {}
+    },
+    "word-big-e-kebab-case": {
+      "buffer": "data-source-name and other-value-2 end\n",
+      "cursor": {
+        "line": 0,
+        "column": 19
+      },
+      "display_position": {
+        "row": 0,
+        "column": 19
+      },
+      "mode": "Normal",
+      "registers": {}
+    },
+    "word-big-e-snake-case": {
+      "buffer": "let user_name_id = other_value_2;\n",
+      "cursor": {
+        "line": 0,
+        "column": 15
+      },
+      "display_position": {
+        "row": 0,
+        "column": 15
+      },
+      "mode": "Normal",
+      "registers": {}
+    },
+    "word-big-e-zwj-family": {
+      "buffer": "team 👨‍👩‍👧‍👦 rocks\n",
+      "cursor": {
+        "line": 0,
+        "column": 26
+      },
+      "display_position": {
+        "row": 0,
+        "column": 29
+      },
+      "mode": "Normal",
+      "registers": {}
+    },
+    "word-big-w-cjk-latin": {
+      "buffer": "中文abc 英文def 结束done\n",
+      "cursor": {
+        "line": 0,
+        "column": 20
+      },
+      "display_position": {
+        "row": 0,
+        "column": 16
+      },
+      "mode": "Normal",
+      "registers": {}
+    },
+    "word-big-w-combining": {
+      "buffer": "café naïve á̂ done\n",
+      "cursor": {
+        "line": 0,
+        "column": 15
+      },
+      "display_position": {
+        "row": 0,
+        "column": 11
+      },
+      "mode": "Normal",
+      "registers": {}
+    },
+    "word-big-w-kebab-case": {
+      "buffer": "data-source-name and other-value-2 end\n",
+      "cursor": {
+        "line": 0,
+        "column": 21
+      },
+      "display_position": {
+        "row": 0,
+        "column": 21
+      },
+      "mode": "Normal",
+      "registers": {}
+    },
+    "word-big-w-snake-case": {
+      "buffer": "let user_name_id = other_value_2;\n",
+      "cursor": {
+        "line": 0,
+        "column": 17
+      },
+      "display_position": {
+        "row": 0,
+        "column": 17
+      },
+      "mode": "Normal",
+      "registers": {}
+    },
+    "word-big-w-zwj-family": {
+      "buffer": "team 👨‍👩‍👧‍👦 rocks\n",
+      "cursor": {
+        "line": 0,
+        "column": 31
+      },
+      "display_position": {
+        "row": 0,
+        "column": 32
+      },
+      "mode": "Normal",
+      "registers": {}
+    },
+    "word-e-cjk-latin": {
+      "buffer": "中文abc 英文def 结束done\n",
+      "cursor": {
+        "line": 0,
+        "column": 13
+      },
+      "display_position": {
+        "row": 0,
+        "column": 10
+      },
+      "mode": "Normal",
+      "registers": {}
+    },
+    "word-e-combining": {
+      "buffer": "café naïve á̂ done\n",
+      "cursor": {
+        "line": 0,
+        "column": 15
+      },
+      "display_position": {
+        "row": 0,
+        "column": 11
+      },
+      "mode": "Normal",
+      "registers": {}
+    },
+    "word-e-kebab-case": {
+      "buffer": "data-source-name and other-value-2 end\n",
+      "cursor": {
+        "line": 0,
+        "column": 10
+      },
+      "display_position": {
+        "row": 0,
+        "column": 10
+      },
+      "mode": "Normal",
+      "registers": {}
+    },
+    "word-e-snake-case": {
+      "buffer": "let user_name_id = other_value_2;\n",
+      "cursor": {
+        "line": 0,
+        "column": 17
+      },
+      "display_position": {
+        "row": 0,
+        "column": 17
+      },
+      "mode": "Normal",
+      "registers": {}
+    },
+    "word-e-zwj-family": {
+      "buffer": "team 👨‍👩‍👧‍👦 rocks\n",
+      "cursor": {
+        "line": 0,
+        "column": 9
+      },
+      "display_position": {
+        "row": 0,
+        "column": 7
+      },
+      "mode": "Normal",
+      "registers": {}
+    },
+    "word-w-cjk-latin": {
+      "buffer": "中文abc 英文def 结束done\n",
+      "cursor": {
+        "line": 0,
+        "column": 16
+      },
+      "display_position": {
+        "row": 0,
+        "column": 12
+      },
+      "mode": "Normal",
+      "registers": {}
+    },
+    "word-w-combining": {
+      "buffer": "café naïve á̂ done\n",
+      "cursor": {
+        "line": 0,
+        "column": 21
+      },
+      "display_position": {
+        "row": 0,
+        "column": 13
+      },
+      "mode": "Normal",
+      "registers": {}
+    },
+    "word-w-kebab-case": {
+      "buffer": "data-source-name and other-value-2 end\n",
+      "cursor": {
+        "line": 0,
+        "column": 11
+      },
+      "display_position": {
+        "row": 0,
+        "column": 11
+      },
+      "mode": "Normal",
+      "registers": {}
+    },
+    "word-w-snake-case": {
+      "buffer": "let user_name_id = other_value_2;\n",
+      "cursor": {
+        "line": 0,
+        "column": 19
+      },
+      "display_position": {
+        "row": 0,
+        "column": 19
+      },
+      "mode": "Normal",
+      "registers": {}
+    },
+    "word-w-zwj-family": {
+      "buffer": "team 👨‍👩‍👧‍👦 rocks\n",
+      "cursor": {
+        "line": 0,
+        "column": 12
+      },
+      "display_position": {
+        "row": 0,
+        "column": 13
+      },
+      "mode": "Normal",
+      "registers": {}
+    },
+    "wrap-w20-boundary-exact": {
+      "buffer": "abcdefghijklmnopqrstuvwxyz0123456789\n",
+      "cursor": {
+        "line": 0,
+        "column": 20
+      },
+      "display_position": {
+        "row": 1,
+        "column": 0
+      },
+      "mode": "Normal",
+      "registers": {}
+    },
+    "wrap-w20-plain": {
+      "buffer": "    the indented sentence that wraps a few times before it finally ends here\n",
+      "cursor": {
+        "line": 0,
+        "column": 40
+      },
+      "display_position": {
+        "row": 2,
+        "column": 0
+      },
+      "mode": "Normal",
+      "registers": {}
+    },
+    "wrap-w24-breakindent": {
+      "buffer": "    the indented sentence that wraps a few times before it finally ends here\n",
+      "cursor": {
+        "line": 0,
+        "column": 44
+      },
+      "display_position": {
+        "row": 2,
+        "column": 4
+      },
+      "mode": "Normal",
+      "registers": {}
+    },
+    "wrap-w24-breakindent-showbreak": {
+      "buffer": "    the indented sentence that wraps a few times before it finally ends here\n",
+      "cursor": {
+        "line": 0,
+        "column": 42
+      },
+      "display_position": {
+        "row": 2,
+        "column": 6
+      },
+      "mode": "Normal",
+      "registers": {}
+    },
+    "wrap-w24-plain": {
+      "buffer": "    the indented sentence that wraps a few times before it finally ends here\n",
+      "cursor": {
+        "line": 0,
+        "column": 48
+      },
+      "display_position": {
+        "row": 2,
+        "column": 0
+      },
+      "mode": "Normal",
+      "registers": {}
+    },
+    "wrap-w24-showbreak": {
+      "buffer": "    the indented sentence that wraps a few times before it finally ends here\n",
+      "cursor": {
+        "line": 0,
+        "column": 46
+      },
+      "display_position": {
+        "row": 2,
+        "column": 2
+      },
+      "mode": "Normal",
+      "registers": {}
+    },
+    "wrap-w40-breakindent-showbreak": {
+      "buffer": "    the indented sentence that wraps a few times before it finally ends here\n",
+      "cursor": {
+        "line": 0,
+        "column": 71
+      },
+      "display_position": {
+        "row": 1,
+        "column": 39
+      },
+      "mode": "Normal",
+      "registers": {}
+    },
+    "wrap-w40-plain": {
+      "buffer": "    the indented sentence that wraps a few times before it finally ends here\n",
+      "cursor": {
+        "line": 0,
+        "column": 75
+      },
+      "display_position": {
+        "row": 1,
+        "column": 35
+      },
+      "mode": "Normal",
+      "registers": {}
+    },
+    "wrap-w80-plain": {
+      "buffer": "    the indented sentence that wraps a few times before it finally ends here and keeps running well past the eightieth column\nshort second line\n",
+      "cursor": {
+        "line": 0,
+        "column": 119
+      },
+      "display_position": {
+        "row": 1,
+        "column": 39
+      },
+      "mode": "Normal",
+      "registers": {}
+    },
+    "wrap-w80-showbreak": {
+      "buffer": "    the indented sentence that wraps a few times before it finally ends here and keeps running well past the eightieth column\nshort second line\n",
+      "cursor": {
+        "line": 0,
+        "column": 117
+      },
+      "display_position": {
+        "row": 1,
+        "column": 39
+      },
+      "mode": "Normal",
+      "registers": {}
+    }
+  }
+}

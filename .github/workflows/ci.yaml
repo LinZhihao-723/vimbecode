@@ -52,6 +52,13 @@ jobs:
       - name: "Run the tests"
         run: "cargo test --all"
 
+      # The baseline records the state vim ends every corpus case in, and only the vim installed
+      # above is an authority for those states, so this is where they are checked strictly.
+      - name: "Check the corpus baseline"
+        run: |
+          vim --version | head -1
+          cargo run --quiet --bin differential-run -- --check-baseline --strict-vim-version
+
       - name: "Check that the build leaves no untracked files"
         run: |
           if [[ -n "$(git status --porcelain)" ]]; then
@@ -59,3 +66,31 @@ jobs:
             echo "::error::The build produced untracked or modified files."
             exit 1
           fi
+
+  # The vim installed on this runner is the version the baseline is recorded from, so a baseline
+  # is recorded here and committed from the artifact this job uploads, never from a developer's own
+  # vim.
+  record-baseline:
+    if: "github.event_name == 'workflow_dispatch'"
+    runs-on: "ubuntu-24.04"
+    steps:
+      - uses: "actions/checkout@v4"
+
+      - uses: "dtolnay/rust-toolchain@stable"
+
+      - uses: "Swatinem/rust-cache@v2"
+
+      - name: "Install vim, which the differential oracle runs against"
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends --yes vim
+
+      - name: "Record the corpus baseline"
+        run: |
+          vim --version | head -1
+          cargo run --quiet --bin differential-run -- --record-baseline
+
+      - uses: "actions/upload-artifact@v4"
+        with:
+          name: "corpus-baseline"
+          path: "corpus/baseline.json"

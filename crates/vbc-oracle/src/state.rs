@@ -211,6 +211,23 @@ pub enum Divergence {
     },
 }
 
+/// # Returns
+///
+/// A register's type and text, or that it holds nothing.
+#[must_use]
+pub fn describe_register(register: Option<&Register>) -> String {
+    let Some(register) = register else {
+        return "holds nothing".to_owned();
+    };
+    let register_type = match register.register_type {
+        RegisterType::Charwise => "charwise",
+        RegisterType::Linewise => "linewise",
+        RegisterType::Blockwise => "blockwise",
+    };
+
+    format!("{register_type} {:?}", register.text)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
