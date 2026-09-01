@@ -169,9 +169,12 @@ impl VimDriver {
     /// * [`Error::Io`] if the driver's temporary workspace could not be written or read.
     /// * [`Error::Launch`] if vim could not be started.
     /// * [`Error::Timeout`] if vim did not finish in time, which a key sequence that leaves vim
-    ///   waiting for an argument (an unfinished `f` or `q`, for example) causes.
+    ///   running (an unfinished `:sleep`, for example) causes.
     /// * [`Error::Wait`] if vim could not be waited on.
-    /// * [`Error::NoState`] if vim exited without reporting a state.
+    /// * [`Error::NoState`] if vim exited without reporting a state, which a key sequence ending
+    ///   in a command that is still reading a raw character causes: `f`, `r`, `m`, `q`, `@` and
+    ///   the prefixes `g`, `z`, `Z` and `[` all consume the key the state is captured with. Such a
+    ///   run is reported as a failure rather than as a state taken at the wrong moment.
     /// * [`Error::MalformedState`] if the reported state could not be decoded.
     /// * [`Error::UnsupportedMode`] if vim ended in a mode [`Mode`] cannot represent.
     pub fn run(&self, buffer: &str, keys: &str) -> Result<EditorState, Error> {
@@ -338,12 +341,13 @@ impl fmt::Display for Error {
             Self::Timeout { timeout } => write!(
                 formatter,
                 "vim did not finish within {timeout:?} and was killed; the key sequence may leave \
-                 vim waiting for an argument, as an unfinished `f` or `q` does"
+                 vim running, as an unfinished `:sleep` does"
             ),
             Self::NoState { status, stderr } => write!(
                 formatter,
                 "vim exited with {status} without reporting a state; its standard error held \
-                 `{}`",
+                 `{}`; a key sequence ending in a command that is still reading a raw character, \
+                 as `f` and `r` do, consumes the key the state is captured with",
                 stderr.trim()
             ),
             Self::MalformedState { detail } => {
@@ -423,14 +427,30 @@ impl Workspace {
     ///
     /// Returns an error if:
     ///
-    /// * [`Error::Io`] if the directory could not be created.
+    /// * Forwards [`Workspace::new_at`]'s return values on failure.
     fn new() -> Result<Self, Error> {
-        let path = env::temp_dir().join(format!(
+        Self::new_at(env::temp_dir().join(format!(
             "vbc-vim-{}-{}",
             std::process::id(),
             WORKSPACE_COUNTER.fetch_add(1, Ordering::Relaxed)
-        ));
-        fs::create_dir_all(&path).map_err(|source| Error::Io {
+        )))
+    }
+
+    /// Creates an empty directory at the given path, refusing a path that is already taken.
+    ///
+    /// # Returns
+    ///
+    /// A newly created workspace on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`Error::Io`] if the directory could not be created, which a directory a killed run left
+    ///   behind causes. Such a directory is never reused, so a state file left in it can never be
+    ///   read as this run's.
+    fn new_at(path: PathBuf) -> Result<Self, Error> {
+        fs::create_dir(&path).map_err(|source| Error::Io {
             path: path.clone(),
             source,
         })?;
@@ -715,6 +735,8 @@ fn wait_for_exit(mut child: Child, timeout: Duration) -> Result<ExitStatus, Erro
             return Ok(status);
         }
         if Instant::now() >= deadline {
+            // Both calls fail only if vim exited between the poll and the kill, which leaves
+            // nothing to report: the run is out of time either way.
             let _ = child.kill();
             let _ = child.wait();
             return Err(Error::Timeout { timeout });
@@ -762,8 +784,42 @@ mod tests {
             format!("#!/bin/sh\ncat <<'EOF'\n{report}\nEOF\n").as_bytes(),
         )?;
         fs::set_permissions(&path, fs::Permissions::from_mode(0o755))?;
+        wait_until_runnable(&path)?;
 
         Ok((workspace, path))
+    }
+
+    /// Waits until a freshly written executable can be run.
+    ///
+    /// A vim another test spawns in parallel inherits every handle open at the moment it is
+    /// forked, so it can hold this file's write handle open past the write and make running the
+    /// file fail with `ETXTBSY` until it has replaced itself with vim.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the file could not be run for any other reason, or was still busy
+    /// after a second.
+    #[cfg(unix)]
+    fn wait_until_runnable(path: &Path) -> anyhow::Result<()> {
+        let deadline = Instant::now() + Duration::from_secs(1);
+        loop {
+            match Command::new(path)
+                .arg("--version")
+                .stdin(Stdio::null())
+                .output()
+            {
+                Ok(_) => return Ok(()),
+                Err(source) if source.kind() == io::ErrorKind::ExecutableFileBusy => {
+                    anyhow::ensure!(
+                        Instant::now() < deadline,
+                        "`{}` never became runnable",
+                        path.display()
+                    );
+                    thread::sleep(POLL_INTERVAL);
+                }
+                Err(source) => return Err(source.into()),
+            }
+        }
     }
 
     #[test]
@@ -999,17 +1055,63 @@ mod tests {
     }
 
     #[test]
-    fn a_key_sequence_that_never_settles_reports_an_error() -> anyhow::Result<()> {
+    fn a_key_sequence_that_consumes_the_capture_key_reports_an_error() -> anyhow::Result<()> {
         let mut driver = driver()?;
         driver.set_timeout(Duration::from_millis(500));
 
-        let error = driver
-            .run(BUFFER, "f")
-            .expect_err("an unfinished `f` never lets vim report a state");
+        for keys in ["f", "r", "m", "q", "@", "z", "[", "i<C-r>"] {
+            let Err(error) = driver.run(BUFFER, keys) else {
+                panic!("`{keys}` reported a state, though it consumes the capture key")
+            };
+
+            assert!(
+                matches!(error, Error::Timeout { .. } | Error::NoState { .. }),
+                "`{keys}` reported neither a timeout nor a missing state, but {error:?}"
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn a_mode_the_schema_cannot_represent_is_rejected() -> anyhow::Result<()> {
+        let error = driver()?
+            .run(BUFFER, "gh")
+            .expect_err("select mode has no counterpart in the schema");
 
         assert!(
-            matches!(error, Error::Timeout { .. } | Error::NoState { .. }),
-            "expected a timeout or a missing state, got {error:?}"
+            matches!(error, Error::UnsupportedMode { .. }),
+            "expected an unsupported mode, got {error:?}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn an_empty_buffer_is_reported_as_the_single_empty_line_vim_opens() -> anyhow::Result<()> {
+        assert_eq!(
+            driver()?.run("", "")?,
+            EditorState {
+                buffer: "\n".to_owned(),
+                cursor: Cursor { line: 0, column: 0 },
+                mode: Mode::Normal,
+                registers: BTreeMap::new(),
+            }
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_workspace_is_never_shared_between_runs() -> anyhow::Result<()> {
+        let first = Workspace::new()?;
+        let second = Workspace::new()?;
+
+        assert_ne!(first.path(), second.path());
+        let entries: Vec<PathBuf> = fs::read_dir(first.path())?
+            .map(|entry| entry.map(|entry| entry.path()))
+            .collect::<Result<_, _>>()?;
+        assert_eq!(entries, Vec::<PathBuf>::new());
+        assert!(
+            Workspace::new_at(first.path().to_owned()).is_err(),
+            "a directory a killed run left behind was reused"
         );
         Ok(())
     }
