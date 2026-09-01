@@ -1,0 +1,12 @@
+[package]
+name = "vbc-ci"
+description = "Lints run by the vimbecode continuous-integration workflows."
+publish = false
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+readme.workspace = true
+
+[dependencies]

@@ -1,0 +1,27 @@
+name: pr-title
+
+on:
+  pull_request:
+    types: ["edited", "opened", "reopened", "synchronize"]
+
+concurrency:
+  group: "${{ github.workflow }}-${{ github.ref }}"
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  lint-title:
+    runs-on: "ubuntu-24.04"
+    steps:
+      - uses: "actions/checkout@v4"
+
+      - uses: "dtolnay/rust-toolchain@stable"
+
+      - uses: "Swatinem/rust-cache@v2"
+
+      - name: "Check the pull request title"
+        env:
+          PR_TITLE: "${{ github.event.pull_request.title }}"
+        run: "cargo run --quiet --package vbc-ci --bin pr-title-lint -- \"$PR_TITLE\""
