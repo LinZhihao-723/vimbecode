@@ -11,7 +11,7 @@ use std::str::FromStr;
 use proptest::prelude::*;
 use proptest::test_runner::{Config, RngAlgorithm, TestCaseError, TestError, TestRng, TestRunner};
 use vbc_layout::invariants::{
-    check, graphemes, Document, Invariant, Layout, LogicalPosition, Viewport, Violation,
+    check, graphemes, Document, Layout, LogicalPosition, Viewport, Violation,
 };
 
 /// The number of cases a search runs before it reports a layout as clean.
@@ -127,18 +127,6 @@ pub struct FuzzFailure {
 
     /// The invariants the layout breaks on [`FuzzFailure::minimal`].
     pub violations: Vec<Violation>,
-}
-
-impl FuzzFailure {
-    /// # Returns
-    ///
-    /// Whether the shrunk case breaks `invariant`.
-    #[must_use]
-    pub fn violates(&self, invariant: Invariant) -> bool {
-        self.violations
-            .iter()
-            .any(|violation| violation.invariant == invariant)
-    }
 }
 
 impl Display for FuzzFailure {
