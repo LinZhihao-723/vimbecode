@@ -336,6 +336,26 @@ mod tests {
     }
 
     #[test]
+    fn register_held_only_by_the_right_side_is_reported() {
+        let left = sample_state();
+        let mut right = sample_state();
+        let added = Register {
+            text: "gamma".to_owned(),
+            register_type: RegisterType::Charwise,
+        };
+        right.registers.insert('z', added.clone());
+
+        assert_eq!(
+            left.diff(&right),
+            vec![Divergence::Register {
+                name: 'z',
+                left: None,
+                right: Some(added),
+            }]
+        );
+    }
+
+    #[test]
     fn buffer_comparison_is_byte_exact() {
         let left = sample_state();
         for buffer in [
@@ -355,5 +375,58 @@ mod tests {
                 }]
             );
         }
+    }
+    #[test]
+    fn every_diverging_dimension_is_reported() {
+        let left = sample_state();
+        let mut right = sample_state();
+        right.buffer = "delta\n".to_owned();
+        right.cursor = Cursor { line: 0, column: 0 };
+        right.mode = Mode::VisualBlock;
+        right.registers.insert(
+            '"',
+            Register {
+                text: "beta\n".to_owned(),
+                register_type: RegisterType::Charwise,
+            },
+        );
+        right.registers.remove(&'a');
+
+        assert_eq!(
+            left.diff(&right),
+            vec![
+                Divergence::Buffer {
+                    left: "alpha\nbeta\ngamma\n".to_owned(),
+                    right: "delta\n".to_owned(),
+                },
+                Divergence::Cursor {
+                    left: Cursor { line: 1, column: 2 },
+                    right: Cursor { line: 0, column: 0 },
+                },
+                Divergence::Mode {
+                    left: Mode::Normal,
+                    right: Mode::VisualBlock,
+                },
+                Divergence::Register {
+                    name: '"',
+                    left: Some(Register {
+                        text: "beta\n".to_owned(),
+                        register_type: RegisterType::Linewise,
+                    }),
+                    right: Some(Register {
+                        text: "beta\n".to_owned(),
+                        register_type: RegisterType::Charwise,
+                    }),
+                },
+                Divergence::Register {
+                    name: 'a',
+                    left: Some(Register {
+                        text: "eta".to_owned(),
+                        register_type: RegisterType::Charwise,
+                    }),
+                    right: None,
+                },
+            ]
+        );
     }
 }
