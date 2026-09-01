@@ -12,8 +12,14 @@ use std::fmt::{Display, Formatter, Result as FmtResult};
 use serde_json::{json, Value};
 use vbc_oracle::corpus::{self, Case, Corpus, Options, Tag};
 use vbc_oracle::runner::{self, Dimension, Engine, Outcome, Report};
-use vbc_oracle::state::{Cursor, DisplayPosition, EditorState, Mode, Register, RegisterType};
+use vbc_oracle::state::{
+    Cursor, DisplayPosition, EditorState, Mode, Register, RegisterType, ScreenText,
+};
 use vbc_oracle::vim::VimDriver;
+
+/// The screen row a stub broken only in the screen text draws differently: the second row of the
+/// viewport, which is a row no other dimension describes.
+const BROKEN_ROW: usize = 1;
 
 /// The single dimension a stub deliberately gets wrong.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -35,6 +41,9 @@ enum Perturbation {
 
     /// The stub reports the same register text with a different type.
     Register,
+
+    /// The stub draws one screen row differently, leaving every other dimension alone.
+    ScreenText,
 
     /// The stub cannot replay the case at all.
     Failure,
@@ -123,6 +132,11 @@ impl Engine for Stub {
                     },
                 );
             }
+            Perturbation::ScreenText => {
+                let mut rows: Vec<String> = state.screen_text.rows().to_owned();
+                rows[BROKEN_ROW].push('!');
+                state.screen_text = ScreenText::new(rows);
+            }
             Perturbation::Failure => return Err(StubError),
         }
 
@@ -132,7 +146,7 @@ impl Engine for Stub {
 
 /// # Returns
 ///
-/// The state every unbroken stub reports for the case, which fixes all five dimensions to values
+/// The state every unbroken stub reports for the case, which fixes every dimension to a value
 /// derived from the case.
 fn unperturbed_state(case: &Case) -> EditorState {
     let column = u64::try_from(case.keys.len()).expect("a key sequence fits in a `u64`");
@@ -149,7 +163,20 @@ fn unperturbed_state(case: &Case) -> EditorState {
                 register_type: RegisterType::Charwise,
             },
         )]),
+        screen_text: screen_text(case),
     }
+}
+
+/// # Returns
+///
+/// The screen a case's buffer is drawn on, as many rows tall as the case's viewport, with the
+/// rows below the buffer's last line left blank.
+fn screen_text(case: &Case) -> ScreenText {
+    let height = usize::from(case.viewport_height);
+    let mut rows: Vec<String> = case.buffer.lines().map(ToOwned::to_owned).collect();
+    rows.resize(height, String::new());
+
+    ScreenText::new(rows)
 }
 
 /// # Returns
@@ -244,6 +271,11 @@ fn a_stub_broken_only_in_the_mode_is_caught() -> anyhow::Result<()> {
 #[test]
 fn a_stub_broken_only_in_a_register_is_caught() -> anyhow::Result<()> {
     assert_corpus_catches(Perturbation::Register, Dimension::Register)
+}
+
+#[test]
+fn a_stub_broken_only_in_the_screen_text_is_caught() -> anyhow::Result<()> {
+    assert_corpus_catches(Perturbation::ScreenText, Dimension::ScreenText)
 }
 
 #[test]
@@ -391,6 +423,30 @@ fn a_report_names_the_display_position_dimension_in_its_json() -> anyhow::Result
                     "left": {"row": 0, "column": 2},
                     "right": {"row": 1, "column": 2},
                 },
+            },
+        ])
+    );
+
+    Ok(())
+}
+
+#[test]
+fn a_report_names_the_screen_text_dimension_in_its_json() -> anyhow::Result<()> {
+    let cases = [case("screen-text-only-case", &[Tag::Wrap])];
+    let report = runner::run_cases(
+        &cases,
+        &Stub::matching("reference"),
+        &Stub::broken("subject", Perturbation::ScreenText),
+    );
+
+    let rendered: Value = serde_json::from_str(&report.to_json()?)?;
+
+    assert_eq!(rendered["cases"][0]["dimensions"], json!(["screen-text"]));
+    assert_eq!(
+        rendered["cases"][0]["divergences"],
+        json!([
+            {
+                "ScreenText": {"row": 1, "left": "", "right": "!"},
             },
         ])
     );
@@ -558,6 +614,29 @@ fn the_diff_of_a_display_position_break_names_the_display_dimension_alone() {
         "{rendered}"
     );
     assert!(!rendered.contains("cursor"), "{rendered}");
+    assert!(!rendered.contains("buffer"), "{rendered}");
+    assert!(!rendered.contains("mode"), "{rendered}");
+    assert!(!rendered.contains("register"), "{rendered}");
+}
+
+#[test]
+fn the_diff_of_a_screen_text_break_names_the_screen_row_and_nothing_else() {
+    let cases = [case("screen-text-only-case", &[Tag::Wrap])];
+    let report = runner::run_cases(
+        &cases,
+        &Stub::matching("vim"),
+        &Stub::broken("vimbecode", Perturbation::ScreenText),
+    );
+
+    let rendered = report
+        .render_case("screen-text-only-case")
+        .expect("the run replayed the case");
+    assert!(rendered.contains("diverged in screen text"), "{rendered}");
+    assert!(rendered.contains("screen text row 1:"), "{rendered}");
+    assert!(rendered.contains("vim       : \"\""), "{rendered}");
+    assert!(rendered.contains("vimbecode : \"!\""), "{rendered}");
+    assert!(!rendered.contains("cursor"), "{rendered}");
+    assert!(!rendered.contains("display position"), "{rendered}");
     assert!(!rendered.contains("buffer"), "{rendered}");
     assert!(!rendered.contains("mode"), "{rendered}");
     assert!(!rendered.contains("register"), "{rendered}");

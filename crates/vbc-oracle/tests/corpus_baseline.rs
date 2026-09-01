@@ -16,7 +16,7 @@ use std::process::{self, Command};
 use vbc_oracle::baseline::{self, Baseline, Check, Drift, Error, Reference, SCHEMA_VERSION};
 use vbc_oracle::corpus::{Case, Corpus};
 use vbc_oracle::runner::{Dimension, Engine};
-use vbc_oracle::state::{Cursor, DisplayPosition, EditorState, Mode};
+use vbc_oracle::state::{Cursor, DisplayPosition, EditorState, Mode, ScreenText};
 use vbc_oracle::vim::{VimDriver, VimVersion};
 
 /// A corpus the tests own, small enough to replay in a moment and editable without touching the
@@ -189,6 +189,7 @@ impl Engine for Stub {
             display_position: DisplayPosition { row: 0, column: 0 },
             mode: Mode::Normal,
             registers: BTreeMap::new(),
+            screen_text: ScreenText::new(case.buffer.lines().map(ToOwned::to_owned).collect()),
         })
     }
 }
@@ -253,6 +254,47 @@ fn a_recorded_state_that_moved_fails_the_check() -> anyhow::Result<()> {
     assert!(rendered.contains("baseline-delete-word"), "{rendered}");
     assert!(rendered.contains("cursor"), "{rendered}");
     assert!(!rendered.contains("baseline-yank-line"), "{rendered}");
+
+    Ok(())
+}
+
+#[test]
+fn a_recorded_screen_row_that_moved_is_named_by_the_check() -> anyhow::Result<()> {
+    let workspace = Workspace::new("screen-row-that-moved")?;
+    workspace.write_corpus(SECTION)?;
+    let corpus = Corpus::load_dir(workspace.corpus())?;
+    let reference = VimDriver::new()?;
+    let mut baseline = Baseline::record(&corpus, &reference)?;
+    let moved = baseline
+        .cases
+        .get_mut("baseline-yank-line")
+        .expect("the baseline records every case of the corpus");
+    let mut rows: Vec<String> = moved.screen_text.rows().to_owned();
+    assert_eq!(
+        rows[1], "gamma",
+        "the case draws its second line on the second row"
+    );
+    rows[1] = "drawn elsewhere".to_owned();
+    moved.screen_text = ScreenText::new(rows);
+
+    let check = baseline.check(&corpus, &reference)?;
+
+    let Check::Drifted { drifts, .. } = &check else {
+        panic!("the check must report the case that moved: {check}");
+    };
+    assert_eq!(drifts.len(), 1, "{check}");
+    let Drift::Changed { id, dimensions, .. } = &drifts[0] else {
+        panic!("the case moved in a dimension the check must name: {check}");
+    };
+    assert_eq!(id, "baseline-yank-line");
+    assert_eq!(*dimensions, vec![Dimension::ScreenText]);
+    let rendered = check.to_string();
+    assert!(rendered.contains("screen text row 1:"), "{rendered}");
+    assert!(
+        rendered.contains("recorded : \"drawn elsewhere\""),
+        "{rendered}"
+    );
+    assert!(rendered.contains("captured : \"gamma\""), "{rendered}");
 
     Ok(())
 }

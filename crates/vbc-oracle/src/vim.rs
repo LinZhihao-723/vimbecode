@@ -4,9 +4,9 @@
 //! key sequence, and reports the [`EditorState`] vim ends in. A corpus case is replayed in the
 //! viewport and under the display options the case declares, so a key sequence whose outcome
 //! depends on the layout is replayed against the layout the case describes. The reported state
-//! covers where vim drew the cursor, so a layout difference that leaves the cursor's byte offset
-//! alone is reported too. vim never touches a terminal, so a run works the same on a developer's
-//! machine and in CI.
+//! covers the text vim drew in that viewport, row by row, so a layout difference that leaves the
+//! cursor's byte offset alone is reported too. vim never touches a terminal, so a run works the
+//! same on a developer's machine and in CI.
 
 use std::{
     collections::BTreeMap,
@@ -24,7 +24,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::corpus::Case;
 use crate::state::{
-    Cursor, DisplayPosition, EditorState, Mode, Register, RegisterName, RegisterType,
+    Cursor, DisplayPosition, EditorState, Mode, Register, RegisterName, RegisterType, ScreenText,
 };
 
 /// The oldest vim the driver accepts. Patch 8.2.1978 introduced the `<Cmd>` key, with which the
@@ -215,7 +215,8 @@ impl VimDriver {
     /// * [`Error::NoState`] if vim exited without reporting a state, which a key sequence ending
     ///   in a command that is still reading a raw character causes: `f`, `r`, `m`, `q`, `@` and
     ///   the prefixes `g`, `z`, `Z` and `[` all consume the key the state is captured with. Such a
-    ///   run is reported as a failure rather than as a state taken at the wrong moment.
+    ///   run gives up after [`CAPTURE_WATCHDOG`], and is reported as a failure rather than as a
+    ///   state taken at the wrong moment.
     /// * [`Error::MalformedState`] if the reported state could not be decoded.
     /// * [`Error::UnsupportedMode`] if vim ended in a mode [`Mode`] cannot represent.
     fn run_with_prelude(
@@ -248,7 +249,7 @@ impl VimDriver {
             .env_remove("VIMINIT")
             .env_remove("EXINIT")
             .env_remove("MYVIMRC")
-            .stdin(Stdio::null())
+            .stdin(Stdio::piped())
             .stdout(Stdio::null())
             .stderr(Stdio::from(stderr))
             .spawn()
@@ -433,6 +434,15 @@ const DEFAULT_TIMEOUT: Duration = Duration::from_secs(10);
 /// How often a running vim is checked for having exited.
 const POLL_INTERVAL: Duration = Duration::from_millis(1);
 
+/// How long a run waits for its key sequence to reach the state capture before it quits vim.
+///
+/// vim reads its keys from a pipe the driver holds open, so that reading the screen -- thousands
+/// of cells in a wide viewport -- is not cut short by vim finding its input at an end. A key
+/// sequence that swallows the key the state is captured with would then leave vim waiting for a
+/// key that never comes, and this is how long such a run is given before it is ended without a
+/// state.
+const CAPTURE_WATCHDOG: Duration = Duration::from_secs(2);
+
 /// The arguments that keep vim reproducible: no user configuration, no plugins, no viminfo, no
 /// swap file, and no terminal.
 const VIM_ARGUMENTS: [&str; 8] = [
@@ -530,6 +540,7 @@ struct Report {
     display_column: u64,
     mode: String,
     registers: BTreeMap<String, (String, String)>,
+    screen_text: Vec<String>,
 }
 
 impl Report {
@@ -576,6 +587,7 @@ impl Report {
             },
             mode,
             registers,
+            screen_text: ScreenText::new(self.screen_text),
         })
     }
 }
@@ -682,6 +694,10 @@ fn escape_single_quotes(text: &str) -> String {
 /// Builds the script that lays the buffer out, replays the keys, and writes the resulting state
 /// out.
 ///
+/// The script gives up on itself after [`CAPTURE_WATCHDOG`], which is how a key sequence that
+/// swallows the key the state is captured with ends its run rather than leaving vim waiting for a
+/// key that never comes.
+///
 /// # Returns
 ///
 /// The script vim sources after it has opened the starting buffer.
@@ -689,7 +705,22 @@ fn build_script(state_path: &Path, prelude: &str, keys: &str) -> String {
     format!(
         r#"
 {prelude}
+function! g:VbcScreenText() abort
+  let l:corner = win_screenpos(0)
+  let l:top = l:corner[0]
+  let l:left = l:corner[1]
+  let l:right = l:left + winwidth(0) - 1
+  let l:rows = []
+  for l:row in range(l:top, l:top + winheight(0) - 1)
+    let l:cells = map(range(l:left, l:right), 'screenstring(' . l:row . ', v:val)')
+    call add(l:rows, substitute(join(l:cells, ''), ' \+$', '', ''))
+  endfor
+  return l:rows
+endfunction
+
 function! g:VbcCapture() abort
+  let g:vbc_capturing = 1
+  redraw
   let l:registers = {{}}
   for l:name in split('{CAPTURED_REGISTERS}', '\zs')
     let l:text = getreg(l:name)
@@ -705,6 +736,7 @@ function! g:VbcCapture() abort
         \ 'display_column': wincol() - 1,
         \ 'mode': mode(1),
         \ 'registers': l:registers,
+        \ 'screen_text': g:VbcScreenText(),
         \ }}
   call writefile([json_encode(l:state)], '{state_path}', 'b')
   call timer_start(0, function('g:VbcQuit'))
@@ -714,9 +746,18 @@ function! g:VbcQuit(...) abort
   qall!
 endfunction
 
+function! g:VbcAbandon(...) abort
+  if !g:vbc_capturing
+    qall!
+  endif
+endfunction
+
+let g:vbc_capturing = 0
+call timer_start({watchdog}, function('g:VbcAbandon'))
 call feedkeys("{keys}\<Cmd>call g:VbcCapture()\<CR>", 'nt')
 "#,
         state_path = state_path.display().to_string().replace('\'', "''"),
+        watchdog = CAPTURE_WATCHDOG.as_millis(),
         keys = render_keys(keys),
     )
 }
@@ -860,11 +901,31 @@ mod tests {
 
     const BUFFER: &str = "alpha beta gamma\nsecond line\n";
 
+    /// The number of screen rows the text window has in the window vim opens by itself, which is
+    /// the screen vim assumes when it is driven with no terminal, less the command line.
+    const DEFAULT_TEXT_ROWS: usize = 23;
+
     /// # Returns
     ///
     /// A driver bound to the vim on `PATH` on success.
     fn driver() -> anyhow::Result<VimDriver> {
         Ok(VimDriver::new()?)
+    }
+
+    /// # Returns
+    ///
+    /// The screen text of the window vim opens by itself drawing the given lines, followed by the
+    /// filler rows vim draws below the last line of a buffer.
+    fn screen(lines: &[&str]) -> ScreenText {
+        let fillers = DEFAULT_TEXT_ROWS - lines.len();
+
+        ScreenText::new(
+            lines
+                .iter()
+                .map(|line| (*line).to_owned())
+                .chain(vec!["~".to_owned(); fillers])
+                .collect(),
+        )
     }
 
     /// # Returns
@@ -943,6 +1004,7 @@ mod tests {
                 display_position: DisplayPosition { row: 0, column: 0 },
                 mode: Mode::Normal,
                 registers: BTreeMap::from([('"', charwise("alpha ")), ('-', charwise("alpha ")),]),
+                screen_text: screen(&["beta gamma", "second line"]),
             }
         );
         Ok(())
@@ -1092,6 +1154,7 @@ mod tests {
                 display_position: DisplayPosition { row: 0, column: 17 },
                 mode: Mode::Insert,
                 registers: BTreeMap::new(),
+                screen_text: screen(&["alpha beta gamma!", "second line"]),
             }
         );
         Ok(())
@@ -1109,6 +1172,7 @@ mod tests {
                 display_position: DisplayPosition { row: 1, column: 2 },
                 mode: Mode::Normal,
                 registers: BTreeMap::from([('"', charwise("c")), ('-', charwise("c"))]),
+                screen_text: screen(&["alpha beta gamma", "seond line"]),
             }
         );
         Ok(())
@@ -1185,6 +1249,27 @@ mod tests {
     }
 
     #[test]
+    fn a_swallowed_capture_key_gives_up_before_the_timeout() -> anyhow::Result<()> {
+        let driver = driver()?;
+
+        let start = Instant::now();
+        let error = driver
+            .run(BUFFER, "f")
+            .expect_err("`f` consumes the capture key");
+
+        assert!(
+            matches!(error, Error::NoState { .. }),
+            "expected a missing state, got {error:?}"
+        );
+        assert!(
+            start.elapsed() < DEFAULT_TIMEOUT,
+            "vim read its keys from a pipe that never closes, so the run had to be killed at its \
+             timeout instead of giving up on itself"
+        );
+        Ok(())
+    }
+
+    #[test]
     fn a_mode_the_schema_cannot_represent_is_rejected() -> anyhow::Result<()> {
         let error = driver()?
             .run(BUFFER, "gh")
@@ -1207,6 +1292,7 @@ mod tests {
                 display_position: DisplayPosition { row: 0, column: 0 },
                 mode: Mode::Normal,
                 registers: BTreeMap::new(),
+                screen_text: screen(&[""]),
             }
         );
         Ok(())

@@ -1,6 +1,6 @@
 {
   "header": {
-    "schema_version": 1,
+    "schema_version": 2,
     "vim_version": {
       "major": 9,
       "minor": 1,
@@ -29,7 +29,33 @@
           "text": "first, second",
           "register_type": "Charwise"
         }
-      }
+      },
+      "screen_text": [
+        "fn main() {",
+        "    let total = compute(x);",
+        "    println!(\"{total}\");",
+        "}",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
     },
     "ascii-code-shift-indent": {
       "buffer": "fn main() {\n\t\t\tlet total = 1;\n\t\t\tlet other = 2;\n}\n",
@@ -42,7 +68,33 @@
         "column": 12
       },
       "mode": "Normal",
-      "registers": {}
+      "registers": {},
+      "screen_text": [
+        "fn main() {",
+        "            let total = 1;",
+        "            let other = 2;",
+        "}",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
     },
     "ascii-prose-delete-word": {
       "buffer": "The brown fox jumps over the lazy dog while the sun sets behind the hill.\nPack my box with five dozen liquor jugs, then rest.\n",
@@ -64,7 +116,33 @@
           "text": "quick ",
           "register_type": "Charwise"
         }
-      }
+      },
+      "screen_text": [
+        "The brown fox jumps over the lazy dog wh",
+        "ile the sun sets behind the hill.",
+        "Pack my box with five dozen liquor jugs,",
+        " then rest.",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
     },
     "ascii-prose-join-lines": {
       "buffer": "The quick brown fox jumps over the lazy dog while the sun sets behind the hill.\n",
@@ -77,7 +155,33 @@
         "column": 43
       },
       "mode": "Normal",
-      "registers": {}
+      "registers": {},
+      "screen_text": [
+        "The quick brown fox jumps over the lazy dog while the sun sets behind the hill.",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
     },
     "cjk-ambiwidth-double": {
       "buffer": "α ± … │ 中文 ambiguous width test\n",
@@ -90,7 +194,33 @@
         "column": 19
       },
       "mode": "Normal",
-      "registers": {}
+      "registers": {},
+      "screen_text": [
+        "α ± … │ 中文 amb",
+        "iguous width test",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
     },
     "cjk-ambiwidth-single": {
       "buffer": "α ± … │ 中文 ambiguous width test\n",
@@ -103,7 +233,33 @@
         "column": 19
       },
       "mode": "Normal",
-      "registers": {}
+      "registers": {},
+      "screen_text": [
+        "α ± … │ 中文 ambiguo",
+        "us width test",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
     },
     "cjk-fullwidth-punctuation-back": {
       "buffer": "你好，世界！这是一个测试。\n",
@@ -116,7 +272,33 @@
         "column": 12
       },
       "mode": "Normal",
-      "registers": {}
+      "registers": {},
+      "screen_text": [
+        "你好，世界！这是一个测试。",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
     },
     "cjk-mixed-latin-delete-char": {
       "buffer": "中文bc 英文def 结束done\n",
@@ -138,7 +320,33 @@
           "text": "a",
           "register_type": "Charwise"
         }
-      }
+      },
+      "screen_text": [
+        "中文bc 英英文文def 结结束束done",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
     },
     "cjk-wide-cell-straddles-edge": {
       "buffer": "这是一行很长的中文文用来测试换行的边界情况\n",
@@ -160,7 +368,33 @@
           "text": "本",
           "register_type": "Charwise"
         }
-      }
+      },
+      "screen_text": [
+        "这是一行很长的中文文>",
+        "用来测试换行的边界情>",
+        "况",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
     },
     "combining-hangul-jamo-decomposed": {
       "buffer": "한  jamo\n",
@@ -182,7 +416,33 @@
           "text": "한",
           "register_type": "Charwise"
         }
-      }
+      },
+      "screen_text": [
+        "한  jamo",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
     },
     "combining-nfc-and-nfd-same-word": {
       "buffer": "café latt\ncafé latt\n",
@@ -204,7 +464,33 @@
           "text": "e",
           "register_type": "Charwise"
         }
-      }
+      },
+      "screen_text": [
+        "café latt",
+        "café latt",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
     },
     "combining-nfd-acute-delete-cluster": {
       "buffer": "café a lait\n",
@@ -226,7 +512,33 @@
           "text": "u",
           "register_type": "Charwise"
         }
-      }
+      },
+      "screen_text": [
+        "café a lait",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
     },
     "combining-stacked-marks": {
       "buffer": "stacked marks\n",
@@ -248,7 +560,33 @@
           "text": " ",
           "register_type": "Charwise"
         }
-      }
+      },
+      "screen_text": [
+        "stacked marks",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
     },
     "emoji-keycap-and-variation-selector": {
       "buffer": "❤️ tag list\n",
@@ -270,7 +608,33 @@
           "text": " ",
           "register_type": "Charwise"
         }
-      }
+      },
+      "screen_text": [
+        "❤️ tag list",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
     },
     "emoji-skin-tone-modifier": {
       "buffer": "ok 👍 👩‍💻 done\n",
@@ -292,7 +656,33 @@
           "text": "🏽",
           "register_type": "Charwise"
         }
-      }
+      },
+      "screen_text": [
+        "ok 👍 👩<200d>💻 done",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
     },
     "emoji-zwj-family-delete-cluster": {
       "buffer": "team ‍👩‍👧‍👦 rocks\n",
@@ -314,7 +704,33 @@
           "text": "👨",
           "register_type": "Charwise"
         }
-      }
+      },
+      "screen_text": [
+        "team <200d>👩<200d>👧<200d>👦 rocks",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
     },
     "emoji-zwj-family-wrap-edge": {
       "buffer": "aaaaaaaaaaaaaaaaaa 👨‍👩‍👧‍👦 tail\n",
@@ -327,7 +743,33 @@
         "column": 18
       },
       "mode": "Normal",
-      "registers": {}
+      "registers": {},
+      "screen_text": [
+        "aaaaaaaaaaaaaaaaaa >",
+        "👨<200d>👩<200d>👧<2",
+        "00d>👦 tail",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
     },
     "flag-odd-regional-indicator-run": {
       "buffer": "🇯🇺 tail\n",
@@ -349,7 +791,33 @@
           "text": "🇵",
           "register_type": "Charwise"
         }
-      }
+      },
+      "screen_text": [
+        "🇯🇺 tail",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
     },
     "flag-pair-delete-cluster": {
       "buffer": "🇵🇺🇸 flags\n",
@@ -371,7 +839,33 @@
           "text": "🇯",
           "register_type": "Charwise"
         }
-      }
+      },
+      "screen_text": [
+        "🇵🇺🇸 flags",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
     },
     "flag-wrap-narrow-viewport": {
       "buffer": "🇯🇵 🇺🇸 🇨🇦 🇩🇪 🇫🇷 done\n",
@@ -384,7 +878,33 @@
         "column": 19
       },
       "mode": "Normal",
-      "registers": {}
+      "registers": {},
+      "screen_text": [
+        "🇯🇵 🇺🇸 🇨🇦 🇩🇪",
+        "🇫🇷 done",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
     },
     "nowrap-w20-cjk": {
       "buffer": "这是一行很长的中文文本用来测试不换行时的水平滚动\n",
@@ -397,7 +917,33 @@
         "column": 6
       },
       "mode": "Normal",
-      "registers": {}
+      "registers": {},
+      "screen_text": [
+        "时的水平滚动",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
     },
     "nowrap-w40-horizontal-scroll": {
       "buffer": "    the indented sentence that runs far past the right edge of the viewport and keeps going\n",
@@ -410,7 +956,33 @@
         "column": 0
       },
       "mode": "Normal",
-      "registers": {}
+      "registers": {},
+      "screen_text": [
+        "wport and keeps going",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
     },
     "tab-leading-indent-ts4": {
       "buffer": "\tone level\n\t\ttwo levels\n\t\t\tthree levels\n",
@@ -423,7 +995,33 @@
         "column": 19
       },
       "mode": "Normal",
-      "registers": {}
+      "registers": {},
+      "screen_text": [
+        "    one level",
+        "        two levels",
+        "            three levels",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
     },
     "tab-leading-indent-ts8": {
       "buffer": "\tone level\n\t\ttwo levels\n\t\t\tthree levels\n",
@@ -436,7 +1034,33 @@
         "column": 23
       },
       "mode": "Normal",
-      "registers": {}
+      "registers": {},
+      "screen_text": [
+        "        one level",
+        "                two levels",
+        "                        three levels",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
     },
     "tab-mid-line-column-alignment": {
       "buffer": "a\tvalue\nabcdefg\tvalue\nabcdefgh\tvalue\n",
@@ -449,7 +1073,33 @@
         "column": 20
       },
       "mode": "Normal",
-      "registers": {}
+      "registers": {},
+      "screen_text": [
+        "a       value",
+        "abcdefg value",
+        "abcdefgh        value",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
     },
     "tab-mixed-with-cjk": {
       "buffer": "中文\tvalue\n中文中\tvalue\n",
@@ -462,7 +1112,33 @@
         "column": 8
       },
       "mode": "Normal",
-      "registers": {}
+      "registers": {},
+      "screen_text": [
+        "中文    value",
+        "中文中  value",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
     },
     "tab-wrapped-with-breakindent": {
       "buffer": "\t\tthe indented line that has to wrap several times in a narrow viewport\n",
@@ -475,7 +1151,33 @@
         "column": 4
       },
       "mode": "Normal",
-      "registers": {}
+      "registers": {},
+      "screen_text": [
+        "                the inde",
+        "    nted line that has t",
+        "    o wrap several times",
+        "     in a narrow viewpor",
+        "    t",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
     },
     "word-b-cjk-latin": {
       "buffer": "中文abc 英文def 结束done\n",
@@ -488,7 +1190,33 @@
         "column": 12
       },
       "mode": "Normal",
-      "registers": {}
+      "registers": {},
+      "screen_text": [
+        "中文abc 英文def 结束done",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
     },
     "word-b-combining": {
       "buffer": "café naïve á̂ done\n",
@@ -501,7 +1229,33 @@
         "column": 5
       },
       "mode": "Normal",
-      "registers": {}
+      "registers": {},
+      "screen_text": [
+        "café naïve á̂ done",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
     },
     "word-b-kebab-case": {
       "buffer": "data-source-name and other-value-2 end\n",
@@ -514,7 +1268,33 @@
         "column": 32
       },
       "mode": "Normal",
-      "registers": {}
+      "registers": {},
+      "screen_text": [
+        "data-source-name and other-value-2 end",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
     },
     "word-b-snake-case": {
       "buffer": "let user_name_id = other_value_2;\n",
@@ -527,7 +1307,33 @@
         "column": 4
       },
       "mode": "Normal",
-      "registers": {}
+      "registers": {},
+      "screen_text": [
+        "let user_name_id = other_value_2;",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
     },
     "word-b-zwj-family": {
       "buffer": "team 👨‍👩‍👧‍👦 rocks\n",
@@ -540,7 +1346,33 @@
         "column": 23
       },
       "mode": "Normal",
-      "registers": {}
+      "registers": {},
+      "screen_text": [
+        "team 👨<200d>👩<200d>👧<200d>👦 rocks",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
     },
     "word-big-b-cjk-latin": {
       "buffer": "中文abc 英文def 结束done\n",
@@ -553,7 +1385,33 @@
         "column": 8
       },
       "mode": "Normal",
-      "registers": {}
+      "registers": {},
+      "screen_text": [
+        "中文abc 英文def 结束done",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
     },
     "word-big-b-combining": {
       "buffer": "café naïve á̂ done\n",
@@ -566,7 +1424,33 @@
         "column": 11
       },
       "mode": "Normal",
-      "registers": {}
+      "registers": {},
+      "screen_text": [
+        "café naïve á̂ done",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
     },
     "word-big-b-kebab-case": {
       "buffer": "data-source-name and other-value-2 end\n",
@@ -579,7 +1463,33 @@
         "column": 21
       },
       "mode": "Normal",
-      "registers": {}
+      "registers": {},
+      "screen_text": [
+        "data-source-name and other-value-2 end",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
     },
     "word-big-b-snake-case": {
       "buffer": "let user_name_id = other_value_2;\n",
@@ -592,7 +1502,33 @@
         "column": 17
       },
       "mode": "Normal",
-      "registers": {}
+      "registers": {},
+      "screen_text": [
+        "let user_name_id = other_value_2;",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
     },
     "word-big-b-zwj-family": {
       "buffer": "team 👨‍👩‍👧‍👦 rocks\n",
@@ -605,7 +1541,33 @@
         "column": 5
       },
       "mode": "Normal",
-      "registers": {}
+      "registers": {},
+      "screen_text": [
+        "team 👨<200d>👩<200d>👧<200d>👦 rocks",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
     },
     "word-big-e-cjk-latin": {
       "buffer": "中文abc 英文def 结束done\n",
@@ -618,7 +1580,33 @@
         "column": 14
       },
       "mode": "Normal",
-      "registers": {}
+      "registers": {},
+      "screen_text": [
+        "中文abc 英文def 结束done",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
     },
     "word-big-e-combining": {
       "buffer": "café naïve á̂ done\n",
@@ -631,7 +1619,33 @@
         "column": 9
       },
       "mode": "Normal",
-      "registers": {}
+      "registers": {},
+      "screen_text": [
+        "café naïve á̂ done",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
     },
     "word-big-e-kebab-case": {
       "buffer": "data-source-name and other-value-2 end\n",
@@ -644,7 +1658,33 @@
         "column": 19
       },
       "mode": "Normal",
-      "registers": {}
+      "registers": {},
+      "screen_text": [
+        "data-source-name and other-value-2 end",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
     },
     "word-big-e-snake-case": {
       "buffer": "let user_name_id = other_value_2;\n",
@@ -657,7 +1697,33 @@
         "column": 15
       },
       "mode": "Normal",
-      "registers": {}
+      "registers": {},
+      "screen_text": [
+        "let user_name_id = other_value_2;",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
     },
     "word-big-e-zwj-family": {
       "buffer": "team 👨‍👩‍👧‍👦 rocks\n",
@@ -670,7 +1736,33 @@
         "column": 29
       },
       "mode": "Normal",
-      "registers": {}
+      "registers": {},
+      "screen_text": [
+        "team 👨<200d>👩<200d>👧<200d>👦 rocks",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
     },
     "word-big-w-cjk-latin": {
       "buffer": "中文abc 英文def 结束done\n",
@@ -683,7 +1775,33 @@
         "column": 16
       },
       "mode": "Normal",
-      "registers": {}
+      "registers": {},
+      "screen_text": [
+        "中文abc 英文def 结束done",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
     },
     "word-big-w-combining": {
       "buffer": "café naïve á̂ done\n",
@@ -696,7 +1814,33 @@
         "column": 11
       },
       "mode": "Normal",
-      "registers": {}
+      "registers": {},
+      "screen_text": [
+        "café naïve á̂ done",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
     },
     "word-big-w-kebab-case": {
       "buffer": "data-source-name and other-value-2 end\n",
@@ -709,7 +1853,33 @@
         "column": 21
       },
       "mode": "Normal",
-      "registers": {}
+      "registers": {},
+      "screen_text": [
+        "data-source-name and other-value-2 end",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
     },
     "word-big-w-snake-case": {
       "buffer": "let user_name_id = other_value_2;\n",
@@ -722,7 +1892,33 @@
         "column": 17
       },
       "mode": "Normal",
-      "registers": {}
+      "registers": {},
+      "screen_text": [
+        "let user_name_id = other_value_2;",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
     },
     "word-big-w-zwj-family": {
       "buffer": "team 👨‍👩‍👧‍👦 rocks\n",
@@ -735,7 +1931,33 @@
         "column": 32
       },
       "mode": "Normal",
-      "registers": {}
+      "registers": {},
+      "screen_text": [
+        "team 👨<200d>👩<200d>👧<200d>👦 rocks",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
     },
     "word-e-cjk-latin": {
       "buffer": "中文abc 英文def 结束done\n",
@@ -748,7 +1970,33 @@
         "column": 10
       },
       "mode": "Normal",
-      "registers": {}
+      "registers": {},
+      "screen_text": [
+        "中文abc 英文def 结束done",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
     },
     "word-e-combining": {
       "buffer": "café naïve á̂ done\n",
@@ -761,7 +2009,33 @@
         "column": 11
       },
       "mode": "Normal",
-      "registers": {}
+      "registers": {},
+      "screen_text": [
+        "café naïve á̂ done",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
     },
     "word-e-kebab-case": {
       "buffer": "data-source-name and other-value-2 end\n",
@@ -774,7 +2048,33 @@
         "column": 10
       },
       "mode": "Normal",
-      "registers": {}
+      "registers": {},
+      "screen_text": [
+        "data-source-name and other-value-2 end",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
     },
     "word-e-snake-case": {
       "buffer": "let user_name_id = other_value_2;\n",
@@ -787,7 +2087,33 @@
         "column": 17
       },
       "mode": "Normal",
-      "registers": {}
+      "registers": {},
+      "screen_text": [
+        "let user_name_id = other_value_2;",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
     },
     "word-e-zwj-family": {
       "buffer": "team 👨‍👩‍👧‍👦 rocks\n",
@@ -800,7 +2126,33 @@
         "column": 7
       },
       "mode": "Normal",
-      "registers": {}
+      "registers": {},
+      "screen_text": [
+        "team 👨<200d>👩<200d>👧<200d>👦 rocks",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
     },
     "word-w-cjk-latin": {
       "buffer": "中文abc 英文def 结束done\n",
@@ -813,7 +2165,33 @@
         "column": 12
       },
       "mode": "Normal",
-      "registers": {}
+      "registers": {},
+      "screen_text": [
+        "中文abc 英文def 结束done",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
     },
     "word-w-combining": {
       "buffer": "café naïve á̂ done\n",
@@ -826,7 +2204,33 @@
         "column": 13
       },
       "mode": "Normal",
-      "registers": {}
+      "registers": {},
+      "screen_text": [
+        "café naïve á̂ done",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
     },
     "word-w-kebab-case": {
       "buffer": "data-source-name and other-value-2 end\n",
@@ -839,7 +2243,33 @@
         "column": 11
       },
       "mode": "Normal",
-      "registers": {}
+      "registers": {},
+      "screen_text": [
+        "data-source-name and other-value-2 end",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
     },
     "word-w-snake-case": {
       "buffer": "let user_name_id = other_value_2;\n",
@@ -852,7 +2282,33 @@
         "column": 19
       },
       "mode": "Normal",
-      "registers": {}
+      "registers": {},
+      "screen_text": [
+        "let user_name_id = other_value_2;",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
     },
     "word-w-zwj-family": {
       "buffer": "team 👨‍👩‍👧‍👦 rocks\n",
@@ -865,7 +2321,33 @@
         "column": 13
       },
       "mode": "Normal",
-      "registers": {}
+      "registers": {},
+      "screen_text": [
+        "team 👨<200d>👩<200d>👧<200d>👦 rocks",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
     },
     "wrap-w20-boundary-exact": {
       "buffer": "abcdefghijklmnopqrstuvwxyz0123456789\n",
@@ -878,7 +2360,19 @@
         "column": 0
       },
       "mode": "Normal",
-      "registers": {}
+      "registers": {},
+      "screen_text": [
+        "abcdefghijklmnopqrst",
+        "uvwxyz0123456789",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
     },
     "wrap-w20-plain": {
       "buffer": "    the indented sentence that wraps a few times before it finally ends here\n",
@@ -891,7 +2385,33 @@
         "column": 0
       },
       "mode": "Normal",
-      "registers": {}
+      "registers": {},
+      "screen_text": [
+        "    the indented sen",
+        "tence that wraps a f",
+        "ew times before it f",
+        "inally ends here",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
     },
     "wrap-w24-breakindent": {
       "buffer": "    the indented sentence that wraps a few times before it finally ends here\n",
@@ -904,7 +2424,33 @@
         "column": 4
       },
       "mode": "Normal",
-      "registers": {}
+      "registers": {},
+      "screen_text": [
+        "    the indented sentenc",
+        "    e that wraps a few t",
+        "    imes before it final",
+        "    ly ends here",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
     },
     "wrap-w24-breakindent-showbreak": {
       "buffer": "    the indented sentence that wraps a few times before it finally ends here\n",
@@ -917,7 +2463,33 @@
         "column": 6
       },
       "mode": "Normal",
-      "registers": {}
+      "registers": {},
+      "screen_text": [
+        "    the indented sentenc",
+        "    > e that wraps a few",
+        "    >  times before it f",
+        "    > inally ends here",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
     },
     "wrap-w24-plain": {
       "buffer": "    the indented sentence that wraps a few times before it finally ends here\n",
@@ -930,7 +2502,33 @@
         "column": 0
       },
       "mode": "Normal",
-      "registers": {}
+      "registers": {},
+      "screen_text": [
+        "    the indented sentenc",
+        "e that wraps a few times",
+        " before it finally ends",
+        "here",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
     },
     "wrap-w24-showbreak": {
       "buffer": "    the indented sentence that wraps a few times before it finally ends here\n",
@@ -943,7 +2541,33 @@
         "column": 2
       },
       "mode": "Normal",
-      "registers": {}
+      "registers": {},
+      "screen_text": [
+        "    the indented sentenc",
+        "> e that wraps a few tim",
+        "> es before it finally e",
+        "> nds here",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
     },
     "wrap-w40-breakindent-showbreak": {
       "buffer": "    the indented sentence that wraps a few times before it finally ends here\n",
@@ -956,7 +2580,33 @@
         "column": 39
       },
       "mode": "Normal",
-      "registers": {}
+      "registers": {},
+      "screen_text": [
+        "    the indented sentence that wraps a f",
+        "    +++ ew times before it finally ends",
+        "    +++ here",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
     },
     "wrap-w40-plain": {
       "buffer": "    the indented sentence that wraps a few times before it finally ends here\n",
@@ -969,7 +2619,33 @@
         "column": 35
       },
       "mode": "Normal",
-      "registers": {}
+      "registers": {},
+      "screen_text": [
+        "    the indented sentence that wraps a f",
+        "ew times before it finally ends here",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
     },
     "wrap-w80-plain": {
       "buffer": "    the indented sentence that wraps a few times before it finally ends here and keeps running well past the eightieth column\nshort second line\n",
@@ -982,7 +2658,33 @@
         "column": 39
       },
       "mode": "Normal",
-      "registers": {}
+      "registers": {},
+      "screen_text": [
+        "    the indented sentence that wraps a few times before it finally ends here and",
+        " keeps running well past the eightieth column",
+        "short second line",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
     },
     "wrap-w80-showbreak": {
       "buffer": "    the indented sentence that wraps a few times before it finally ends here and keeps running well past the eightieth column\nshort second line\n",
@@ -995,7 +2697,33 @@
         "column": 39
       },
       "mode": "Normal",
-      "registers": {}
+      "registers": {},
+      "screen_text": [
+        "    the indented sentence that wraps a few times before it finally ends here and",
+        "↳  keeps running well past the eightieth column",
+        "short second line",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
     }
   }
 }
