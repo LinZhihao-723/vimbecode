@@ -11,3 +11,8 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
+unicode-segmentation = "1.13.3"
+unicode-width = "0.2.2"
+
+[dev-dependencies]
+proptest = "1.11.0"
