@@ -4,3 +4,4 @@
 //! where the two disagree.
 
 pub mod state;
+pub mod vim;

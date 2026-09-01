@@ -41,6 +41,11 @@ jobs:
 
       - uses: "Swatinem/rust-cache@v2"
 
+      - name: "Install vim, which the differential oracle runs against"
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends --yes vim
+
       - name: "Build the workspace"
         run: "cargo build --all"
 
