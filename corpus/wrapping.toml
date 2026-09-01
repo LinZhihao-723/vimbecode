@@ -1,0 +1,111 @@
+# Three viewport widths crossed with 'breakindent' and 'showbreak', plus the 'nowrap' variants
+# where the viewport scrolls horizontally instead.
+
+[[case]]
+id = "wrap-w20-plain"
+description = "An indented long line wrapped at twenty columns with no continuation decoration."
+buffer = """
+    the indented sentence that wraps a few times before it finally ends here
+"""
+keys = "gjgj"
+viewport_width = 20
+tags = ["wrap"]
+
+[[case]]
+id = "wrap-w20-breakindent"
+description = "The same line at twenty columns with continuation lines carrying the indent."
+buffer = """
+    the indented sentence that wraps a few times before it finally ends here
+"""
+keys = "gjgj"
+viewport_width = 20
+tags = ["wrap", "breakindent"]
+options = { breakindent = true }
+
+[[case]]
+id = "wrap-w20-showbreak"
+description = "The same line at twenty columns with a continuation marker."
+buffer = """
+    the indented sentence that wraps a few times before it finally ends here
+"""
+keys = "gjgj"
+viewport_width = 20
+tags = ["wrap", "showbreak"]
+options = { showbreak = "> " }
+
+[[case]]
+id = "wrap-w20-breakindent-showbreak"
+description = "The same line at twenty columns with both the indent and the continuation marker."
+buffer = """
+    the indented sentence that wraps a few times before it finally ends here
+"""
+keys = "gjgj"
+viewport_width = 20
+tags = ["wrap", "breakindent", "showbreak"]
+options = { breakindent = true, showbreak = "> " }
+
+[[case]]
+id = "wrap-w40-plain"
+description = "The same line at forty columns with no continuation decoration."
+buffer = """
+    the indented sentence that wraps a few times before it finally ends here
+"""
+keys = "g$"
+viewport_width = 40
+tags = ["wrap"]
+
+[[case]]
+id = "wrap-w40-breakindent-showbreak"
+description = "The same line at forty columns with both the indent and the continuation marker."
+buffer = """
+    the indented sentence that wraps a few times before it finally ends here
+"""
+keys = "g$"
+viewport_width = 40
+tags = ["wrap", "breakindent", "showbreak"]
+options = { breakindent = true, showbreak = "+++ " }
+
+[[case]]
+id = "wrap-w80-plain"
+description = "A paragraph at eighty columns, where only the longest line wraps."
+buffer = """
+    the indented sentence that wraps a few times before it finally ends here
+short second line
+"""
+keys = "g$j"
+viewport_width = 80
+tags = ["wrap"]
+
+[[case]]
+id = "wrap-w80-showbreak"
+description = "The same paragraph at eighty columns with a continuation marker."
+buffer = """
+    the indented sentence that wraps a few times before it finally ends here
+short second line
+"""
+keys = "g$j"
+viewport_width = 80
+tags = ["wrap", "showbreak"]
+options = { showbreak = "\u21B3 " }
+
+[[case]]
+id = "nowrap-w40-horizontal-scroll"
+description = "A long line with 'wrap' off, so the end of the line is reached by scrolling."
+buffer = """
+    the indented sentence that runs far past the right edge of the viewport and keeps going
+"""
+keys = "$0"
+viewport_width = 40
+tags = ["nowrap"]
+options = { wrap = false }
+
+[[case]]
+id = "nowrap-w20-cjk"
+description = "A double-width line with 'wrap' off, scrolled to a column inside a wide character."
+buffer = """
+这是一行很长的中文文本用来测试不换行时的水平滚动
+"""
+keys = "$hh"
+viewport_width = 20
+tags = ["nowrap", "cjk"]
+options = { wrap = false }
