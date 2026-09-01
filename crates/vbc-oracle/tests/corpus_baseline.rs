@@ -139,9 +139,10 @@ impl StdError for StubError {}
 
 /// A reference that answers every case with a state derived from the case alone, and reports the
 /// vim version it is told to rather than one of a vim that exists.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 struct Stub {
     version: VimVersion,
+    refused: Option<String>,
 }
 
 impl Stub {
@@ -155,6 +156,17 @@ impl Stub {
                 minor,
                 patch,
             },
+            refused: None,
+        }
+    }
+
+    /// # Returns
+    ///
+    /// The same reference, refusing to replay the case with the given identifier.
+    fn refusing(self, id: &str) -> Self {
+        Self {
+            refused: Some(id.to_owned()),
+            ..self
         }
     }
 }
@@ -167,6 +179,10 @@ impl Engine for Stub {
     }
 
     fn replay(&self, case: &Case) -> Result<EditorState, Self::Error> {
+        if self.refused.as_deref() == Some(case.id.as_str()) {
+            return Err(StubError);
+        }
+
         Ok(EditorState {
             buffer: case.buffer.clone(),
             cursor: Cursor { line: 0, column: 0 },
@@ -352,6 +368,72 @@ fn another_patch_level_of_the_recorded_vim_still_compares() -> anyhow::Result<()
 }
 
 #[test]
+fn a_case_the_reference_cannot_replay_is_not_recorded_as_a_baseline() -> anyhow::Result<()> {
+    let corpus = Corpus::load_dir(&vbc_oracle::corpus::default_dir())?;
+    let refused = corpus.cases()[0].id.clone();
+    let stub = Stub::reporting(9, 1, 100).refusing(&refused);
+
+    let failure = Baseline::record(&corpus, &stub)
+        .expect_err("a baseline missing a case guards that case against nothing");
+
+    let Error::Unreplayable { id, .. } = &failure else {
+        panic!("the failure must name the case that could not be replayed: {failure:?}");
+    };
+    assert_eq!(*id, refused);
+
+    Ok(())
+}
+
+#[test]
+fn a_baseline_that_does_not_cover_the_corpus_fails_the_check() -> anyhow::Result<()> {
+    let corpus = Corpus::load_dir(&vbc_oracle::corpus::default_dir())?;
+    let stub = Stub::reporting(9, 1, 100);
+    let recorded = Baseline::record(&corpus, &stub)?;
+    let dropped = corpus.cases()[0].id.clone();
+
+    let mut missing = recorded.clone();
+    missing
+        .cases
+        .remove(&dropped)
+        .expect("the baseline records every case of the corpus");
+    let check = missing.check(&corpus, &stub)?;
+
+    assert!(check.drifted(), "{check}");
+    let Check::Drifted { drifts, .. } = &check else {
+        panic!("a baseline that covers less than the corpus must be reported: {check}");
+    };
+    assert_eq!(
+        *drifts,
+        vec![Drift::Unrecorded {
+            id: dropped.clone()
+        }]
+    );
+    assert!(check.to_string().contains(&dropped), "{check}");
+
+    let mut stale = recorded;
+    let state = stale
+        .cases
+        .get(&dropped)
+        .expect("the baseline records every case of the corpus")
+        .clone();
+    stale.cases.insert("no-such-case".to_owned(), state);
+    let check = stale.check(&corpus, &stub)?;
+
+    assert!(check.drifted(), "{check}");
+    let Check::Drifted { drifts, .. } = &check else {
+        panic!("a baseline that covers more than the corpus must be reported: {check}");
+    };
+    assert_eq!(
+        *drifts,
+        vec![Drift::Stale {
+            id: "no-such-case".to_owned()
+        }]
+    );
+
+    Ok(())
+}
+
+#[test]
 fn a_baseline_written_in_another_schema_is_rejected() -> anyhow::Result<()> {
     let corpus = Corpus::load_dir(&vbc_oracle::corpus::default_dir())?;
     let stub = Stub::reporting(9, 1, 100);
@@ -463,6 +545,40 @@ fn the_command_line_fails_the_check_on_a_state_that_moved() -> anyhow::Result<()
     let printed = String::from_utf8_lossy(&checked.stdout);
     assert!(printed.contains("baseline-yank-line"), "{printed}");
     assert!(printed.contains("buffer"), "{printed}");
+
+    Ok(())
+}
+
+#[test]
+fn the_command_line_fails_a_strict_check_against_another_vim() -> anyhow::Result<()> {
+    let workspace = Workspace::new("command-line-strict")?;
+    workspace.write_corpus(SECTION)?;
+    assert!(run_differential(&["--record-baseline"], &workspace)?
+        .status
+        .success());
+    let mut baseline = Baseline::read(&workspace.baseline())?;
+    let running = baseline.header.vim_version;
+    let recorded = VimVersion {
+        major: running.major,
+        minor: running.minor + 1,
+        patch: 0,
+    };
+    baseline.header.vim_version = recorded;
+    baseline.write(&workspace.baseline())?;
+
+    let lenient = run_differential(&["--check-baseline"], &workspace)?;
+    let strict = run_differential(&["--check-baseline", "--strict-vim-version"], &workspace)?;
+
+    assert!(lenient.status.success(), "{lenient:?}");
+    assert!(
+        String::from_utf8_lossy(&lenient.stdout).contains("not compared"),
+        "{lenient:?}"
+    );
+    assert!(!strict.status.success(), "{strict:?}");
+    let reported = String::from_utf8_lossy(&strict.stderr);
+    assert!(reported.contains(&recorded.to_string()), "{reported}");
+    assert!(reported.contains(&running.to_string()), "{reported}");
+    assert!(reported.contains("--strict-vim-version"), "{reported}");
 
     Ok(())
 }
