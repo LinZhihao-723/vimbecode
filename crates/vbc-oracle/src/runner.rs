@@ -1,10 +1,10 @@
 //! The differential runner: the corpus replayed against two engines, case by case.
 //!
 //! A run replays every case against both engines and compares every dimension of the state they
-//! end in -- buffer, cursor, mode and registers. Each case is reported as agreeing, as diverging
-//! in named dimensions, or as one engine failing to replay it at all. A report serializes to JSON
-//! for a continuous-integration job, and renders a per-case diff for a human debugging a single
-//! failure.
+//! end in -- buffer, cursor, display position, mode and registers. Each case is reported as
+//! agreeing, as diverging in named dimensions, or as one engine failing to replay it at all. A
+//! report serializes to JSON for a continuous-integration job, and renders a per-case diff for a
+//! human debugging a single failure.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error as StdError;
@@ -59,13 +59,16 @@ impl Engine for VimDriver {
 
 /// One of the dimensions two engines are compared in.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "kebab-case")]
 pub enum Dimension {
     /// The buffer's text.
     Buffer,
 
     /// The cursor's position.
     Cursor,
+
+    /// Where the cursor is drawn in the viewport.
+    DisplayPosition,
 
     /// The mode the engine is in.
     Mode,
@@ -79,6 +82,7 @@ impl Display for Dimension {
         let name = match self {
             Self::Buffer => "buffer",
             Self::Cursor => "cursor",
+            Self::DisplayPosition => "display position",
             Self::Mode => "mode",
             Self::Register => "register",
         };
@@ -92,6 +96,7 @@ impl From<&Divergence> for Dimension {
         match divergence {
             Divergence::Buffer { .. } => Self::Buffer,
             Divergence::Cursor { .. } => Self::Cursor,
+            Divergence::DisplayPosition { .. } => Self::DisplayPosition,
             Divergence::Mode { .. } => Self::Mode,
             Divergence::Register { .. } => Self::Register,
         }
@@ -441,6 +446,19 @@ impl Display for CaseDiff<'_> {
                                 formatter,
                                 "    {subject:<width$} : line {}, column {}",
                                 right.line, right.column
+                            )?;
+                        }
+                        Divergence::DisplayPosition { left, right } => {
+                            writeln!(formatter, "  display position:")?;
+                            writeln!(
+                                formatter,
+                                "    {reference:<width$} : screen row {}, screen column {}",
+                                left.row, left.column
+                            )?;
+                            writeln!(
+                                formatter,
+                                "    {subject:<width$} : screen row {}, screen column {}",
+                                right.row, right.column
                             )?;
                         }
                         Divergence::Mode { left, right } => {

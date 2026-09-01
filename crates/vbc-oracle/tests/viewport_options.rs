@@ -7,8 +7,14 @@
 //! group of cases, to the state the case's own layout produces.
 
 use vbc_oracle::corpus::{self, Case, Corpus, Options};
-use vbc_oracle::state::{Cursor, EditorState};
+use vbc_oracle::state::{Cursor, DisplayPosition, Divergence, EditorState};
 use vbc_oracle::vim::VimDriver;
+
+/// A line long enough to be laid out over several screen lines of a narrow viewport.
+const LONG_LINE: &str = "aaaaaaaaaa bbbbbbbbbb cccccccccc dddddddddd eeeeeeeeee ffffffffff\n";
+
+/// The keys that walk the cursor to a byte offset past the width of a narrow viewport.
+const WALK_KEYS: &str = "30l";
 
 /// The four decorations the same wrapped line is laid out with, and the column each leaves the
 /// cursor in after `gjgj` in a twenty-four column viewport.
@@ -110,6 +116,83 @@ fn the_wrap_variants_of_one_line_end_in_mutually_distinct_states() -> anyhow::Re
             );
         }
     }
+    Ok(())
+}
+
+#[test]
+fn a_wrapping_difference_that_leaves_the_byte_cursor_alone_is_caught() -> anyhow::Result<()> {
+    let corpus = repository_corpus()?;
+    let driver = VimDriver::new()?;
+    let wrapped = Case {
+        buffer: LONG_LINE.to_owned(),
+        keys: WALK_KEYS.to_owned(),
+        viewport_width: 24,
+        options: Options {
+            wrap: true,
+            ..Options::default()
+        },
+        ..case(&corpus, "wrap-w24-plain").clone()
+    };
+    let unwrapped = Case {
+        options: Options {
+            wrap: false,
+            ..wrapped.options.clone()
+        },
+        ..wrapped.clone()
+    };
+
+    let wrapped_state = replay(&driver, &wrapped)?;
+    let unwrapped_state = replay(&driver, &unwrapped)?;
+
+    assert_eq!(wrapped_state.buffer, unwrapped_state.buffer);
+    assert_eq!(wrapped_state.cursor, unwrapped_state.cursor);
+    assert_eq!(
+        wrapped_state.display_position,
+        DisplayPosition { row: 1, column: 6 },
+        "the wrapped line puts the thirty-first cell on the second screen row"
+    );
+    assert_eq!(
+        unwrapped_state.display_position.row, 0,
+        "an unwrapped line is drawn on one screen row"
+    );
+    assert_eq!(
+        wrapped_state.diff(&unwrapped_state),
+        vec![Divergence::DisplayPosition {
+            left: wrapped_state.display_position,
+            right: unwrapped_state.display_position,
+        }],
+        "the two layouts differ in nothing the oracle compares but where the cursor is drawn"
+    );
+    Ok(())
+}
+
+#[test]
+fn the_same_line_in_two_viewports_is_drawn_in_two_places() -> anyhow::Result<()> {
+    let corpus = repository_corpus()?;
+    let driver = VimDriver::new()?;
+    let narrow = Case {
+        buffer: LONG_LINE.to_owned(),
+        keys: WALK_KEYS.to_owned(),
+        viewport_width: 24,
+        ..case(&corpus, "wrap-w24-plain").clone()
+    };
+    let wide = Case {
+        viewport_width: 80,
+        ..narrow.clone()
+    };
+
+    let narrow_state = replay(&driver, &narrow)?;
+    let wide_state = replay(&driver, &wide)?;
+
+    assert_eq!(narrow_state.cursor, wide_state.cursor);
+    assert_eq!(
+        narrow_state.display_position,
+        DisplayPosition { row: 1, column: 6 }
+    );
+    assert_eq!(
+        wide_state.display_position,
+        DisplayPosition { row: 0, column: 30 }
+    );
     Ok(())
 }
 

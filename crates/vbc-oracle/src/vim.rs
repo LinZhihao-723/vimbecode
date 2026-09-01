@@ -3,8 +3,10 @@
 //! A run launches vim with no user configuration and no plugins, feeds it a starting buffer and a
 //! key sequence, and reports the [`EditorState`] vim ends in. A corpus case is replayed in the
 //! viewport and under the display options the case declares, so a key sequence whose outcome
-//! depends on the layout is replayed against the layout the case describes. vim never touches a
-//! terminal, so a run works the same on a developer's machine and in CI.
+//! depends on the layout is replayed against the layout the case describes. The reported state
+//! covers where vim drew the cursor, so a layout difference that leaves the cursor's byte offset
+//! alone is reported too. vim never touches a terminal, so a run works the same on a developer's
+//! machine and in CI.
 
 use std::{
     collections::BTreeMap,
@@ -21,7 +23,9 @@ use std::{
 use serde::Deserialize;
 
 use crate::corpus::Case;
-use crate::state::{Cursor, EditorState, Mode, Register, RegisterName, RegisterType};
+use crate::state::{
+    Cursor, DisplayPosition, EditorState, Mode, Register, RegisterName, RegisterType,
+};
 
 /// The oldest vim the driver accepts. Patch 8.2.1978 introduced the `<Cmd>` key, with which the
 /// driver snapshots vim's state without disturbing the mode the key sequence ended in.
@@ -519,6 +523,8 @@ struct Report {
     buffer: String,
     line: u64,
     column: u64,
+    display_row: u64,
+    display_column: u64,
     mode: String,
     registers: BTreeMap<String, (String, String)>,
 }
@@ -560,6 +566,10 @@ impl Report {
             cursor: Cursor {
                 line: self.line,
                 column: self.column,
+            },
+            display_position: DisplayPosition {
+                row: self.display_row,
+                column: self.display_column,
             },
             mode,
             registers,
@@ -685,6 +695,8 @@ function! g:VbcCapture() abort
         \ 'buffer': join(getline(1, '$'), "\n") . (&endofline ? "\n" : ''),
         \ 'line': line('.') - 1,
         \ 'column': col('.') - 1,
+        \ 'display_row': winline() - 1,
+        \ 'display_column': wincol() - 1,
         \ 'mode': mode(1),
         \ 'registers': l:registers,
         \ }}
@@ -922,6 +934,7 @@ mod tests {
             EditorState {
                 buffer: "beta gamma\nsecond line\n".to_owned(),
                 cursor: Cursor { line: 0, column: 0 },
+                display_position: DisplayPosition { row: 0, column: 0 },
                 mode: Mode::Normal,
                 registers: BTreeMap::from([('"', charwise("alpha ")), ('-', charwise("alpha ")),]),
             }
@@ -1070,6 +1083,7 @@ mod tests {
                     line: 0,
                     column: 17,
                 },
+                display_position: DisplayPosition { row: 0, column: 17 },
                 mode: Mode::Insert,
                 registers: BTreeMap::new(),
             }
@@ -1086,6 +1100,7 @@ mod tests {
             EditorState {
                 buffer: "alpha beta gamma\nseond line\n".to_owned(),
                 cursor: Cursor { line: 1, column: 2 },
+                display_position: DisplayPosition { row: 1, column: 2 },
                 mode: Mode::Normal,
                 registers: BTreeMap::from([('"', charwise("c")), ('-', charwise("c"))]),
             }
@@ -1183,6 +1198,7 @@ mod tests {
             EditorState {
                 buffer: "\n".to_owned(),
                 cursor: Cursor { line: 0, column: 0 },
+                display_position: DisplayPosition { row: 0, column: 0 },
                 mode: Mode::Normal,
                 registers: BTreeMap::new(),
             }
