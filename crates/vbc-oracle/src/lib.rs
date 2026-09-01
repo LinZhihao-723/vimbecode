@@ -4,5 +4,6 @@
 //! where the two disagree.
 
 pub mod corpus;
+pub mod runner;
 pub mod state;
 pub mod vim;
