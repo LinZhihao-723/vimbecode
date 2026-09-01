@@ -510,6 +510,7 @@ dependencies = [
  "proptest",
  "unicode-segmentation",
  "unicode-width",
+ "vbc-oracle",
 ]
 
 [[package]]
