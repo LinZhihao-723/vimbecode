@@ -32,6 +32,10 @@ const LAYOUT_ROW: u64 = 2;
 /// A line of fifteen double-width characters, which fill twice their number of cells.
 const CJK_BUFFER: &str = "中文测试行一二三四五六七八九十\nascii\n";
 
+/// A line whose accents are combining marks rather than precomposed characters, and a heart
+/// carrying a variation selector: cells vim draws as a character and the marks on top of it.
+const COMBINING_BUFFER: &str = "cafe\u{301} nai\u{308}ve \u{2764}\u{fe0f}\n";
+
 /// A line holding a joined emoji, a flag, and the letters around them.
 const JOINED_EMOJI_BUFFER: &str = "a\u{1f469}\u{200d}\u{1f4bb}b\u{1f1ef}\u{1f1f5}c\n";
 
@@ -156,7 +160,6 @@ fn buffer_as_screen(buffer: &str, case: &Case) -> ScreenText {
         .map(|line| line.chars().take(width).collect())
         .collect();
     rows.resize(height, "~".to_owned());
-    rows.truncate(height);
 
     ScreenText::new(rows)
 }
@@ -224,6 +227,26 @@ fn a_double_width_line_is_captured_in_the_cells_vim_drew() -> anyhow::Result<()>
             .count(),
         usize::from(LAYOUT_WIDTH) / 2,
         "the first row holds one character for every two cells of the viewport"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_combining_mark_is_captured_in_the_cell_vim_drew() -> anyhow::Result<()> {
+    let driver = VimDriver::new()?;
+    let marked = case(
+        "combining-screen",
+        COMBINING_BUFFER,
+        LAYOUT_WIDTH,
+        Options::default(),
+    );
+
+    let screen = driver.run_case(&marked)?.screen_text;
+
+    assert_eq!(
+        screen.row(0),
+        Some("cafe\u{301} nai\u{308}ve \u{2764}\u{fe0f}"),
+        "a cell is captured without the marks vim drew on top of its character"
     );
     Ok(())
 }
@@ -356,6 +379,12 @@ fn most_corpus_cases_draw_a_screen_their_buffers_do_not_describe() -> anyhow::Re
     let mut redundant: Vec<&str> = Vec::new();
     for case in corpus.cases() {
         let state = driver.run_case(case)?;
+        assert_eq!(
+            state.screen_text.height(),
+            u64::from(case.viewport_height),
+            "the case `{}` was not captured over the whole of its viewport",
+            case.id
+        );
         if state.screen_text == buffer_as_screen(&state.buffer, case) {
             redundant.push(case.id.as_str());
         } else {
@@ -376,6 +405,11 @@ fn most_corpus_cases_draw_a_screen_their_buffers_do_not_describe() -> anyhow::Re
             case.id
         );
     }
+    assert!(
+        !redundant.is_empty(),
+        "no case draws the screen its buffer describes, which a capture that comes back short \
+         looks like as much as an informative screen does"
+    );
     assert!(
         informative.len() >= INFORMATIVE_CASES,
         "only {} of the corpus's {} cases draw a screen the other dimensions do not describe",

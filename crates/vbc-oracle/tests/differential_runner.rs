@@ -175,7 +175,6 @@ fn screen_text(case: &Case) -> ScreenText {
     let height = usize::from(case.viewport_height);
     let mut rows: Vec<String> = case.buffer.lines().map(ToOwned::to_owned).collect();
     rows.resize(height, String::new());
-    rows.truncate(height);
 
     ScreenText::new(rows)
 }

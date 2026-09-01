@@ -1249,6 +1249,27 @@ mod tests {
     }
 
     #[test]
+    fn a_swallowed_capture_key_gives_up_before_the_timeout() -> anyhow::Result<()> {
+        let driver = driver()?;
+
+        let start = Instant::now();
+        let error = driver
+            .run(BUFFER, "f")
+            .expect_err("`f` consumes the capture key");
+
+        assert!(
+            matches!(error, Error::NoState { .. }),
+            "expected a missing state, got {error:?}"
+        );
+        assert!(
+            start.elapsed() < DEFAULT_TIMEOUT,
+            "vim read its keys from a pipe that never closes, so the run had to be killed at its \
+             timeout instead of giving up on itself"
+        );
+        Ok(())
+    }
+
+    #[test]
     fn a_mode_the_schema_cannot_represent_is_rejected() -> anyhow::Result<()> {
         let error = driver()?
             .run(BUFFER, "gh")

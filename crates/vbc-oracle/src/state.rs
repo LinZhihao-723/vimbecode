@@ -63,7 +63,7 @@ pub struct DisplayPosition {
 /// left blank contributes a space. The blank cells at the end of a row carry nothing the viewport
 /// does not already say, so a row is held with them trimmed off.
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(transparent)]
+#[serde(from = "Vec<String>", into = "Vec<String>")]
 pub struct ScreenText {
     rows: Vec<String>,
 }
@@ -112,6 +112,18 @@ impl ScreenText {
     #[must_use]
     pub fn height(&self) -> u64 {
         u64::try_from(self.rows.len()).expect("a viewport's height fits in a `u64`")
+    }
+}
+
+impl From<Vec<String>> for ScreenText {
+    fn from(rows: Vec<String>) -> Self {
+        Self::new(rows)
+    }
+}
+
+impl From<ScreenText> for Vec<String> {
+    fn from(screen_text: ScreenText) -> Self {
+        screen_text.rows
     }
 }
 
@@ -548,6 +560,63 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn screen_text_only_difference_reports_the_screen_row() {
+        let left = sample_state();
+        let mut right = sample_state();
+        right.screen_text = ScreenText::new(vec![
+            "alpha".to_owned(),
+            "bet".to_owned(),
+            "gamma".to_owned(),
+            "~".to_owned(),
+        ]);
+
+        assert_eq!(
+            left.diff(&right),
+            vec![Divergence::ScreenText {
+                row: 1,
+                left: Some("beta".to_owned()),
+                right: Some("bet".to_owned()),
+            }]
+        );
+    }
+
+    #[test]
+    fn a_screen_row_drawn_by_only_one_side_is_reported() {
+        let left = sample_state();
+        let mut right = sample_state();
+        right.screen_text = ScreenText::new(vec!["alpha".to_owned(), "beta".to_owned()]);
+
+        assert_eq!(
+            left.diff(&right),
+            vec![
+                Divergence::ScreenText {
+                    row: 2,
+                    left: Some("gamma".to_owned()),
+                    right: None,
+                },
+                Divergence::ScreenText {
+                    row: 3,
+                    left: Some("~".to_owned()),
+                    right: None,
+                },
+            ]
+        );
+        assert_eq!(describe_screen_row(None), "not drawn");
+    }
+
+    #[test]
+    fn trailing_blank_cells_are_not_held_in_a_row() {
+        let padded = ScreenText::new(vec!["alpha   ".to_owned(), "   ".to_owned()]);
+
+        assert_eq!(padded.rows(), ["alpha".to_owned(), String::new()]);
+        assert_eq!(
+            padded,
+            ScreenText::new(vec!["alpha".to_owned(), String::new()])
+        );
+    }
+
     #[test]
     fn every_diverging_dimension_is_reported() {
         let left = sample_state();
@@ -556,6 +625,7 @@ mod tests {
         right.cursor = Cursor { line: 0, column: 0 };
         right.display_position = DisplayPosition { row: 0, column: 0 };
         right.mode = Mode::VisualBlock;
+        right.screen_text = ScreenText::new(vec!["delta".to_owned()]);
         right.registers.insert(
             '"',
             Register {
@@ -601,6 +671,26 @@ mod tests {
                         text: "eta".to_owned(),
                         register_type: RegisterType::Charwise,
                     }),
+                    right: None,
+                },
+                Divergence::ScreenText {
+                    row: 0,
+                    left: Some("alpha".to_owned()),
+                    right: Some("delta".to_owned()),
+                },
+                Divergence::ScreenText {
+                    row: 1,
+                    left: Some("beta".to_owned()),
+                    right: None,
+                },
+                Divergence::ScreenText {
+                    row: 2,
+                    left: Some("gamma".to_owned()),
+                    right: None,
+                },
+                Divergence::ScreenText {
+                    row: 3,
+                    left: Some("~".to_owned()),
                     right: None,
                 },
             ]
