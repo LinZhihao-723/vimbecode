@@ -8,3 +8,6 @@
 
 .idea/
 .vscode/
+
+# Local Claude Code workspace and early-stage design notes — never committed.
+.claude/
