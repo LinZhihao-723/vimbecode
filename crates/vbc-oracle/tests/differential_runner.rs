@@ -12,7 +12,7 @@ use std::fmt::{Display, Formatter, Result as FmtResult};
 use serde_json::{json, Value};
 use vbc_oracle::corpus::{self, Case, Corpus, Options, Tag};
 use vbc_oracle::runner::{self, Dimension, Engine, Outcome, Report};
-use vbc_oracle::state::{Cursor, EditorState, Mode, Register, RegisterType};
+use vbc_oracle::state::{Cursor, DisplayPosition, EditorState, Mode, Register, RegisterType};
 use vbc_oracle::vim::VimDriver;
 
 /// The single dimension a stub deliberately gets wrong.
@@ -26,6 +26,9 @@ enum Perturbation {
 
     /// The stub moves the cursor one column further.
     Cursor,
+
+    /// The stub draws the cursor one screen row further down, leaving its position alone.
+    DisplayPosition,
 
     /// The stub reports insert mode instead of normal mode.
     Mode,
@@ -109,6 +112,7 @@ impl Engine for Stub {
             Perturbation::Nothing => {}
             Perturbation::Buffer => state.buffer.push('!'),
             Perturbation::Cursor => state.cursor.column += 1,
+            Perturbation::DisplayPosition => state.display_position.row += 1,
             Perturbation::Mode => state.mode = Mode::Insert,
             Perturbation::Register => {
                 state.registers.insert(
@@ -128,7 +132,7 @@ impl Engine for Stub {
 
 /// # Returns
 ///
-/// The state every unbroken stub reports for the case, which fixes all four dimensions to values
+/// The state every unbroken stub reports for the case, which fixes all five dimensions to values
 /// derived from the case.
 fn unperturbed_state(case: &Case) -> EditorState {
     let column = u64::try_from(case.keys.len()).expect("a key sequence fits in a `u64`");
@@ -136,6 +140,7 @@ fn unperturbed_state(case: &Case) -> EditorState {
     EditorState {
         buffer: case.buffer.clone(),
         cursor: Cursor { line: 0, column },
+        display_position: DisplayPosition { row: 0, column },
         mode: Mode::Normal,
         registers: BTreeMap::from([(
             '"',
@@ -224,6 +229,11 @@ fn a_stub_broken_only_in_the_buffer_is_caught() -> anyhow::Result<()> {
 #[test]
 fn a_stub_broken_only_in_the_cursor_is_caught() -> anyhow::Result<()> {
     assert_corpus_catches(Perturbation::Cursor, Dimension::Cursor)
+}
+
+#[test]
+fn a_stub_broken_only_in_the_display_position_is_caught() -> anyhow::Result<()> {
+    assert_corpus_catches(Perturbation::DisplayPosition, Dimension::DisplayPosition)
 }
 
 #[test]
@@ -491,6 +501,36 @@ fn the_diff_of_a_failing_case_names_the_case_and_the_dimension() {
             .contains("agreed"),
         "an agreeing case renders as agreeing"
     );
+}
+
+#[test]
+fn the_diff_of_a_display_position_break_names_the_display_dimension_alone() {
+    let cases = [case("display-only-case", &[Tag::Wrap])];
+    let report = runner::run_cases(
+        &cases,
+        &Stub::matching("vim"),
+        &Stub::broken("vimbecode", Perturbation::DisplayPosition),
+    );
+
+    let rendered = report
+        .render_case("display-only-case")
+        .expect("the run replayed the case");
+    assert!(
+        rendered.contains("diverged in display position"),
+        "{rendered}"
+    );
+    assert!(
+        rendered.contains("screen row 0, screen column 2"),
+        "{rendered}"
+    );
+    assert!(
+        rendered.contains("screen row 1, screen column 2"),
+        "{rendered}"
+    );
+    assert!(!rendered.contains("cursor"), "{rendered}");
+    assert!(!rendered.contains("buffer"), "{rendered}");
+    assert!(!rendered.contains("mode"), "{rendered}");
+    assert!(!rendered.contains("register"), "{rendered}");
 }
 
 #[test]

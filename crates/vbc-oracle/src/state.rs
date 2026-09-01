@@ -43,6 +43,17 @@ pub struct Cursor {
     pub column: u64,
 }
 
+/// Where the cursor is drawn, as a zero-based screen row and a zero-based screen column within
+/// the viewport the buffer is laid out in.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct DisplayPosition {
+    /// The screen row the cursor is drawn on, counted from the top of the viewport.
+    pub row: u64,
+
+    /// The screen column the cursor is drawn in, counted from the left of the viewport.
+    pub column: u64,
+}
+
 /// The mode an engine is in.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum Mode {
@@ -80,6 +91,9 @@ pub struct EditorState {
     /// The cursor's position.
     pub cursor: Cursor,
 
+    /// Where the cursor is drawn, which the buffer's layout in the viewport decides.
+    pub display_position: DisplayPosition,
+
     /// The mode the engine is in.
     pub mode: Mode,
 
@@ -107,6 +121,12 @@ impl EditorState {
             divergences.push(Divergence::Cursor {
                 left: self.cursor,
                 right: other.cursor,
+            });
+        }
+        if self.display_position != other.display_position {
+            divergences.push(Divergence::DisplayPosition {
+                left: self.display_position,
+                right: other.display_position,
             });
         }
         if self.mode != other.mode {
@@ -159,6 +179,16 @@ pub enum Divergence {
         right: Cursor,
     },
 
+    /// The cursors are drawn in different places, which a buffer laid out differently causes
+    /// even when the cursors hold the same position.
+    DisplayPosition {
+        /// The left snapshot's display position.
+        left: DisplayPosition,
+
+        /// The right snapshot's display position.
+        right: DisplayPosition,
+    },
+
     /// The modes differ.
     Mode {
         /// The left snapshot's mode.
@@ -181,23 +211,6 @@ pub enum Divergence {
     },
 }
 
-/// An engine the differential harness can snapshot.
-pub trait StateSource {
-    /// The error reported when a snapshot cannot be taken.
-    type Error;
-
-    /// Captures the engine's current state.
-    ///
-    /// # Returns
-    ///
-    /// The engine's state on success.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the engine cannot report its state.
-    fn capture_state(&mut self) -> Result<EditorState, Self::Error>;
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -209,6 +222,7 @@ mod tests {
         EditorState {
             buffer: "alpha\nbeta\ngamma\n".to_owned(),
             cursor: Cursor { line: 1, column: 2 },
+            display_position: DisplayPosition { row: 1, column: 2 },
             mode: Mode::Normal,
             registers: BTreeMap::from([
                 (
@@ -302,6 +316,38 @@ mod tests {
     }
 
     #[test]
+    fn display_position_only_difference_reports_the_display_position() {
+        let left = sample_state();
+        let mut right = sample_state();
+        right.display_position = DisplayPosition { row: 2, column: 0 };
+
+        assert_eq!(
+            left.diff(&right),
+            vec![Divergence::DisplayPosition {
+                left: DisplayPosition { row: 1, column: 2 },
+                right: DisplayPosition { row: 2, column: 0 },
+            }]
+        );
+    }
+
+    #[test]
+    fn display_position_round_trips_through_serialization() -> anyhow::Result<()> {
+        let mut state = sample_state();
+        state.display_position = DisplayPosition { row: 3, column: 17 };
+
+        let restored: EditorState = serde_json::from_str(&serde_json::to_string(&state)?)?;
+
+        assert_eq!(restored.display_position, state.display_position);
+        assert_eq!(restored, state);
+        assert_ne!(
+            serde_json::to_string(&state)?,
+            serde_json::to_string(&sample_state())?,
+            "two states that differ only in their display position serialize the same way"
+        );
+        Ok(())
+    }
+
+    #[test]
     fn mode_only_difference_reports_the_mode() {
         let left = sample_state();
         let mut right = sample_state();
@@ -382,6 +428,7 @@ mod tests {
         let mut right = sample_state();
         right.buffer = "delta\n".to_owned();
         right.cursor = Cursor { line: 0, column: 0 };
+        right.display_position = DisplayPosition { row: 0, column: 0 };
         right.mode = Mode::VisualBlock;
         right.registers.insert(
             '"',
@@ -402,6 +449,10 @@ mod tests {
                 Divergence::Cursor {
                     left: Cursor { line: 1, column: 2 },
                     right: Cursor { line: 0, column: 0 },
+                },
+                Divergence::DisplayPosition {
+                    left: DisplayPosition { row: 1, column: 2 },
+                    right: DisplayPosition { row: 0, column: 0 },
                 },
                 Divergence::Mode {
                     left: Mode::Normal,
