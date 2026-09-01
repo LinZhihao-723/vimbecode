@@ -5,6 +5,10 @@ use std::process::ExitCode;
 
 use vbc_ci::pr_title;
 
+/// # Returns
+///
+/// [`ExitCode::SUCCESS`] if the title given as the sole argument follows the convention, and
+/// [`ExitCode::FAILURE`] otherwise.
 fn main() -> ExitCode {
     let Some(title) = args().nth(1) else {
         eprintln!("Usage: pr-title-lint <title>");
