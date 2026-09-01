@@ -8,5 +8,3 @@ mod tests {
     #[test]
     fn crate_builds() {}
 }
-
-pub fn   temporarily_unformatted( ) ->u8{1}
