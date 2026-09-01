@@ -1,0 +1,243 @@
+# The word-motion grid: `w`, `e`, `b`, `W`, `E`, and `B` crossed with the text shapes whose word
+# boundaries are easiest to get wrong. Buffers are shared within a scenario so that the six
+# motions can be compared against each other.
+
+[[case]]
+id = "word-w-cjk-latin"
+description = "`w` three times across CJK and Latin mixed without spaces."
+buffer = "中文abc 英文def 结束done\n"
+keys = "0www"
+viewport_width = 80
+tags = ["word-motion", "cjk"]
+
+[[case]]
+id = "word-e-cjk-latin"
+description = "`e` three times across CJK and Latin mixed without spaces."
+buffer = "中文abc 英文def 结束done\n"
+keys = "0eee"
+viewport_width = 80
+tags = ["word-motion", "cjk"]
+
+[[case]]
+id = "word-b-cjk-latin"
+description = "`b` three times from the line end across CJK and Latin mixed without spaces."
+buffer = "中文abc 英文def 结束done\n"
+keys = "$bbb"
+viewport_width = 80
+tags = ["word-motion", "cjk"]
+
+[[case]]
+id = "word-big-w-cjk-latin"
+description = "`W` twice across CJK and Latin mixed without spaces."
+buffer = "中文abc 英文def 结束done\n"
+keys = "0WW"
+viewport_width = 80
+tags = ["word-motion", "cjk"]
+
+[[case]]
+id = "word-big-e-cjk-latin"
+description = "`E` twice across CJK and Latin mixed without spaces."
+buffer = "中文abc 英文def 结束done\n"
+keys = "0EE"
+viewport_width = 80
+tags = ["word-motion", "cjk"]
+
+[[case]]
+id = "word-big-b-cjk-latin"
+description = "`B` twice from the line end across CJK and Latin mixed without spaces."
+buffer = "中文abc 英文def 结束done\n"
+keys = "$BB"
+viewport_width = 80
+tags = ["word-motion", "cjk"]
+
+[[case]]
+id = "word-w-zwj-family"
+description = "`w` three times across a ZWJ family cluster, which a motion must never land inside."
+buffer = "team \U0001F468\u200D\U0001F469\u200D\U0001F467\u200D\U0001F466 rocks\n"
+keys = "0www"
+viewport_width = 80
+tags = ["word-motion", "emoji"]
+
+[[case]]
+id = "word-e-zwj-family"
+description = "`e` three times across a ZWJ family cluster, which a motion must never land inside."
+buffer = "team \U0001F468\u200D\U0001F469\u200D\U0001F467\u200D\U0001F466 rocks\n"
+keys = "0eee"
+viewport_width = 80
+tags = ["word-motion", "emoji"]
+
+[[case]]
+id = "word-b-zwj-family"
+description = "`b` three times from the line end across a ZWJ family cluster, which a motion must never land inside."
+buffer = "team \U0001F468\u200D\U0001F469\u200D\U0001F467\u200D\U0001F466 rocks\n"
+keys = "$bbb"
+viewport_width = 80
+tags = ["word-motion", "emoji"]
+
+[[case]]
+id = "word-big-w-zwj-family"
+description = "`W` twice across a ZWJ family cluster, which a motion must never land inside."
+buffer = "team \U0001F468\u200D\U0001F469\u200D\U0001F467\u200D\U0001F466 rocks\n"
+keys = "0WW"
+viewport_width = 80
+tags = ["word-motion", "emoji"]
+
+[[case]]
+id = "word-big-e-zwj-family"
+description = "`E` twice across a ZWJ family cluster, which a motion must never land inside."
+buffer = "team \U0001F468\u200D\U0001F469\u200D\U0001F467\u200D\U0001F466 rocks\n"
+keys = "0EE"
+viewport_width = 80
+tags = ["word-motion", "emoji"]
+
+[[case]]
+id = "word-big-b-zwj-family"
+description = "`B` twice from the line end across a ZWJ family cluster, which a motion must never land inside."
+buffer = "team \U0001F468\u200D\U0001F469\u200D\U0001F467\u200D\U0001F466 rocks\n"
+keys = "$BB"
+viewport_width = 80
+tags = ["word-motion", "emoji"]
+
+[[case]]
+id = "word-w-combining"
+description = "`w` three times across decomposed clusters carrying combining marks."
+buffer = "cafe\u0301 nai\u0308ve a\u0301\u0302 done\n"
+keys = "0www"
+viewport_width = 80
+tags = ["word-motion", "combining", "nfd"]
+
+[[case]]
+id = "word-e-combining"
+description = "`e` three times across decomposed clusters carrying combining marks."
+buffer = "cafe\u0301 nai\u0308ve a\u0301\u0302 done\n"
+keys = "0eee"
+viewport_width = 80
+tags = ["word-motion", "combining", "nfd"]
+
+[[case]]
+id = "word-b-combining"
+description = "`b` three times from the line end across decomposed clusters carrying combining marks."
+buffer = "cafe\u0301 nai\u0308ve a\u0301\u0302 done\n"
+keys = "$bbb"
+viewport_width = 80
+tags = ["word-motion", "combining", "nfd"]
+
+[[case]]
+id = "word-big-w-combining"
+description = "`W` twice across decomposed clusters carrying combining marks."
+buffer = "cafe\u0301 nai\u0308ve a\u0301\u0302 done\n"
+keys = "0WW"
+viewport_width = 80
+tags = ["word-motion", "combining", "nfd"]
+
+[[case]]
+id = "word-big-e-combining"
+description = "`E` twice across decomposed clusters carrying combining marks."
+buffer = "cafe\u0301 nai\u0308ve a\u0301\u0302 done\n"
+keys = "0EE"
+viewport_width = 80
+tags = ["word-motion", "combining", "nfd"]
+
+[[case]]
+id = "word-big-b-combining"
+description = "`B` twice from the line end across decomposed clusters carrying combining marks."
+buffer = "cafe\u0301 nai\u0308ve a\u0301\u0302 done\n"
+keys = "$BB"
+viewport_width = 80
+tags = ["word-motion", "combining", "nfd"]
+
+[[case]]
+id = "word-w-snake-case"
+description = "`w` three times across snake_case identifiers."
+buffer = "let user_name_id = other_value_2;\n"
+keys = "0www"
+viewport_width = 80
+tags = ["word-motion", "ascii", "code"]
+
+[[case]]
+id = "word-e-snake-case"
+description = "`e` three times across snake_case identifiers."
+buffer = "let user_name_id = other_value_2;\n"
+keys = "0eee"
+viewport_width = 80
+tags = ["word-motion", "ascii", "code"]
+
+[[case]]
+id = "word-b-snake-case"
+description = "`b` three times from the line end across snake_case identifiers."
+buffer = "let user_name_id = other_value_2;\n"
+keys = "$bbb"
+viewport_width = 80
+tags = ["word-motion", "ascii", "code"]
+
+[[case]]
+id = "word-big-w-snake-case"
+description = "`W` twice across snake_case identifiers."
+buffer = "let user_name_id = other_value_2;\n"
+keys = "0WW"
+viewport_width = 80
+tags = ["word-motion", "ascii", "code"]
+
+[[case]]
+id = "word-big-e-snake-case"
+description = "`E` twice across snake_case identifiers."
+buffer = "let user_name_id = other_value_2;\n"
+keys = "0EE"
+viewport_width = 80
+tags = ["word-motion", "ascii", "code"]
+
+[[case]]
+id = "word-big-b-snake-case"
+description = "`B` twice from the line end across snake_case identifiers."
+buffer = "let user_name_id = other_value_2;\n"
+keys = "$BB"
+viewport_width = 80
+tags = ["word-motion", "ascii", "code"]
+
+[[case]]
+id = "word-w-kebab-case"
+description = "`w` three times across kebab-case identifiers."
+buffer = "data-source-name and other-value-2 end\n"
+keys = "0www"
+viewport_width = 80
+tags = ["word-motion", "ascii", "code"]
+
+[[case]]
+id = "word-e-kebab-case"
+description = "`e` three times across kebab-case identifiers."
+buffer = "data-source-name and other-value-2 end\n"
+keys = "0eee"
+viewport_width = 80
+tags = ["word-motion", "ascii", "code"]
+
+[[case]]
+id = "word-b-kebab-case"
+description = "`b` three times from the line end across kebab-case identifiers."
+buffer = "data-source-name and other-value-2 end\n"
+keys = "$bbb"
+viewport_width = 80
+tags = ["word-motion", "ascii", "code"]
+
+[[case]]
+id = "word-big-w-kebab-case"
+description = "`W` twice across kebab-case identifiers."
+buffer = "data-source-name and other-value-2 end\n"
+keys = "0WW"
+viewport_width = 80
+tags = ["word-motion", "ascii", "code"]
+
+[[case]]
+id = "word-big-e-kebab-case"
+description = "`E` twice across kebab-case identifiers."
+buffer = "data-source-name and other-value-2 end\n"
+keys = "0EE"
+viewport_width = 80
+tags = ["word-motion", "ascii", "code"]
+
+[[case]]
+id = "word-big-b-kebab-case"
+description = "`B` twice from the line end across kebab-case identifiers."
+buffer = "data-source-name and other-value-2 end\n"
+keys = "$BB"
+viewport_width = 80
+tags = ["word-motion", "ascii", "code"]
