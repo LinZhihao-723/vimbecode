@@ -1,0 +1,42 @@
+# Emoji clusters. Joiners, variation selectors, and other invisible code points are written as
+# escapes so that a reviewer can see exactly which code points a case contains.
+
+[[case]]
+id = "emoji-zwj-family-delete-cluster"
+description = "Deleting the ZWJ family man-woman-girl-boy, one cluster of seven code points."
+buffer = """
+team \U0001F468\u200D\U0001F469\u200D\U0001F467\u200D\U0001F466 rocks
+"""
+keys = "wx"
+viewport_width = 40
+tags = ["emoji"]
+
+[[case]]
+id = "emoji-zwj-family-wrap-edge"
+description = "A ZWJ family pushed against the right edge of a narrow viewport."
+buffer = """
+aaaaaaaaaaaaaaaaaa \U0001F468\u200D\U0001F469\u200D\U0001F467\u200D\U0001F466 tail
+"""
+keys = "g$"
+viewport_width = 20
+tags = ["emoji", "wrap"]
+
+[[case]]
+id = "emoji-skin-tone-modifier"
+description = "Stepping over a thumbs-up with a skin-tone modifier and a ZWJ profession emoji."
+buffer = """
+ok \U0001F44D\U0001F3FD \U0001F469\u200D\U0001F4BB done
+"""
+keys = "wlx"
+viewport_width = 40
+tags = ["emoji"]
+
+[[case]]
+id = "emoji-keycap-and-variation-selector"
+description = "A keycap sequence and a variation-selector-16 heart at the start of a line."
+buffer = """
+#\uFE0F\u20E3 ❤\uFE0F tag list
+"""
+keys = "0xx"
+viewport_width = 40
+tags = ["emoji"]

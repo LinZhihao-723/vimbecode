@@ -1,0 +1,61 @@
+# Tabs, whose width depends on the column they start at and on 'tabstop'.
+
+[[case]]
+id = "tab-leading-indent-ts8"
+description = "Leading tabs with the default tabstop of eight."
+buffer = """
+\tone level
+\t\ttwo levels
+\t\t\tthree levels
+"""
+keys = "j0w"
+viewport_width = 40
+tags = ["tab"]
+
+[[case]]
+id = "tab-leading-indent-ts4"
+description = "The same leading tabs measured with a tabstop of four."
+buffer = """
+\tone level
+\t\ttwo levels
+\t\t\tthree levels
+"""
+keys = "j0w"
+viewport_width = 40
+tags = ["tab"]
+options = { tabstop = 4 }
+
+[[case]]
+id = "tab-mid-line-column-alignment"
+description = "Tabs starting at different columns, so each advances to a different tab stop."
+buffer = """
+a\tvalue
+abcdefg\tvalue
+abcdefgh\tvalue
+"""
+keys = "jj$"
+viewport_width = 40
+tags = ["tab"]
+
+[[case]]
+id = "tab-mixed-with-cjk"
+description = "Tabs following double-width text, where the tab stop lands mid-character."
+buffer = """
+中文\tvalue
+中文中\tvalue
+"""
+keys = "j$b"
+viewport_width = 40
+tags = ["tab", "cjk"]
+options = { tabstop = 4 }
+
+[[case]]
+id = "tab-wrapped-with-breakindent"
+description = "A tab-indented long line wrapped in a narrow viewport with 'breakindent' set."
+buffer = """
+\t\tthe indented line that has to wrap several times in a narrow viewport
+"""
+keys = "gjgj$"
+viewport_width = 24
+tags = ["tab", "wrap", "breakindent"]
+options = { breakindent = true }

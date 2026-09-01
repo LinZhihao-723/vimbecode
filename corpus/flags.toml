@@ -1,0 +1,32 @@
+# Regional-indicator flags: pairs that form one cluster, and an odd run that leaves a lone
+# indicator behind.
+
+[[case]]
+id = "flag-pair-delete-cluster"
+description = "Deleting the first of two flags, each a pair of regional indicators."
+buffer = """
+\U0001F1EF\U0001F1F5\U0001F1FA\U0001F1F8 flags
+"""
+keys = "x"
+viewport_width = 40
+tags = ["flag", "emoji"]
+
+[[case]]
+id = "flag-odd-regional-indicator-run"
+description = "Three regional indicators in a row: one flag followed by a lone indicator."
+buffer = """
+\U0001F1EF\U0001F1F5\U0001F1FA tail
+"""
+keys = "lx"
+viewport_width = 40
+tags = ["flag", "emoji"]
+
+[[case]]
+id = "flag-wrap-narrow-viewport"
+description = "A run of flags wrapped in a narrow viewport, then a move to the screen-line end."
+buffer = """
+\U0001F1EF\U0001F1F5 \U0001F1FA\U0001F1F8 \U0001F1E8\U0001F1E6 \U0001F1E9\U0001F1EA \U0001F1EB\U0001F1F7 done
+"""
+keys = "g$"
+viewport_width = 20
+tags = ["flag", "emoji", "wrap"]

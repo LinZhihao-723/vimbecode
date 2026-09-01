@@ -1,0 +1,54 @@
+# CJK text: double-width cells, fullwidth punctuation, and the ambiguous-width options that
+# decide how the remaining characters are measured.
+
+[[case]]
+id = "cjk-mixed-latin-delete-char"
+description = "Deleting a double-width character from a line that mixes CJK and Latin."
+buffer = '''
+中文abc 英文def 结束done
+'''
+keys = "wx"
+viewport_width = 40
+tags = ["cjk", "wrap"]
+
+[[case]]
+id = "cjk-wide-cell-straddles-edge"
+description = "Screen-line motion where a double-width character cannot fit in the last cell."
+buffer = '''
+这是一行很长的中文文本用来测试换行的边界情况
+'''
+keys = "gjx"
+viewport_width = 21
+tags = ["cjk", "wrap"]
+
+[[case]]
+id = "cjk-fullwidth-punctuation-back"
+description = "Moving back a word across fullwidth punctuation."
+buffer = '''
+你好，世界！这是一个测试。
+'''
+keys = "$b"
+viewport_width = 40
+tags = ["cjk"]
+
+[[case]]
+id = "cjk-ambiwidth-single"
+description = "Ambiguous-width characters measured as one cell."
+buffer = '''
+α ± … │ 中文 ambiguous width test
+'''
+keys = "$"
+viewport_width = 20
+tags = ["cjk", "ambiwidth", "wrap"]
+options = { ambiwidth = "single" }
+
+[[case]]
+id = "cjk-ambiwidth-double"
+description = "The same ambiguous-width characters measured as two cells."
+buffer = '''
+α ± … │ 中文 ambiguous width test
+'''
+keys = "$"
+viewport_width = 20
+tags = ["cjk", "ambiwidth", "wrap"]
+options = { ambiwidth = "double" }
