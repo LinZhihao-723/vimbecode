@@ -1,8 +1,10 @@
 //! The driver that replays key sequences against a real vim.
 //!
 //! A run launches vim with no user configuration and no plugins, feeds it a starting buffer and a
-//! key sequence, and reports the [`EditorState`] vim ends in. vim never touches a terminal, so a
-//! run works the same on a developer's machine and in CI.
+//! key sequence, and reports the [`EditorState`] vim ends in. A corpus case is replayed in the
+//! viewport and under the display options the case declares, so a key sequence whose outcome
+//! depends on the layout is replayed against the layout the case describes. vim never touches a
+//! terminal, so a run works the same on a developer's machine and in CI.
 
 use std::{
     collections::BTreeMap,
@@ -18,6 +20,7 @@ use std::{
 
 use serde::Deserialize;
 
+use crate::corpus::Case;
 use crate::state::{Cursor, EditorState, Mode, Register, RegisterName, RegisterType};
 
 /// The oldest vim the driver accepts. Patch 8.2.1978 introduced the `<Cmd>` key, with which the
@@ -148,7 +151,8 @@ impl VimDriver {
         self.timeout = timeout;
     }
 
-    /// Replays a key sequence against a starting buffer.
+    /// Replays a key sequence against a starting buffer, in the viewport vim opens by itself and
+    /// under vim's own display options.
     ///
     /// The starting buffer is opened as a file, so it is reported back with a trailing newline
     /// exactly when vim considers its last line newline-terminated. The keys are written in vim's
@@ -157,6 +161,39 @@ impl VimDriver {
     ///
     /// Only the registers a differential run compares are reported: the unnamed and small-delete
     /// registers, the numbered registers, and the named registers `a` to `z`.
+    ///
+    /// # Returns
+    ///
+    /// The state vim ends in on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`VimDriver::run_with_prelude`]'s return values on failure.
+    pub fn run(&self, buffer: &str, keys: &str) -> Result<EditorState, Error> {
+        self.run_with_prelude(buffer, keys, "")
+    }
+
+    /// Replays a case's keys against its starting buffer, laid out in the case's viewport and
+    /// under the case's display options.
+    ///
+    /// The keys and the reported state are those of [`VimDriver::run`].
+    ///
+    /// # Returns
+    ///
+    /// The state vim ends in on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`VimDriver::run_with_prelude`]'s return values on failure.
+    pub fn run_case(&self, case: &Case) -> Result<EditorState, Error> {
+        self.run_with_prelude(&case.buffer, &case.keys, &build_prelude(case))
+    }
+
+    /// Replays a key sequence against a starting buffer, after running the given ex commands.
     ///
     /// # Returns
     ///
@@ -177,14 +214,22 @@ impl VimDriver {
     ///   run is reported as a failure rather than as a state taken at the wrong moment.
     /// * [`Error::MalformedState`] if the reported state could not be decoded.
     /// * [`Error::UnsupportedMode`] if vim ended in a mode [`Mode`] cannot represent.
-    pub fn run(&self, buffer: &str, keys: &str) -> Result<EditorState, Error> {
+    fn run_with_prelude(
+        &self,
+        buffer: &str,
+        keys: &str,
+        prelude: &str,
+    ) -> Result<EditorState, Error> {
         let workspace = Workspace::new()?;
         let buffer_path = workspace.path().join("buffer");
         let script_path = workspace.path().join("capture.vim");
         let state_path = workspace.path().join("state.json");
         let stderr_path = workspace.path().join("stderr");
         write_file(&buffer_path, buffer.as_bytes())?;
-        write_file(&script_path, build_script(&state_path, keys).as_bytes())?;
+        write_file(
+            &script_path,
+            build_script(&state_path, prelude, keys).as_bytes(),
+        )?;
 
         let stderr = File::create(&stderr_path).map_err(|source| Error::Io {
             path: stderr_path.clone(),
@@ -574,14 +619,60 @@ fn parse_patch_level(line: &str) -> Option<u32> {
         .max()
 }
 
-/// Builds the script that replays the keys and writes the resulting state out.
+/// Builds the ex commands that lay a case's buffer out the way the case asks for.
+///
+/// The commands also strip the window of its gutter, so that the case's viewport width is the
+/// width of the text and not of the text plus vim's chrome.
+///
+/// # Returns
+///
+/// The commands, which vim runs once the starting buffer is open.
+fn build_prelude(case: &Case) -> String {
+    let options = &case.options;
+    format!(
+        "set columns={width} lines={height}\n\
+         set nonumber norelativenumber signcolumn=no foldcolumn=0\n\
+         set {wrap} {breakindent} {linebreak} {expandtab}\n\
+         set tabstop={tabstop} shiftwidth={shiftwidth} ambiwidth={ambiwidth}\n\
+         let &showbreak = '{showbreak}'\n",
+        width = case.viewport_width,
+        height = case.viewport_height,
+        wrap = switch("wrap", options.wrap),
+        breakindent = switch("breakindent", options.breakindent),
+        linebreak = switch("linebreak", options.linebreak),
+        expandtab = switch("expandtab", options.expandtab),
+        tabstop = options.tabstop,
+        shiftwidth = options.shiftwidth,
+        ambiwidth = options.ambiwidth,
+        showbreak = escape_single_quotes(&options.showbreak),
+    )
+}
+
+/// # Returns
+///
+/// The name a `:set` gives a boolean option, prefixed with `no` when the option is off.
+fn switch(name: &str, enabled: bool) -> String {
+    format!("{}{name}", if enabled { "" } else { "no" })
+}
+
+/// # Returns
+///
+/// The text as the body of a vim single-quoted string, in which a quote stands for itself only
+/// when it is doubled.
+fn escape_single_quotes(text: &str) -> String {
+    text.replace('\'', "''")
+}
+
+/// Builds the script that lays the buffer out, replays the keys, and writes the resulting state
+/// out.
 ///
 /// # Returns
 ///
 /// The script vim sources after it has opened the starting buffer.
-fn build_script(state_path: &Path, keys: &str) -> String {
+fn build_script(state_path: &Path, prelude: &str, keys: &str) -> String {
     format!(
         r#"
+{prelude}
 function! g:VbcCapture() abort
   let l:registers = {{}}
   for l:name in split('{CAPTURED_REGISTERS}', '\zs')
@@ -1112,6 +1203,86 @@ mod tests {
         assert!(
             Workspace::new_at(first.path().to_owned()).is_err(),
             "a directory a killed run left behind was reused"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_prelude_carries_the_viewport_the_gutter_and_every_option() {
+        use std::collections::BTreeSet;
+
+        use crate::corpus::{AmbiWidth, Options, Tag};
+
+        let case = Case {
+            id: "sample".to_owned(),
+            description: "A case the tests build.".to_owned(),
+            buffer: BUFFER.to_owned(),
+            keys: "gj".to_owned(),
+            viewport_width: 24,
+            viewport_height: 12,
+            tags: BTreeSet::from([Tag::Wrap]),
+            options: Options {
+                wrap: false,
+                breakindent: true,
+                showbreak: "it's > ".to_owned(),
+                linebreak: false,
+                tabstop: 4,
+                shiftwidth: 2,
+                expandtab: true,
+                ambiwidth: AmbiWidth::Double,
+            },
+        };
+
+        let prelude = build_prelude(&case);
+
+        for command in [
+            "set columns=24 lines=12",
+            "set nonumber norelativenumber signcolumn=no foldcolumn=0",
+            "set nowrap breakindent nolinebreak expandtab",
+            "set tabstop=4 shiftwidth=2 ambiwidth=double",
+            "let &showbreak = 'it''s > '",
+        ] {
+            assert!(
+                prelude.contains(command),
+                "the prelude does not run `{command}`: {prelude}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_prelude_strips_a_gutter_the_window_already_carries() -> anyhow::Result<()> {
+        use std::collections::BTreeSet;
+
+        use crate::corpus::{Options, Tag};
+
+        let driver = driver()?;
+        let case = Case {
+            id: "boundary".to_owned(),
+            description: "A line wrapping exactly on the viewport's last cell.".to_owned(),
+            buffer: "abcdefghijklmnopqrstuvwxyz0123456789\n".to_owned(),
+            keys: "gj".to_owned(),
+            viewport_width: 20,
+            viewport_height: 10,
+            tags: BTreeSet::from([Tag::Wrap]),
+            options: Options::default(),
+        };
+        let prelude = build_prelude(&case);
+        const GUTTER: &str = "set number signcolumn=yes foldcolumn=4";
+
+        let stripped = driver.run_case(&case)?;
+        let restored =
+            driver.run_with_prelude(&case.buffer, &case.keys, &format!("{GUTTER}\n{prelude}"))?;
+        let kept =
+            driver.run_with_prelude(&case.buffer, &case.keys, &format!("{prelude}\n{GUTTER}"))?;
+
+        assert_eq!(
+            stripped, restored,
+            "a window opened with a gutter is not laid out like one opened without it, so the \
+             prelude does not strip the gutter it finds"
+        );
+        assert_ne!(
+            stripped, kept,
+            "a gutter does not change where the case ends, so stripping one proves nothing"
         );
         Ok(())
     }

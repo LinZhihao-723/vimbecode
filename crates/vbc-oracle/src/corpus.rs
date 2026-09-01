@@ -2,9 +2,9 @@
 //! engines.
 //!
 //! A case fixes everything the two engines must agree on before a key is pressed -- the starting
-//! buffer, the viewport width, and the display options -- together with the keys to replay and the
-//! tags the corpus is sliced by. Cases are stored as TOML sections in a directory, and the loader
-//! rejects a section that would otherwise contribute an unusable case.
+//! buffer, the viewport it is laid out in, and the display options -- together with the keys to
+//! replay and the tags the corpus is sliced by. Cases are stored as TOML sections in a directory,
+//! and the loader rejects a section that would otherwise contribute an unusable case.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error as StdError;
@@ -19,6 +19,9 @@ use serde::{Deserialize, Serialize};
 /// The extension of the files a corpus directory's sections are stored in.
 pub const SECTION_EXTENSION: &str = "toml";
 
+/// The viewport height a case takes when its section leaves one out.
+pub const DEFAULT_VIEWPORT_HEIGHT: u16 = 24;
+
 /// How characters of ambiguous East Asian width are measured, mirroring vim's `'ambiwidth'`.
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -29,6 +32,15 @@ pub enum AmbiWidth {
 
     /// Ambiguous characters occupy two cells.
     Double,
+}
+
+impl Display for AmbiWidth {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        f.write_str(match self {
+            Self::Single => "single",
+            Self::Double => "double",
+        })
+    }
 }
 
 /// A label a case carries, by which the corpus is sliced into the areas it covers.
@@ -93,8 +105,17 @@ pub struct Options {
     /// The marker put in front of a continuation screen line, empty for none.
     pub showbreak: String,
 
+    /// Whether a line too long for the viewport breaks at a word boundary.
+    pub linebreak: bool,
+
     /// The number of cells a tab advances to.
     pub tabstop: u16,
+
+    /// The number of cells an indenting command shifts by, zero to follow `tabstop`.
+    pub shiftwidth: u16,
+
+    /// Whether an inserted tab is spelled with spaces.
+    pub expandtab: bool,
 
     /// How characters of ambiguous East Asian width are measured.
     pub ambiwidth: AmbiWidth,
@@ -106,7 +127,10 @@ impl Default for Options {
             wrap: true,
             breakindent: false,
             showbreak: String::new(),
+            linebreak: false,
             tabstop: 8,
+            shiftwidth: 8,
+            expandtab: false,
             ambiwidth: AmbiWidth::Single,
         }
     }
@@ -130,6 +154,11 @@ pub struct Case {
 
     /// The width of the viewport the buffer is laid out in, in cells.
     pub viewport_width: u16,
+
+    /// The height of the viewport the buffer is laid out in, in screen lines. A case that leaves
+    /// it out is laid out in a viewport [`DEFAULT_VIEWPORT_HEIGHT`] lines tall.
+    #[serde(default = "default_viewport_height")]
+    pub viewport_height: u16,
 
     /// The areas the case covers.
     pub tags: BTreeSet<Tag>,
@@ -389,6 +418,15 @@ pub enum Error {
         id: String,
     },
 
+    /// A case's viewport is zero lines tall.
+    ZeroViewportHeight {
+        /// The file declaring the case.
+        path: PathBuf,
+
+        /// The case's identifier.
+        id: String,
+    },
+
     /// A case's `'tabstop'` is zero, which vim rejects as well.
     ZeroTabstop {
         /// The file declaring the case.
@@ -465,6 +503,11 @@ impl Display for Error {
                 "the case `{id}` in the section {} has a zero-width viewport",
                 path.display()
             ),
+            Self::ZeroViewportHeight { path, id } => write!(
+                f,
+                "the case `{id}` in the section {} has a zero-height viewport",
+                path.display()
+            ),
             Self::ZeroTabstop { path, id } => write!(
                 f,
                 "the case `{id}` in the section {} has a zero tabstop",
@@ -503,6 +546,13 @@ pub fn default_dir() -> PathBuf {
         .join("corpus")
 }
 
+/// # Returns
+///
+/// The viewport height a case whose section leaves one out is laid out in.
+fn default_viewport_height() -> u16 {
+    DEFAULT_VIEWPORT_HEIGHT
+}
+
 /// One section file's contents.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -521,6 +571,7 @@ struct Section {
 /// * [`Error::EmptyKeys`] if the case's key sequence is empty.
 /// * [`Error::NoTags`] if the case carries no tag.
 /// * [`Error::ZeroViewportWidth`] if the case's viewport is zero cells wide.
+/// * [`Error::ZeroViewportHeight`] if the case's viewport is zero lines tall.
 /// * [`Error::ZeroTabstop`] if the case's `'tabstop'` is zero.
 fn validate_case(case: &Case, path: &Path) -> Result<(), Error> {
     if case.id.is_empty() {
@@ -546,6 +597,12 @@ fn validate_case(case: &Case, path: &Path) -> Result<(), Error> {
             id: case.id.clone(),
         });
     }
+    if 0 == case.viewport_height {
+        return Err(Error::ZeroViewportHeight {
+            path: path.to_path_buf(),
+            id: case.id.clone(),
+        });
+    }
     if 0 == case.options.tabstop {
         return Err(Error::ZeroTabstop {
             path: path.to_path_buf(),
@@ -565,15 +622,18 @@ mod tests {
     use std::process;
     use std::str;
 
-    use super::{default_dir, AmbiWidth, Case, Corpus, Error, Options, Tag, SECTION_EXTENSION};
+    use super::{
+        default_dir, AmbiWidth, Case, Corpus, Error, Options, Tag, DEFAULT_VIEWPORT_HEIGHT,
+        SECTION_EXTENSION,
+    };
 
     /// The number of cases the repository's corpus holds.
-    const TOTAL_CASE_COUNT: usize = 65;
+    const TOTAL_CASE_COUNT: usize = 67;
 
     /// The number of cases carrying each tag, which is also what the pull request reports.
     const TAG_BREAKDOWN: [(Tag, usize); 14] = [
         (Tag::Ambiwidth, 2),
-        (Tag::Ascii, 16),
+        (Tag::Ascii, 17),
         (Tag::Breakindent, 4),
         (Tag::Cjk, 14),
         (Tag::Code, 14),
@@ -584,7 +644,7 @@ mod tests {
         (Tag::Nowrap, 2),
         (Tag::Showbreak, 4),
         (Tag::Tab, 5),
-        (Tag::Wrap, 17),
+        (Tag::Wrap, 19),
         (Tag::WordMotion, 30),
     ];
 
@@ -730,6 +790,11 @@ tags = ["ascii"]
             assert!(
                 0 < case.viewport_width,
                 "case `{}` has a zero-width viewport",
+                case.id
+            );
+            assert!(
+                0 < case.viewport_height,
+                "case `{}` has a zero-height viewport",
                 case.id
             );
         }
@@ -899,10 +964,45 @@ tags = ["ascii"]
                 wrap: true,
                 breakindent: false,
                 showbreak: String::new(),
+                linebreak: false,
                 tabstop: 8,
+                shiftwidth: 8,
+                expandtab: false,
                 ambiwidth: AmbiWidth::Single,
             }
         );
+    }
+
+    #[test]
+    fn a_case_without_a_viewport_height_takes_the_default() {
+        let temp = TempCorpus::new("default-height");
+        temp.write("sample.toml", VALID_SECTION.as_bytes());
+        let corpus = temp.load().expect("the section must load");
+        assert_eq!(corpus.cases()[0].viewport_height, DEFAULT_VIEWPORT_HEIGHT);
+    }
+
+    #[test]
+    fn a_case_may_declare_its_viewport_height() {
+        let temp = TempCorpus::new("declared-height");
+        let section = format!("{VALID_SECTION}viewport_height = 12\n");
+        temp.write("sample.toml", section.as_bytes());
+        let corpus = temp.load().expect("the section must load");
+        assert_eq!(corpus.cases()[0].viewport_height, 12);
+    }
+
+    #[test]
+    fn a_zero_height_viewport_is_rejected() {
+        let temp = TempCorpus::new("zero-height");
+        let section = format!("{VALID_SECTION}viewport_height = 0\n");
+        temp.write("broken.toml", section.as_bytes());
+        let error = temp
+            .load()
+            .expect_err("a zero-height viewport must be rejected");
+        assert!(
+            matches!(error, Error::ZeroViewportHeight { .. }),
+            "{error:?}"
+        );
+        assert!(error.to_string().contains("broken.toml"), "{error}");
     }
 
     #[test]

@@ -2,25 +2,25 @@
 
 [[case]]
 id = "tab-leading-indent-ts8"
-description = "Leading tabs with the default tabstop of eight."
+description = "Leading tabs reached by screen column with the default tabstop of eight."
 buffer = """
 \tone level
 \t\ttwo levels
 \t\t\tthree levels
 """
-keys = "j0w"
+keys = "jj20|"
 viewport_width = 40
 tags = ["tab"]
 
 [[case]]
 id = "tab-leading-indent-ts4"
-description = "The same leading tabs measured with a tabstop of four."
+description = "The same screen column with a tabstop of four, which lands elsewhere."
 buffer = """
 \tone level
 \t\ttwo levels
 \t\t\tthree levels
 """
-keys = "j0w"
+keys = "jj20|"
 viewport_width = 40
 tags = ["tab"]
 options = { tabstop = 4 }

@@ -255,6 +255,7 @@ mod tests {
             buffer: "alpha beta\n".to_owned(),
             keys: "dw".to_owned(),
             viewport_width: 40,
+            viewport_height: corpus::DEFAULT_VIEWPORT_HEIGHT,
             tags: tags.iter().copied().collect(),
             options: Options::default(),
         }
