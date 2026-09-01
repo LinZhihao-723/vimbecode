@@ -5,8 +5,8 @@
 //! letter carrying combining marks each occupy the columns of one glyph rather than the sum of
 //! their code points'. A width also depends on the state around it -- on how the characters whose
 //! East Asian width is ambiguous are configured to be measured, and on the column a tab starts at
-//! -- so widths are asked of a [`Metrics`] carrying that configuration instead of of a free
-//! function that has to guess.
+//! -- so widths are asked of a [`Metrics`] carrying that configuration rather than of a free
+//! function that has to guess it.
 
 use std::cmp::Ordering;
 use std::num::NonZeroUsize;
