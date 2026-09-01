@@ -1,0 +1,43 @@
+# Combining marks and decomposed (NFD) forms, written as escapes so that the mark sequence of
+# each cluster is visible in the source.
+
+[[case]]
+id = "combining-nfd-acute-delete-cluster"
+description = "Deleting the final decomposed cluster of \"cafe\" plus a combining acute accent."
+buffer = """
+cafe\u0301 au lait
+"""
+keys = "wex"
+viewport_width = 40
+tags = ["combining", "nfd"]
+
+[[case]]
+id = "combining-nfc-and-nfd-same-word"
+description = "The precomposed and decomposed spellings of the same word on adjacent lines."
+buffer = """
+caf\u00E9 latte
+cafe\u0301 latte
+"""
+keys = "$xj$x"
+viewport_width = 40
+tags = ["combining", "nfd"]
+
+[[case]]
+id = "combining-stacked-marks"
+description = "A base letter carrying three stacked combining marks."
+buffer = """
+a\u0301\u0302\u0323 stacked marks
+"""
+keys = "xx"
+viewport_width = 40
+tags = ["combining"]
+
+[[case]]
+id = "combining-hangul-jamo-decomposed"
+description = "A Hangul syllable in its decomposed jamo form, next to its precomposed spelling."
+buffer = """
+\u1112\u1161\u11AB \uD55C jamo
+"""
+keys = "wx"
+viewport_width = 40
+tags = ["combining", "nfd", "cjk"]

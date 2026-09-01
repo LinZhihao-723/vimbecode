@@ -1,0 +1,50 @@
+# ASCII prose and code: the baseline every wide-character case is measured against.
+
+[[case]]
+id = "ascii-prose-delete-word"
+description = "Deleting the second word of a wrapped English paragraph."
+buffer = '''
+The quick brown fox jumps over the lazy dog while the sun sets behind the hill.
+Pack my box with five dozen liquor jugs, then rest.
+'''
+keys = "wdw"
+viewport_width = 40
+tags = ["ascii", "wrap"]
+
+[[case]]
+id = "ascii-prose-join-lines"
+description = "Joining two prose lines, which collapses the leading whitespace into one space."
+buffer = '''
+The quick brown fox jumps over the lazy dog
+    while the sun sets behind the hill.
+'''
+keys = "J"
+viewport_width = 80
+tags = ["ascii", "wrap"]
+
+[[case]]
+id = "ascii-code-change-inside-parens"
+description = "Changing the argument list of an indented function call."
+buffer = '''
+fn main() {
+    let total = compute(first, second);
+    println!("{total}");
+}
+'''
+keys = "jci(x<Esc>"
+viewport_width = 80
+tags = ["ascii", "code"]
+
+[[case]]
+id = "ascii-code-shift-indent"
+description = "Shifting two indented code lines right by one shiftwidth."
+buffer = '''
+fn main() {
+    let total = 1;
+    let other = 2;
+}
+'''
+keys = "j>>j>>"
+viewport_width = 80
+tags = ["ascii", "code"]
+options = { tabstop = 4 }

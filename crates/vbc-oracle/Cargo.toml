@@ -12,6 +12,7 @@ categories.workspace = true
 
 [dependencies]
 serde = { version = "1.0.229", features = ["derive"] }
+toml = "1.1.4"
 
 [dev-dependencies]
 anyhow = "1.0.104"
