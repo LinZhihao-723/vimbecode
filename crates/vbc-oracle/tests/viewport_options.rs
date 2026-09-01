@@ -166,11 +166,28 @@ fn a_wrapping_difference_that_leaves_the_byte_cursor_alone_is_caught() -> anyhow
     );
     assert_eq!(
         wrapped_state.diff(&unwrapped_state),
-        vec![Divergence::DisplayPosition {
-            left: wrapped_state.display_position,
-            right: unwrapped_state.display_position,
-        }],
-        "the two layouts differ in nothing the oracle compares but where the cursor is drawn"
+        vec![
+            Divergence::DisplayPosition {
+                left: wrapped_state.display_position,
+                right: unwrapped_state.display_position,
+            },
+            Divergence::ScreenText {
+                row: 0,
+                left: Some("aaaaaaaaaa bbbbbbbbbb cc".to_owned()),
+                right: Some("bbb cccccccccc ddddddddd".to_owned()),
+            },
+            Divergence::ScreenText {
+                row: 1,
+                left: Some("cccccccc dddddddddd eeee".to_owned()),
+                right: Some("~".to_owned()),
+            },
+            Divergence::ScreenText {
+                row: 2,
+                left: Some("eeeeee ffffffffff".to_owned()),
+                right: Some("~".to_owned()),
+            },
+        ],
+        "the wrapped line is drawn over three screen rows and the scrolled one over a single row"
     );
     Ok(())
 }

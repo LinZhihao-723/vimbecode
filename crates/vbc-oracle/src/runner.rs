@@ -1,10 +1,10 @@
 //! The differential runner: the corpus replayed against two engines, case by case.
 //!
 //! A run replays every case against both engines and compares every dimension of the state they
-//! end in -- buffer, cursor, display position, mode and registers. Each case is reported as
-//! agreeing, as diverging in named dimensions, or as one engine failing to replay it at all. A
-//! report serializes to JSON for a continuous-integration job, and renders a per-case diff for a
-//! human debugging a single failure.
+//! end in -- buffer, cursor, display position, mode, registers and the text drawn in the viewport.
+//! Each case is reported as agreeing, as diverging in named dimensions, or as one engine failing
+//! to replay it at all. A report serializes to JSON for a continuous-integration job, and renders
+//! a per-case diff for a human debugging a single failure.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error as StdError;
@@ -13,7 +13,7 @@ use std::fmt::{Display, Formatter, Result as FmtResult};
 use serde::{Deserialize, Serialize};
 
 use crate::corpus::{Case, Corpus, Tag};
-use crate::state::{describe_register, Divergence, EditorState};
+use crate::state::{describe_register, describe_screen_row, Divergence, EditorState};
 use crate::vim::{Error as VimError, VimDriver};
 
 /// An engine a differential run replays cases against.
@@ -75,6 +75,9 @@ pub enum Dimension {
 
     /// The text and type held by a register.
     Register,
+
+    /// The text drawn in the viewport, row by row.
+    ScreenText,
 }
 
 impl Dimension {
@@ -101,6 +104,7 @@ impl Display for Dimension {
             Self::DisplayPosition => "display position",
             Self::Mode => "mode",
             Self::Register => "register",
+            Self::ScreenText => "screen text",
         };
 
         formatter.write_str(name)
@@ -115,6 +119,7 @@ impl From<&Divergence> for Dimension {
             Divergence::DisplayPosition { .. } => Self::DisplayPosition,
             Divergence::Mode { .. } => Self::Mode,
             Divergence::Register { .. } => Self::Register,
+            Divergence::ScreenText { .. } => Self::ScreenText,
         }
     }
 }
@@ -493,6 +498,19 @@ impl Display for CaseDiff<'_> {
                                 formatter,
                                 "    {subject:<width$} : {}",
                                 describe_register(right.as_ref())
+                            )?;
+                        }
+                        Divergence::ScreenText { row, left, right } => {
+                            writeln!(formatter, "  screen text row {row}:")?;
+                            writeln!(
+                                formatter,
+                                "    {reference:<width$} : {}",
+                                describe_screen_row(left.as_deref())
+                            )?;
+                            writeln!(
+                                formatter,
+                                "    {subject:<width$} : {}",
+                                describe_screen_row(right.as_deref())
                             )?;
                         }
                     }

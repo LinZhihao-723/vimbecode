@@ -27,12 +27,12 @@ use sha2::{Digest, Sha256};
 
 use crate::corpus::{Case, Corpus};
 use crate::runner::{Dimension, Engine};
-use crate::state::{describe_register, Divergence, EditorState};
+use crate::state::{describe_register, describe_screen_row, Divergence, EditorState};
 use crate::vim::{VimDriver, VimVersion};
 
 /// The version of the schema a baseline file is written in, raised whenever a file an older build
 /// wrote can no longer be compared against a freshly captured state.
-pub const SCHEMA_VERSION: u32 = 1;
+pub const SCHEMA_VERSION: u32 = 2;
 
 /// The engine a baseline records the states of: the reference side of a differential run, together
 /// with the version of the vim behind it.
@@ -630,9 +630,14 @@ fn describe(divergence: &Divergence) -> (String, String, String) {
             describe_register(left.as_ref()),
             describe_register(right.as_ref()),
         ),
+        Divergence::ScreenText { left, right, .. } => (
+            describe_screen_row(left.as_deref()),
+            describe_screen_row(right.as_deref()),
+        ),
     };
     let name = match divergence {
         Divergence::Register { name, .. } => format!("register `{name}`"),
+        Divergence::ScreenText { row, .. } => format!("screen text row {row}"),
         other => Dimension::from(other).to_string(),
     };
 

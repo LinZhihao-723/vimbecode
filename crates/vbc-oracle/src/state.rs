@@ -54,6 +54,67 @@ pub struct DisplayPosition {
     pub column: u64,
 }
 
+/// The text an engine draws in the viewport, one entry per screen row of the text window, from
+/// the top of the viewport down.
+///
+/// A row holds the contents of the cells the engine drew, left to right: a cell holding a
+/// double-width character contributes that character and the cell it spans contributes nothing, a
+/// cell holding a character with combining marks contributes all of them, and a cell an engine
+/// left blank contributes a space. The blank cells at the end of a row carry nothing the viewport
+/// does not already say, so a row is held with them trimmed off.
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(transparent)]
+pub struct ScreenText {
+    rows: Vec<String>,
+}
+
+impl ScreenText {
+    /// Factory function.
+    ///
+    /// Creates the screen text drawn on the given rows, in viewport order.
+    ///
+    /// # Returns
+    ///
+    /// A newly created screen text, whose rows carry no trailing blank cells.
+    #[must_use]
+    pub fn new(rows: Vec<String>) -> Self {
+        Self {
+            rows: rows
+                .into_iter()
+                .map(|row| row.trim_end_matches(' ').to_owned())
+                .collect(),
+        }
+    }
+
+    /// # Returns
+    ///
+    /// The text drawn on every screen row, from the top of the viewport down.
+    #[must_use]
+    pub fn rows(&self) -> &[String] {
+        &self.rows
+    }
+
+    /// # Returns
+    ///
+    /// * The text drawn on the given screen row.
+    /// * `None` if the viewport has no such row.
+    #[must_use]
+    pub fn row(&self, row: u64) -> Option<&str> {
+        usize::try_from(row)
+            .ok()
+            .and_then(|row| self.rows.get(row))
+            .map(String::as_str)
+    }
+
+    /// # Returns
+    ///
+    /// The number of screen rows the viewport is drawn on.
+    #[must_use]
+    pub fn height(&self) -> u64 {
+        u64::try_from(self.rows.len()).expect("a viewport's height fits in a `u64`")
+    }
+}
+
 /// The mode an engine is in.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum Mode {
@@ -99,6 +160,10 @@ pub struct EditorState {
 
     /// The registers holding text, keyed by name. A register absent from the map holds nothing.
     pub registers: BTreeMap<RegisterName, Register>,
+
+    /// The text drawn in the viewport, which the buffer's layout decides for every line rather
+    /// than for the cursor's alone.
+    pub screen_text: ScreenText,
 }
 
 impl EditorState {
@@ -150,6 +215,18 @@ impl EditorState {
                     name,
                     left: left.cloned(),
                     right: right.cloned(),
+                });
+            }
+        }
+
+        for row in 0..self.screen_text.height().max(other.screen_text.height()) {
+            let left = self.screen_text.row(row);
+            let right = other.screen_text.row(row);
+            if left != right {
+                divergences.push(Divergence::ScreenText {
+                    row,
+                    left: left.map(ToOwned::to_owned),
+                    right: right.map(ToOwned::to_owned),
                 });
             }
         }
@@ -209,6 +286,20 @@ pub enum Divergence {
         /// The right snapshot's register, `None` if it holds nothing.
         right: Option<Register>,
     },
+
+    /// One screen row is drawn differently, which a line laid out differently causes even when
+    /// the cursor's own line is drawn the same way.
+    ScreenText {
+        /// The zero-based screen row the snapshots draw differently, counted from the top of the
+        /// viewport.
+        row: u64,
+
+        /// The text the left snapshot draws on that row, `None` if its viewport has no such row.
+        left: Option<String>,
+
+        /// The text the right snapshot draws on that row, `None` if its viewport has no such row.
+        right: Option<String>,
+    },
 }
 
 /// # Returns
@@ -226,6 +317,18 @@ pub fn describe_register(register: Option<&Register>) -> String {
     };
 
     format!("{register_type} {:?}", register.text)
+}
+
+/// # Returns
+///
+/// The text drawn on one screen row, or that the viewport has no such row.
+#[must_use]
+pub fn describe_screen_row(row: Option<&str>) -> String {
+    let Some(row) = row else {
+        return "not drawn".to_owned();
+    };
+
+    format!("{row:?}")
 }
 
 #[cfg(test)]
@@ -263,6 +366,12 @@ mod tests {
                         register_type: RegisterType::Blockwise,
                     },
                 ),
+            ]),
+            screen_text: ScreenText::new(vec![
+                "alpha".to_owned(),
+                "beta".to_owned(),
+                "gamma".to_owned(),
+                "~".to_owned(),
             ]),
         }
     }

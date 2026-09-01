@@ -77,9 +77,10 @@ else it exercises.
 ## The baseline
 
 `baseline.json` is the golden record of the state vim ends every case in: buffer, cursor, display
-position, mode, and registers with their types. A differential run compares two engines with each
-other and so says nothing about the reference side moving; the baseline is what catches a rewritten
-capture, a different vim, or an edited case changing what vim is taken to say.
+position, mode, registers with their types, and the text vim draws in the case's viewport, row by
+row. A differential run compares two engines with each other and so says nothing about the
+reference side moving; the baseline is what catches a rewritten capture, a different vim, or an
+edited case changing what vim is taken to say.
 
 ```bash
 cargo run --bin differential-run -- --check-baseline   # report every case that no longer holds
