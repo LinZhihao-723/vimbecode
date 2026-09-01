@@ -11,7 +11,7 @@ use std::fmt::{Display, Formatter, Result as FmtResult};
 
 use serde_json::{json, Value};
 use vbc_oracle::corpus::{self, Case, Corpus, Options, Tag};
-use vbc_oracle::runner::{self, Dimension, Engine, Outcome};
+use vbc_oracle::runner::{self, Dimension, Engine, Outcome, Report};
 use vbc_oracle::state::{Cursor, EditorState, Mode, Register, RegisterType};
 use vbc_oracle::vim::VimDriver;
 
@@ -150,6 +150,12 @@ fn unperturbed_state(case: &Case) -> EditorState {
 /// # Returns
 ///
 /// The repository's own corpus on success.
+///
+/// # Errors
+///
+/// Returns an error if:
+///
+/// * Forwards [`Corpus::load_dir`]'s return values on failure.
 fn repository_corpus() -> anyhow::Result<Corpus> {
     Ok(Corpus::load_dir(&corpus::default_dir())?)
 }
@@ -171,6 +177,16 @@ fn case(id: &'static str, tags: &[Tag]) -> Case {
 
 /// Replays the whole corpus against a stub broken in exactly one dimension, and asserts that every
 /// case is reported as diverging in that dimension and in no other.
+///
+/// # Errors
+///
+/// Returns an error if:
+///
+/// * Forwards [`repository_corpus`]'s return values on failure.
+///
+/// # Panics
+///
+/// Panics if a case is not reported as diverging in exactly the given dimension.
 fn assert_corpus_catches(perturbation: Perturbation, dimension: Dimension) -> anyhow::Result<()> {
     let corpus = repository_corpus()?;
     let report = runner::run_corpus(
@@ -366,6 +382,77 @@ fn an_engine_that_cannot_replay_a_case_is_reported_as_a_failure() -> anyhow::Res
     assert!(rendered.contains("failing-case"), "{rendered}");
     assert!(rendered.contains("subject"), "{rendered}");
     assert!(rendered.contains(&StubError.to_string()), "{rendered}");
+
+    Ok(())
+}
+
+#[test]
+fn a_reference_that_cannot_replay_a_case_is_reported_as_a_failure() -> anyhow::Result<()> {
+    let corpus = repository_corpus()?;
+    let report = runner::run_corpus(
+        &corpus,
+        &Stub::broken("reference", Perturbation::Failure),
+        &Stub::matching("subject"),
+    );
+
+    assert!(!report.all_agreed());
+    assert_eq!(report.summary.overall.failed, corpus.cases().len());
+    assert_eq!(report.summary.overall.agreed, 0);
+    assert_eq!(report.summary.overall.diverged, 0);
+    for case in &report.cases {
+        assert_eq!(
+            case.outcome,
+            Outcome::Failed {
+                engine: "reference".to_owned(),
+                message: StubError.to_string(),
+            },
+            "the case `{}` was not blamed on the reference",
+            case.id
+        );
+    }
+
+    Ok(())
+}
+
+#[test]
+fn a_reference_that_fails_is_named_ahead_of_a_subject_that_also_fails() -> anyhow::Result<()> {
+    let cases = [case("failing-case", &[Tag::Ascii])];
+    let report = runner::run_cases(
+        &cases,
+        &Stub::broken("reference", Perturbation::Failure),
+        &Stub::broken("subject", Perturbation::Failure),
+    );
+
+    assert_eq!(
+        report.cases.first().map(|case| &case.outcome),
+        Some(&Outcome::Failed {
+            engine: "reference".to_owned(),
+            message: StubError.to_string(),
+        })
+    );
+
+    Ok(())
+}
+
+#[test]
+fn a_report_read_back_from_its_json_is_the_report_that_was_written() -> anyhow::Result<()> {
+    let corpus = repository_corpus()?;
+    let diverging = runner::run_corpus(
+        &corpus,
+        &Stub::matching("reference"),
+        &Stub::broken_on("subject", Perturbation::Register, "cjk-ambiwidth-double"),
+    );
+    let failing = runner::run_corpus(
+        &corpus,
+        &Stub::matching("reference"),
+        &Stub::broken_on("subject", Perturbation::Failure, "cjk-ambiwidth-double"),
+    );
+
+    assert_eq!(diverging.summary.overall.diverged, 1);
+    assert_eq!(failing.summary.overall.failed, 1);
+    for report in [&diverging, &failing] {
+        assert_eq!(serde_json::from_str::<Report>(&report.to_json()?)?, *report);
+    }
 
     Ok(())
 }

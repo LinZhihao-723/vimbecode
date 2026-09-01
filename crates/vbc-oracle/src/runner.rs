@@ -42,8 +42,9 @@ pub trait Engine {
     fn replay(&self, case: &Case) -> Result<EditorState, Self::Error>;
 }
 
-/// The driver replays a case's starting buffer and keys. A case's display options are not applied,
-/// so a case whose outcome depends on them is replayed under vim's own defaults.
+/// The driver replays a case's starting buffer and keys. Neither a case's viewport width nor its
+/// display options are applied, so a case whose outcome depends on them -- one moving by screen
+/// line, for instance -- is replayed under vim's own defaults.
 impl Engine for VimDriver {
     type Error = VimError;
 
@@ -317,26 +318,36 @@ impl Display for Report {
 
 /// Replays every case of a corpus against both engines.
 ///
+/// # Type Parameters
+///
+/// * `ReferenceEngineType` - The engine taken as the reference, the left side of every comparison.
+/// * `SubjectEngineType` - The engine under test, the right side of every comparison.
+///
 /// # Returns
 ///
 /// What the run found, with one entry per case in corpus order.
-pub fn run_corpus<ReferenceEngine: Engine, SubjectEngine: Engine>(
+pub fn run_corpus<ReferenceEngineType: Engine, SubjectEngineType: Engine>(
     corpus: &Corpus,
-    reference: &ReferenceEngine,
-    subject: &SubjectEngine,
+    reference: &ReferenceEngineType,
+    subject: &SubjectEngineType,
 ) -> Report {
     run_cases(corpus.cases(), reference, subject)
 }
 
 /// Replays the given cases against both engines.
 ///
+/// # Type Parameters
+///
+/// * `ReferenceEngineType` - The engine taken as the reference, the left side of every comparison.
+/// * `SubjectEngineType` - The engine under test, the right side of every comparison.
+///
 /// # Returns
 ///
 /// What the run found, with one entry per case in the order the cases were given in.
-pub fn run_cases<'case_lifetime, ReferenceEngine: Engine, SubjectEngine: Engine>(
+pub fn run_cases<'case_lifetime, ReferenceEngineType: Engine, SubjectEngineType: Engine>(
     cases: impl IntoIterator<Item = &'case_lifetime Case>,
-    reference: &ReferenceEngine,
-    subject: &SubjectEngine,
+    reference: &ReferenceEngineType,
+    subject: &SubjectEngineType,
 ) -> Report {
     let cases: Vec<CaseReport> = cases
         .into_iter()
@@ -354,13 +365,18 @@ pub fn run_cases<'case_lifetime, ReferenceEngine: Engine, SubjectEngine: Engine>
 
 /// Replays one case against both engines.
 ///
+/// # Type Parameters
+///
+/// * `ReferenceEngineType` - The engine taken as the reference, the left side of every comparison.
+/// * `SubjectEngineType` - The engine under test, the right side of every comparison.
+///
 /// # Returns
 ///
 /// What the run found for that case.
-pub fn run_case<ReferenceEngine: Engine, SubjectEngine: Engine>(
+pub fn run_case<ReferenceEngineType: Engine, SubjectEngineType: Engine>(
     case: &Case,
-    reference: &ReferenceEngine,
-    subject: &SubjectEngine,
+    reference: &ReferenceEngineType,
+    subject: &SubjectEngineType,
 ) -> CaseReport {
     CaseReport {
         id: case.id.clone(),
@@ -456,13 +472,19 @@ impl Display for CaseDiff<'_> {
 
 /// Replays one case against both engines and compares the states they end in.
 ///
+/// # Type Parameters
+///
+/// * `ReferenceEngineType` - The engine taken as the reference, the left side of every comparison.
+/// * `SubjectEngineType` - The engine under test, the right side of every comparison.
+///
 /// # Returns
 ///
-/// The case's outcome.
-fn compare<ReferenceEngine: Engine, SubjectEngine: Engine>(
+/// The case's outcome, which reports the engine that could not replay the case when either side
+/// failed to.
+fn compare<ReferenceEngineType: Engine, SubjectEngineType: Engine>(
     case: &Case,
-    reference: &ReferenceEngine,
-    subject: &SubjectEngine,
+    reference: &ReferenceEngineType,
+    subject: &SubjectEngineType,
 ) -> Outcome {
     let reference_state = match reference.replay(case) {
         Ok(state) => state,

@@ -72,7 +72,7 @@ impl Arguments {
             let mut value = || {
                 arguments
                     .next()
-                    .ok_or_else(|| format!("`{argument}` takes a value"))
+                    .ok_or_else(|| format!("The option `{argument}` takes a value"))
             };
             match argument.as_str() {
                 "--help" | "-h" => return Ok(None),
@@ -103,7 +103,7 @@ impl Arguments {
 }
 
 /// The engine slot the vimbecode editor will fill, held by a second vim until the editor can
-/// replay a case.
+/// replay a case. A run against it therefore exercises the corpus and the runner, not the editor.
 struct Placeholder {
     driver: VimDriver,
 }
@@ -170,9 +170,9 @@ fn run(arguments: &Arguments) -> Result<ExitCode, String> {
         return Err("No case matched the selection".to_owned());
     }
 
-    let reference = VimDriver::new().map_err(|error| format!("vim is unusable: {error}"))?;
+    let reference = VimDriver::new().map_err(|error| format!("Vim is unusable: {error}"))?;
     let subject = Placeholder {
-        driver: VimDriver::new().map_err(|error| format!("vim is unusable: {error}"))?,
+        driver: VimDriver::new().map_err(|error| format!("Vim is unusable: {error}"))?,
     };
     let report = runner::run_cases(cases, &reference, &subject);
     print(&report, arguments.format)?;
@@ -213,4 +213,158 @@ fn print(report: &Report, format: Format) -> Result<(), String> {
 fn parse_tag(name: &str) -> Result<Tag, String> {
     serde_json::from_str(&format!("{name:?}"))
         .map_err(|error| format!("`{name}` is not a tag a case may carry: {error}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use vbc_oracle::corpus::Options;
+
+    use super::*;
+
+    /// # Returns
+    ///
+    /// What the entry point makes of a command line it understands on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error carrying the diagnostic the entry point rejected the command line with.
+    fn accept(arguments: &[&str]) -> anyhow::Result<Option<Arguments>> {
+        Arguments::parse(arguments.iter().map(|argument| (*argument).to_owned()))
+            .map_err(anyhow::Error::msg)
+    }
+
+    /// # Returns
+    ///
+    /// The diagnostic the entry point rejects the command line with.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the entry point understood the command line.
+    fn reject(arguments: &[&str]) -> String {
+        Arguments::parse(arguments.iter().map(|argument| (*argument).to_owned()))
+            .expect_err("the command line cannot be understood")
+    }
+
+    /// # Returns
+    ///
+    /// A case the selection tests filter.
+    fn case(id: &str, tags: &[Tag]) -> Case {
+        Case {
+            id: id.to_owned(),
+            description: "A case the tests build.".to_owned(),
+            buffer: "alpha beta\n".to_owned(),
+            keys: "dw".to_owned(),
+            viewport_width: 40,
+            tags: tags.iter().copied().collect(),
+            options: Options::default(),
+        }
+    }
+
+    #[test]
+    fn an_empty_command_line_replays_the_whole_repository_corpus_as_text() -> anyhow::Result<()> {
+        let parsed = accept(&[])?.expect("an empty command line is not a request for help");
+
+        assert_eq!(
+            parsed,
+            Arguments {
+                corpus: corpus::default_dir(),
+                tag: None,
+                case: None,
+                format: Format::Text,
+            }
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn every_option_is_understood() -> anyhow::Result<()> {
+        let parsed = accept(&[
+            "--corpus",
+            "/somewhere/else",
+            "--tag",
+            "word-motion",
+            "--case",
+            "word-w-cjk-latin",
+            "--format",
+            "json",
+        ])?
+        .expect("a full command line is not a request for help");
+
+        assert_eq!(
+            parsed,
+            Arguments {
+                corpus: PathBuf::from("/somewhere/else"),
+                tag: Some(Tag::WordMotion),
+                case: Some("word-w-cjk-latin".to_owned()),
+                format: Format::Json,
+            }
+        );
+        assert_eq!(
+            accept(&["--format", "text"])?.map(|parsed| parsed.format),
+            Some(Format::Text)
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn asking_for_help_asks_for_nothing_else() -> anyhow::Result<()> {
+        assert_eq!(accept(&["--help"])?, None);
+        assert_eq!(accept(&["-h"])?, None);
+        assert_eq!(accept(&["--format", "json", "--help"])?, None);
+
+        Ok(())
+    }
+
+    #[test]
+    fn a_command_line_that_cannot_be_understood_is_rejected() {
+        for arguments in [
+            ["--nonsense"].as_slice(),
+            ["--format", "yaml"].as_slice(),
+            ["--tag", "not-a-tag"].as_slice(),
+            ["--format"].as_slice(),
+            ["--tag"].as_slice(),
+            ["--case"].as_slice(),
+            ["--corpus"].as_slice(),
+        ] {
+            assert!(
+                !reject(arguments).is_empty(),
+                "{arguments:?} was rejected silently"
+            );
+        }
+    }
+
+    #[test]
+    fn a_rejection_names_what_it_could_not_understand() {
+        assert!(reject(&["--nonsense"]).contains("--nonsense"));
+        assert!(reject(&["--format", "yaml"]).contains("yaml"));
+        assert!(reject(&["--tag", "not-a-tag"]).contains("not-a-tag"));
+        assert!(reject(&["--format"]).contains("--format"));
+    }
+
+    #[test]
+    fn a_selection_narrows_the_corpus_to_what_it_names() -> anyhow::Result<()> {
+        let ascii_word_motion = case("ascii-word-motion", &[Tag::Ascii, Tag::WordMotion]);
+        let cjk = case("cjk", &[Tag::Cjk]);
+
+        let everything = accept(&[])?.expect("an empty command line selects every case");
+        assert!(everything.selects(&ascii_word_motion));
+        assert!(everything.selects(&cjk));
+
+        let by_tag = accept(&["--tag", "cjk"])?.expect("a tag selects the cases carrying it");
+        assert!(!by_tag.selects(&ascii_word_motion));
+        assert!(by_tag.selects(&cjk));
+
+        let by_case = accept(&["--case", "cjk"])?.expect("an identifier selects one case");
+        assert!(!by_case.selects(&ascii_word_motion));
+        assert!(by_case.selects(&cjk));
+
+        let by_both = accept(&["--tag", "ascii", "--case", "cjk"])?
+            .expect("a tag and an identifier select the cases matching both");
+        assert!(!by_both.selects(&ascii_word_motion));
+        assert!(!by_both.selects(&cjk));
+
+        Ok(())
+    }
 }
