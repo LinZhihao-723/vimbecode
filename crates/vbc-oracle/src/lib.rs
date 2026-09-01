@@ -5,3 +5,4 @@
 
 pub mod corpus;
 pub mod state;
+pub mod vim;
