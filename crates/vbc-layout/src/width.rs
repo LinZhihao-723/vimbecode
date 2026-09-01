@@ -62,11 +62,17 @@ impl Metrics {
         }
     }
 
+    /// # Returns
+    ///
+    /// How ambiguous characters are measured under these metrics.
     #[must_use]
     pub fn ambiwidth(&self) -> AmbiWidth {
         self.ambiwidth
     }
 
+    /// # Returns
+    ///
+    /// The number of columns between the tab stops of these metrics.
     #[must_use]
     pub fn tab_stop(&self) -> NonZeroUsize {
         self.tab_stop
@@ -245,6 +251,20 @@ mod tests {
     /// The flag of Japan, a pair of regional indicators.
     const FLAG: &str = "\u{1F1EF}\u{1F1F5}";
 
+    /// The number of code points [`AMBIGUOUS_LETTERS`] carries, which is every character whose
+    /// `East_Asian_Width` is `Ambiguous` and whose `General_Category` is a letter or a modifier
+    /// symbol in Unicode 16.0.0.
+    const AMBIGUOUS_LETTER_COUNT: usize = 193;
+
+    /// # Returns
+    ///
+    /// Every character [`AMBIGUOUS_LETTERS`] carries, in order.
+    fn ambiguous_letters() -> impl Iterator<Item = char> {
+        AMBIGUOUS_LETTERS.into_iter().flat_map(|(first, last)| {
+            (u32::from(first)..=u32::from(last)).filter_map(char::from_u32)
+        })
+    }
+
     /// # Returns
     ///
     /// A metrics measuring ambiguous characters as `ambiwidth` says, with the default tab stop.
@@ -318,34 +338,31 @@ mod tests {
     fn ambiguous_letters_are_only_widened_by_the_double_setting() {
         let single = metrics(AmbiWidth::Single);
         let double = metrics(AmbiWidth::Double);
-        for (first, last) in AMBIGUOUS_LETTERS {
-            for character in [first, last] {
-                let text = character.to_string();
-                assert_eq!(
-                    1,
-                    single.text_width(&text, 0),
-                    "the single width of {text:?}"
-                );
-                assert_eq!(
-                    2,
-                    double.text_width(&text, 0),
-                    "the double width of {text:?}"
-                );
-            }
+        let mut carried = 0;
+        for character in ambiguous_letters() {
+            carried += 1;
+            let text = character.to_string();
+            assert_eq!(
+                1,
+                single.text_width(&text, 0),
+                "the single width of {text:?}"
+            );
+            assert_eq!(
+                2,
+                double.text_width(&text, 0),
+                "the double width of {text:?}"
+            );
+
+            // The table carries only what `unicode-width` does not widen by itself, so a
+            // character that enters its own ambiguous set has to leave the table.
+            assert_eq!(
+                1,
+                UnicodeWidthStr::width_cjk(text.as_str()),
+                "`unicode-width` now widens {text:?} by itself"
+            );
         }
 
-        // The table carries only what `unicode-width` does not widen by itself, so a character
-        // that enters its own ambiguous set has to leave the table.
-        for (first, last) in AMBIGUOUS_LETTERS {
-            for character in [first, last] {
-                let text = character.to_string();
-                assert_eq!(
-                    1,
-                    UnicodeWidthStr::width_cjk(text.as_str()),
-                    "`unicode-width` now widens {text:?} by itself"
-                );
-            }
-        }
+        assert_eq!(AMBIGUOUS_LETTER_COUNT, carried);
     }
 
     #[test]
@@ -422,8 +439,8 @@ mod tests {
 
         for ambiwidth in [AmbiWidth::Single, AmbiWidth::Double] {
             let metrics = metrics(ambiwidth);
-            assert_eq!(CONTROL_WIDTH, metrics.grapheme_width("\0", 0));
-            assert_eq!(2 + CONTROL_WIDTH, metrics.text_width("a\0b", 0));
+            assert_eq!(0, metrics.grapheme_width("\0", 0));
+            assert_eq!(2, metrics.text_width("a\0b", 0));
             for column in 0..DEFAULT_TAB_STOP {
                 assert_eq!(
                     DEFAULT_TAB_STOP - column,
@@ -436,14 +453,12 @@ mod tests {
 
     #[test]
     fn control_characters_other_than_tab_report_no_width() {
+        assert_eq!(0, CONTROL_WIDTH);
+
         let metrics = Metrics::default();
         for character in ['\0', '\u{1}', '\u{7}', '\u{1B}', '\u{7F}', '\u{9F}'] {
             let text = character.to_string();
-            assert_eq!(
-                CONTROL_WIDTH,
-                metrics.grapheme_width(&text, 0),
-                "the width of {text:?}"
-            );
+            assert_eq!(0, metrics.grapheme_width(&text, 0), "the width of {text:?}");
         }
     }
 
