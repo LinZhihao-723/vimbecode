@@ -23,6 +23,9 @@ cells wide and `viewport_height` lines tall, stripped of line numbers, sign colu
 column, so the declared width is the width of the text itself. `viewport_height` is what `H`, `M`,
 `L` and the half-page scrolls are measured against.
 
+vim will not open a window narrower than twelve cells or shorter than two lines, and quietly
+widens a narrower one, so a case declaring less than that is not laid out where it says it is.
+
 ## Options
 
 `options` is optional, and so is every field inside it. A field left out takes vim's own default.

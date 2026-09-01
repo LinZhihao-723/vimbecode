@@ -644,7 +644,7 @@ fn build_prelude(case: &Case) -> String {
         tabstop = options.tabstop,
         shiftwidth = options.shiftwidth,
         ambiwidth = options.ambiwidth,
-        showbreak = escape_string(&options.showbreak),
+        showbreak = escape_single_quotes(&options.showbreak),
     )
 }
 
@@ -659,7 +659,7 @@ fn switch(name: &str, enabled: bool) -> String {
 ///
 /// The text as the body of a vim single-quoted string, in which a quote stands for itself only
 /// when it is doubled.
-fn escape_string(text: &str) -> String {
+fn escape_single_quotes(text: &str) -> String {
     text.replace('\'', "''")
 }
 
@@ -1247,6 +1247,44 @@ mod tests {
                 "the prelude does not run `{command}`: {prelude}"
             );
         }
+    }
+
+    #[test]
+    fn a_prelude_strips_a_gutter_the_window_already_carries() -> anyhow::Result<()> {
+        use std::collections::BTreeSet;
+
+        use crate::corpus::{Options, Tag};
+
+        let driver = driver()?;
+        let case = Case {
+            id: "boundary".to_owned(),
+            description: "A line wrapping exactly on the viewport's last cell.".to_owned(),
+            buffer: "abcdefghijklmnopqrstuvwxyz0123456789\n".to_owned(),
+            keys: "gj".to_owned(),
+            viewport_width: 20,
+            viewport_height: 10,
+            tags: BTreeSet::from([Tag::Wrap]),
+            options: Options::default(),
+        };
+        let prelude = build_prelude(&case);
+        const GUTTER: &str = "set number signcolumn=yes foldcolumn=4";
+
+        let stripped = driver.run_case(&case)?;
+        let restored =
+            driver.run_with_prelude(&case.buffer, &case.keys, &format!("{GUTTER}\n{prelude}"))?;
+        let kept =
+            driver.run_with_prelude(&case.buffer, &case.keys, &format!("{prelude}\n{GUTTER}"))?;
+
+        assert_eq!(
+            stripped, restored,
+            "a window opened with a gutter is not laid out like one opened without it, so the \
+             prelude does not strip the gutter it finds"
+        );
+        assert_ne!(
+            stripped, kept,
+            "a gutter does not change where the case ends, so stripping one proves nothing"
+        );
+        Ok(())
     }
 
     #[test]

@@ -92,32 +92,32 @@ options = { breakindent = true, showbreak = "+++ " }
 id = "wrap-w80-plain"
 description = "A paragraph at eighty columns, where only the longest line wraps."
 buffer = """
-    the indented sentence that wraps a few times before it finally ends here
+    the indented sentence that wraps a few times before it finally ends here and keeps running well past the eightieth column
 short second line
 """
-keys = "g$j"
+keys = "40|gj"
 viewport_width = 80
 tags = ["wrap"]
 
 [[case]]
 id = "wrap-w80-showbreak"
-description = "The same paragraph at eighty columns with a continuation marker."
+description = "The same paragraph at eighty columns, whose marker shifts the wrapped text right."
 buffer = """
-    the indented sentence that wraps a few times before it finally ends here
+    the indented sentence that wraps a few times before it finally ends here and keeps running well past the eightieth column
 short second line
 """
-keys = "g$j"
+keys = "40|gj"
 viewport_width = 80
 tags = ["wrap", "showbreak"]
 options = { showbreak = "\u21B3 " }
 
 [[case]]
 id = "nowrap-w40-horizontal-scroll"
-description = "A long line with 'wrap' off, so the end of the line is reached by scrolling."
+description = "A long line with 'wrap' off, ending at the left edge of the scrolled viewport."
 buffer = """
     the indented sentence that runs far past the right edge of the viewport and keeps going
 """
-keys = "$0"
+keys = "$g0"
 viewport_width = 40
 tags = ["nowrap"]
 options = { wrap = false }

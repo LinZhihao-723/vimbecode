@@ -19,6 +19,9 @@ const WRAP_VARIANTS: [(&str, u64); 4] = [
     ("wrap-w24-breakindent-showbreak", 42),
 ];
 
+/// The keys of a replay that does nothing, against which a case's own keys are measured.
+const IDLE_KEYS: &str = "<Esc>";
+
 /// # Returns
 ///
 /// The repository's corpus on success.
@@ -155,6 +158,33 @@ fn the_two_ambiwidths_end_in_different_states() -> anyhow::Result<()> {
 }
 
 #[test]
+fn the_two_showbreak_variants_end_in_different_states() -> anyhow::Result<()> {
+    let corpus = repository_corpus()?;
+    let driver = VimDriver::new()?;
+
+    let plain = replay(&driver, case(&corpus, "wrap-w80-plain"))?;
+    let marked = replay(&driver, case(&corpus, "wrap-w80-showbreak"))?;
+
+    assert_eq!(
+        plain.cursor,
+        Cursor {
+            line: 0,
+            column: 119
+        }
+    );
+    assert_eq!(
+        marked.cursor,
+        Cursor {
+            line: 0,
+            column: 117
+        },
+        "the marker takes two cells from every continuation line, so the screen-line motion lands \
+         two characters earlier"
+    );
+    Ok(())
+}
+
+#[test]
 fn the_viewport_width_is_the_width_of_the_text() -> anyhow::Result<()> {
     let corpus = repository_corpus()?;
     let boundary = case(&corpus, "wrap-w20-boundary-exact");
@@ -226,16 +256,22 @@ fn a_case_is_laid_out_in_a_viewport_as_tall_as_it_asks_for() -> anyhow::Result<(
 }
 
 #[test]
-fn every_case_replays_in_its_own_viewport() -> anyhow::Result<()> {
+fn every_case_replays_in_its_own_viewport_and_its_keys_leave_a_trace() -> anyhow::Result<()> {
     let corpus = repository_corpus()?;
     let driver = VimDriver::new()?;
 
     for case in corpus.cases() {
         let state = replay(&driver, case)
             .map_err(|error| anyhow::anyhow!("the case `{}` failed: {error}", case.id))?;
-        assert!(
-            !state.buffer.is_empty(),
-            "the case `{}` reported an empty buffer",
+        let idle = Case {
+            keys: IDLE_KEYS.to_owned(),
+            ..case.clone()
+        };
+        assert_ne!(
+            state,
+            replay(&driver, &idle)?,
+            "the case `{}` ends where it started, so it would still pass against an engine that \
+             ignored its keys",
             case.id
         );
     }
