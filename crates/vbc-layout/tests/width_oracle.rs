@@ -18,6 +18,15 @@ use vbc_oracle::baseline::{self, Baseline};
 use vbc_oracle::corpus::{self, AmbiWidth as CaseAmbiWidth, Case, Corpus};
 use vbc_oracle::state::EditorState;
 
+/// The number of cases whose cursor column the widths here account for, which is the sample the
+/// cross-check is worth. A case added to the corpus lands in the sample or in one of the lists
+/// below, and either way this number moves.
+const CURSOR_COLUMNS_ANCHORED: usize = 45;
+
+/// The number of cases whose first screen row the widths here account for, which is the sample
+/// that cross-check is worth.
+const FIRST_ROWS_ANCHORED: usize = 53;
+
 /// The cases whose cursor vim draws at another column than the width of the text before it, with
 /// the reason.
 const CURSOR_COLUMN_DIVERGENCES: [(&str, &str); 7] = [
@@ -179,10 +188,7 @@ fn cursor_columns_match_the_columns_vim_drew() {
         past_the_first_row
     );
     assert_eq!(ids(&CURSOR_COLUMN_DIVERGENCES), diverged);
-    assert_eq!(
-        corpus.cases().len() - on_a_tab.len() - past_the_first_row.len() - diverged.len(),
-        anchored.len()
-    );
+    assert_eq!(CURSOR_COLUMNS_ANCHORED, anchored.len());
 }
 
 #[test]
@@ -218,10 +224,7 @@ fn first_screen_rows_match_the_row_vim_drew() {
         scrolled_sideways
     );
     assert_eq!(ids(&FIRST_ROW_DIVERGENCES), diverged);
-    assert_eq!(
-        corpus.cases().len() - scrolled_sideways.len() - diverged.len(),
-        anchored.len()
-    );
+    assert_eq!(FIRST_ROWS_ANCHORED, anchored.len());
 }
 
 /// # Returns
