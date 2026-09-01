@@ -346,7 +346,7 @@ fn a_case_is_laid_out_in_a_text_window_as_tall_as_it_asks_for() -> anyhow::Resul
 }
 
 #[test]
-fn the_lowest_line_of_the_screen_is_the_last_line_of_the_text_window() -> anyhow::Result<()> {
+fn l_lands_on_the_last_line_of_the_text_window() -> anyhow::Result<()> {
     let corpus = repository_corpus()?;
     let driver = VimDriver::new()?;
     let tall = Case {
@@ -398,6 +398,62 @@ fn a_viewport_narrower_than_the_loader_accepts_is_widened_by_vim() -> anyhow::Re
         replay(&driver, &narrower)?.buffer,
         format!("{}\n", corpus::MINIMUM_VIEWPORT_WIDTH),
         "vim no longer widens a window under the loader's minimum, so the minimum is stale"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_viewport_wider_than_the_loader_accepts_is_narrowed_by_vim() -> anyhow::Result<()> {
+    let corpus = repository_corpus()?;
+    let driver = VimDriver::new()?;
+    let widest = Case {
+        buffer: PLACEHOLDER_LINE.to_owned(),
+        keys: REPORT_WINDOW_WIDTH_KEYS.to_owned(),
+        viewport_width: corpus::MAXIMUM_VIEWPORT_WIDTH,
+        ..case(&corpus, "wrap-w20-plain").clone()
+    };
+    let wider = Case {
+        viewport_width: corpus::MAXIMUM_VIEWPORT_WIDTH + 1,
+        ..widest.clone()
+    };
+
+    assert_eq!(
+        replay(&driver, &widest)?.buffer,
+        format!("{}\n", corpus::MAXIMUM_VIEWPORT_WIDTH),
+        "the widest viewport the loader accepts is not the width vim lays it out in"
+    );
+    assert_eq!(
+        replay(&driver, &wider)?.buffer,
+        format!("{}\n", corpus::MAXIMUM_VIEWPORT_WIDTH),
+        "vim no longer narrows a window over the loader's maximum, so the maximum is stale"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_viewport_taller_than_the_loader_accepts_is_shortened_by_vim() -> anyhow::Result<()> {
+    let corpus = repository_corpus()?;
+    let driver = VimDriver::new()?;
+    let tallest = Case {
+        buffer: PLACEHOLDER_LINE.to_owned(),
+        keys: REPORT_WINDOW_HEIGHT_KEYS.to_owned(),
+        viewport_height: corpus::MAXIMUM_VIEWPORT_HEIGHT,
+        ..case(&corpus, "wrap-w20-plain").clone()
+    };
+    let taller = Case {
+        viewport_height: corpus::MAXIMUM_VIEWPORT_HEIGHT + 1,
+        ..tallest.clone()
+    };
+
+    assert_eq!(
+        replay(&driver, &tallest)?.buffer,
+        format!("{}\n", corpus::MAXIMUM_VIEWPORT_HEIGHT),
+        "the tallest viewport the loader accepts is not the height vim lays it out in"
+    );
+    assert_eq!(
+        replay(&driver, &taller)?.buffer,
+        format!("{}\n", corpus::MAXIMUM_VIEWPORT_HEIGHT),
+        "vim no longer shortens a window over the loader's maximum, so the maximum is stale"
     );
     Ok(())
 }
