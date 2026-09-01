@@ -172,8 +172,10 @@ fn unperturbed_state(case: &Case) -> EditorState {
 /// The screen a case's buffer is drawn on, as many rows tall as the case's viewport, with the
 /// rows below the buffer's last line left blank.
 fn screen_text(case: &Case) -> ScreenText {
+    let height = usize::from(case.viewport_height);
     let mut rows: Vec<String> = case.buffer.lines().map(ToOwned::to_owned).collect();
-    rows.resize(usize::from(case.viewport_height), String::new());
+    rows.resize(height, String::new());
+    rows.truncate(height);
 
     ScreenText::new(rows)
 }
