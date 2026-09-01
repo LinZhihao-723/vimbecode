@@ -2,3 +2,5 @@
 //!
 //! Replays a sequence of keystrokes against both the editor and a real vim process, and reports
 //! where the two disagree.
+
+pub mod state;
