@@ -16,6 +16,8 @@ path = "src/main.rs"
 
 [dependencies]
 crossterm = "0.29.0"
+editor-types = { version = "0.0.2", default-features = false }
+modalkit = { version = "0.0.25", default-features = false }
 ratatui = { version = "0.30.2", default-features = false, features = [
     "crossterm_0_29",
     "std",
