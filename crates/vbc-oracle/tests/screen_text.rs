@@ -44,7 +44,7 @@ const UNJOINED_EMOJI_BUFFER: &str = "a\u{1f469}\u{1f4bb}b\u{1f1ef}\u{1f1f5}c\n";
 
 /// How many of the corpus's cases must draw a screen that the buffer behind them does not
 /// describe, which is the part of the corpus the screen text is a dimension for.
-const INFORMATIVE_CASES: usize = 33;
+const INFORMATIVE_CASES: usize = 41;
 
 /// # Returns
 ///
@@ -142,7 +142,7 @@ fn layout_variants() -> [Case; 3] {
 /// Whether the case is one whose lines vim cannot draw one to a row: the cases that wrap a line,
 /// scroll a viewport sideways, or expand a tab.
 fn is_laid_out(id: &str) -> bool {
-    ["wrap-", "nowrap-", "tab-"]
+    ["anchor-walk-", "wrap-", "nowrap-", "tab-"]
         .iter()
         .any(|family| id.starts_with(family))
 }
