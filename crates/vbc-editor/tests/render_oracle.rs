@@ -35,7 +35,7 @@ use crate::screen::{broken_claims, BLANK};
 /// The number of cases whose whole screen the renderer reproduces, which is the sample the
 /// cross-check against vim is worth and is the count `line_oracle` asserts for the layout
 /// underneath it.
-const SCREENS_ANCHORED: usize = 62;
+const SCREENS_ANCHORED: usize = 63;
 
 /// The cases whose window scrolls sideways rather than wrapping, which a viewport decides and a
 /// row renderer therefore says nothing about.
@@ -43,8 +43,7 @@ const NOT_WRAPPED: [&str; 2] = ["nowrap-w20-cjk", "nowrap-w40-horizontal-scroll"
 
 /// The cases whose recorded screen holds something other than the graphemes the layout hands the
 /// renderer, named in `line_oracle` together with the reason.
-const SCREEN_DIVERGENCES: [&str; 11] = [
-    "cjk-mixed-latin-delete-char",
+const SCREEN_DIVERGENCES: [&str; 10] = [
     "emoji-skin-tone-modifier",
     "emoji-zwj-family-delete-cluster",
     "emoji-zwj-family-wrap-edge",

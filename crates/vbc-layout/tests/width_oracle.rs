@@ -25,7 +25,7 @@ const CURSOR_COLUMNS_ANCHORED: usize = 53;
 
 /// The number of cases whose first screen row the widths here account for, which is the sample
 /// that cross-check is worth.
-const FIRST_ROWS_ANCHORED: usize = 61;
+const FIRST_ROWS_ANCHORED: usize = 62;
 
 /// The cases whose cursor vim draws at another column than the width of the text before it, with
 /// the reason.
@@ -88,11 +88,7 @@ const CURSOR_PAST_THE_FIRST_ROW: [&str; 14] = [
 
 /// The cases whose first screen row vim fills with something other than the graphemes that fit in
 /// it, with the reason.
-const FIRST_ROW_DIVERGENCES: [(&str, &str); 12] = [
-    (
-        "cjk-mixed-latin-delete-char",
-        "the recorded row repeats every double-width character that starts at an odd column",
-    ),
+const FIRST_ROW_DIVERGENCES: [(&str, &str); 11] = [
     (
         "cjk-wide-cell-straddles-edge",
         "vim marks a row whose last cell cannot hold the next double-width character with a `>`",

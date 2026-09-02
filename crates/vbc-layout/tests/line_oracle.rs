@@ -22,7 +22,7 @@ use vbc_oracle::state::{EditorState, ScreenText};
 /// The number of cases whose whole screen this module reproduces, which is the sample the
 /// cross-check is worth. A case added to the corpus lands in the sample or in one of the lists
 /// below, and either way this number moves.
-const SCREENS_ANCHORED: usize = 62;
+const SCREENS_ANCHORED: usize = 63;
 
 /// The cases whose window scrolls sideways rather than wrapping, which a viewport decides and a
 /// line layout therefore says nothing about.
@@ -30,12 +30,7 @@ const NOT_WRAPPED: [&str; 2] = ["nowrap-w20-cjk", "nowrap-w40-horizontal-scroll"
 
 /// The cases whose recorded screen holds something other than the graphemes this module lays out,
 /// with the reason.
-const SCREEN_DIVERGENCES: [(&str, &str); 11] = [
-    (
-        "cjk-mixed-latin-delete-char",
-        "the recorded screen repeats every double-width character that starts at an odd column, \
-         which is what vim's own capture reports after the deletion redrew part of the row",
-    ),
+const SCREEN_DIVERGENCES: [(&str, &str); 10] = [
     ("emoji-skin-tone-modifier", ZERO_WIDTH_JOINER),
     ("emoji-zwj-family-delete-cluster", ZERO_WIDTH_JOINER),
     ("emoji-zwj-family-wrap-edge", ZERO_WIDTH_JOINER),

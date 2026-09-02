@@ -45,7 +45,7 @@ const UNJOINED_EMOJI_BUFFER: &str = "a\u{1f469}\u{1f4bb}b\u{1f1ef}\u{1f1f5}c\n";
 
 /// How many of the corpus's cases must draw a screen that the buffer behind them does not
 /// describe, which is the part of the corpus the screen text is a dimension for.
-const INFORMATIVE_CASES: usize = 41;
+const INFORMATIVE_CASES: usize = 40;
 
 /// The keys that draw the whole screen again from an empty one, without moving the cursor or
 /// leaving the mode the case ended in. A screen drawn this way holds nothing an earlier draw of
