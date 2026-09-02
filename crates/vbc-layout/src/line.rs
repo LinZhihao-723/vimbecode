@@ -270,6 +270,7 @@ pub fn lay_out(
     metrics: Metrics,
     options: &Options,
 ) -> Vec<DisplayRow> {
+    let decoration = continuation_decoration(line, width, metrics, options);
     let width = width.get();
     let clusters: Vec<(usize, &str)> = grapheme_indices(line).collect();
     if clusters.is_empty() {
@@ -283,7 +284,6 @@ pub fn lay_out(
         }];
     }
 
-    let decoration = continuation_decoration(line, width, metrics, options);
     let decoration_width = metrics.text_width(&decoration, 0);
     let marker_skipped = if options.line_break {
         0
@@ -375,6 +375,34 @@ pub fn lay_out(
     rows
 }
 
+/// Builds the decoration a continuation row of a line carries: the repeated indent followed by
+/// the continuation marker.
+///
+/// vim repeats an indent only while `min` columns remain for the text beside it, and shortens the
+/// repeated indent rather than dropping it when fewer do. A row drops the decoration altogether
+/// where it would leave no room for the text it decorates.
+///
+/// # Returns
+///
+/// The decoration, empty if the options ask for none.
+#[must_use]
+pub fn continuation_decoration(
+    line: &str,
+    width: NonZeroUsize,
+    metrics: Metrics,
+    options: &Options,
+) -> String {
+    let mut decoration = String::new();
+    if options.break_indent {
+        let repeated =
+            indent_width(line, metrics).min(width.get().saturating_sub(options.break_indent_min));
+        decoration.push_str(&" ".repeat(repeated));
+    }
+    decoration.push_str(&options.show_break);
+
+    decoration
+}
+
 /// Measures one grapheme drawn at a given column of the screen.
 ///
 /// A tab drawn as the first grapheme after a continuation marker is measured from the column the
@@ -397,32 +425,6 @@ fn grapheme_columns(
     }
 
     metrics.grapheme_width(grapheme, column)
-}
-
-/// Builds the decoration a continuation row of the line carries: the repeated indent followed by
-/// the continuation marker.
-///
-/// vim repeats an indent only while `min` columns remain for the text beside it, and shortens the
-/// repeated indent rather than dropping it when fewer do.
-///
-/// # Returns
-///
-/// The decoration, empty if the options ask for none.
-fn continuation_decoration(
-    line: &str,
-    width: usize,
-    metrics: Metrics,
-    options: &Options,
-) -> String {
-    let mut decoration = String::new();
-    if options.break_indent {
-        let repeated =
-            indent_width(line, metrics).min(width.saturating_sub(options.break_indent_min));
-        decoration.push_str(&" ".repeat(repeated));
-    }
-    decoration.push_str(&options.show_break);
-
-    decoration
 }
 
 /// # Returns

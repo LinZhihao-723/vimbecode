@@ -7,5 +7,6 @@ pub mod anchor;
 pub mod buffer;
 pub mod invariants;
 pub mod line;
+pub mod screen;
 pub mod viewport;
 pub mod width;
