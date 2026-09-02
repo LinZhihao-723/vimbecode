@@ -4,3 +4,4 @@
 //! the two coordinate spaces.
 
 pub mod invariants;
+pub mod width;

@@ -16,3 +16,4 @@ unicode-width = "0.2.2"
 
 [dev-dependencies]
 proptest = "1.11.0"
+vbc-oracle = { path = "../vbc-oracle" }

@@ -8,8 +8,9 @@ use std::collections::BTreeMap;
 use std::fmt::{Display, Formatter, Result as FmtResult};
 use std::num::NonZeroUsize;
 
-use unicode_segmentation::UnicodeSegmentation;
-use unicode_width::UnicodeWidthStr;
+pub use crate::width::graphemes;
+
+use crate::width::Metrics;
 
 /// The invariants a layout is checked against, in the order [`check`] reports them.
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -281,17 +282,11 @@ pub fn check<LayoutType: Layout>(
 
 /// # Returns
 ///
-/// The graphemes of `text`, in order.
-pub fn graphemes(text: &str) -> impl Iterator<Item = &str> {
-    text.graphemes(true)
-}
-
-/// # Returns
-///
-/// The number of display columns `text` occupies.
+/// The number of display columns `text` occupies when it is drawn from the start of a row under
+/// the default [`Metrics`].
 #[must_use]
 pub fn display_width(text: &str) -> usize {
-    UnicodeWidthStr::width(text)
+    Metrics::default().text_width(text, 0)
 }
 
 /// # Returns
