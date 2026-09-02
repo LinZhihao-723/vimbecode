@@ -6,6 +6,7 @@
 
 use std::collections::BTreeSet;
 
+use vbc_oracle::baseline::{self, Baseline};
 use vbc_oracle::corpus::{self, Case, Corpus, Options, Tag};
 use vbc_oracle::runner::Dimension;
 use vbc_oracle::state::{EditorState, Mode, ScreenText};
@@ -45,6 +46,46 @@ const UNJOINED_EMOJI_BUFFER: &str = "a\u{1f469}\u{1f4bb}b\u{1f1ef}\u{1f1f5}c\n";
 /// How many of the corpus's cases must draw a screen that the buffer behind them does not
 /// describe, which is the part of the corpus the screen text is a dimension for.
 const INFORMATIVE_CASES: usize = 41;
+
+/// The keys that draw the whole screen again from an empty one, without moving the cursor or
+/// leaving the mode the case ended in. A screen drawn this way holds nothing an earlier draw of
+/// the same case left behind.
+const REPAINT_KEYS: &str = "<Cmd>redraw!<CR>";
+
+/// A line whose double-width characters sit one cell to the right of where deleting its first
+/// character leaves them, so that each of them ends up over a cell the first draw wrote to.
+const SHIFTED_WIDE_BUFFER: &str = "ax中文y\n";
+
+/// The line [`SHIFTED_WIDE_BUFFER`] is drawn as once its first character is deleted, in which the
+/// double-width characters start at the odd column 1 and the even column 3.
+const SHIFTED_WIDE_ROW: &str = "x中文y";
+
+/// The keys that delete the first character of [`SHIFTED_WIDE_BUFFER`] and put the cursor on the
+/// first double-width character that the deletion moved.
+const SHIFT_ONTO_AN_ODD_COLUMN_KEYS: &str = "xl";
+
+/// The column the cursor of [`SHIFT_ONTO_AN_ODD_COLUMN_KEYS`] is drawn in, which is odd.
+const ODD_COLUMN: u64 = 1;
+
+/// A line whose double-width characters are drawn where they are however its last character is
+/// edited, which is the even-column path that never doubled a character.
+const UNSHIFTED_WIDE_BUFFER: &str = "中文xy\n";
+
+/// The line [`UNSHIFTED_WIDE_BUFFER`] is drawn as once its last character is deleted.
+const UNSHIFTED_WIDE_ROW: &str = "中文x";
+
+/// The keys that delete the last character of [`UNSHIFTED_WIDE_BUFFER`] and put the cursor on the
+/// second double-width character.
+const DELETE_LAST_KEYS: &str = "$xh";
+
+/// The column the cursor of [`DELETE_LAST_KEYS`] is drawn in, which is even.
+const EVEN_COLUMN: u64 = 2;
+
+/// The corpus case the screen capture used to record with its double-width characters doubled.
+const CJK_MIXED_LATIN_CASE: &str = "cjk-mixed-latin-delete-char";
+
+/// The line [`CJK_MIXED_LATIN_CASE`] draws, in which every character is drawn once.
+const CJK_MIXED_LATIN_ROW: &str = "中文bc 英文def 结束done";
 
 /// # Returns
 ///
@@ -479,6 +520,123 @@ fn a_case_that_is_replayed_twice_is_drawn_the_same_way() -> anyhow::Result<()> {
     assert_eq!(
         driver.run_case(case)?.screen_text,
         driver.run_case(case)?.screen_text
+    );
+    Ok(())
+}
+
+#[test]
+fn every_case_records_the_screen_a_repaint_draws() -> anyhow::Result<()> {
+    let corpus = repository_corpus()?;
+    let driver = VimDriver::new()?;
+
+    let mut borrowed: Vec<String> = Vec::new();
+    for case in corpus.cases() {
+        let repainted = Case {
+            keys: format!("{}{REPAINT_KEYS}", case.keys),
+            ..case.clone()
+        };
+
+        let drawn = driver.run_case(case)?;
+        let drawn_again = driver.run_case(&repainted)?;
+
+        for divergence in drawn.diff(&drawn_again) {
+            borrowed.push(format!("the case `{}` diverges: {divergence:?}", case.id));
+        }
+    }
+
+    assert_eq!(
+        borrowed,
+        Vec::<String>::new(),
+        "a case is recorded as something other than the screen vim draws it, so a recorded row \
+         does not read back as the text it draws: it holds a character in a cell that character \
+         does not start in, which only an earlier draw of the same screen put there"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_double_width_character_at_an_odd_column_is_recorded_once() -> anyhow::Result<()> {
+    let driver = VimDriver::new()?;
+    let shifted = Case {
+        keys: SHIFT_ONTO_AN_ODD_COLUMN_KEYS.to_owned(),
+        ..case(
+            "shifted-wide-screen",
+            SHIFTED_WIDE_BUFFER,
+            LAYOUT_WIDTH,
+            Options::default(),
+        )
+    };
+
+    let state = driver.run_case(&shifted)?;
+
+    assert_eq!(
+        state.display_position.column, ODD_COLUMN,
+        "vim draws the double-width character in another column than the odd one the capture is \
+         held to here"
+    );
+    assert_eq!(
+        state.screen_text.row(0),
+        Some(SHIFTED_WIDE_ROW),
+        "a double-width character starting at an odd column is recorded in the cell it spans as \
+         well as in the cell it starts in"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_double_width_character_at_an_even_column_is_recorded_once() -> anyhow::Result<()> {
+    let driver = VimDriver::new()?;
+    let unshifted = Case {
+        keys: DELETE_LAST_KEYS.to_owned(),
+        ..case(
+            "unshifted-wide-screen",
+            UNSHIFTED_WIDE_BUFFER,
+            LAYOUT_WIDTH,
+            Options::default(),
+        )
+    };
+
+    let state = driver.run_case(&unshifted)?;
+
+    assert_eq!(
+        state.display_position.column, EVEN_COLUMN,
+        "vim draws the double-width character in another column than the even one the capture is \
+         held to here"
+    );
+    assert_eq!(
+        state.screen_text.row(0),
+        Some(UNSHIFTED_WIDE_ROW),
+        "a double-width character starting at an even column is no longer recorded once"
+    );
+    Ok(())
+}
+
+#[test]
+fn the_cjk_case_the_capture_doubled_records_every_character_once() -> anyhow::Result<()> {
+    let corpus = repository_corpus()?;
+    let driver = VimDriver::new()?;
+    let case = corpus_case(&corpus, CJK_MIXED_LATIN_CASE);
+    let baseline = Baseline::read(&baseline::default_path())?;
+
+    let state = driver.run_case(case)?;
+
+    assert_eq!(
+        state.buffer,
+        format!("{CJK_MIXED_LATIN_ROW}\n"),
+        "the case no longer ends in the buffer whose row the capture doubled"
+    );
+    assert_eq!(
+        state.screen_text.row(0),
+        Some(CJK_MIXED_LATIN_ROW),
+        "the case is captured with a character in a cell it does not start in"
+    );
+    assert_eq!(
+        baseline
+            .cases
+            .get(CJK_MIXED_LATIN_CASE)
+            .and_then(|recorded| recorded.screen_text.row(0)),
+        Some(CJK_MIXED_LATIN_ROW),
+        "the baseline records the case with a character in a cell it does not start in"
     );
     Ok(())
 }
