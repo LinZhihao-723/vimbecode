@@ -212,6 +212,53 @@ fn the_bottom_row_of_a_window_is_marked_where_the_row_below_is_too_wide_for_it()
     Ok(())
 }
 
+/// The last row of a logical line is never marked, however wide the grapheme the line below it
+/// begins with: whether a row ended early is a question about the row that continues its own line,
+/// which is what the rows being grouped by line answers.
+#[test]
+fn the_last_row_of_a_line_is_not_marked_by_the_line_below_it() -> Result<()> {
+    const ODD_WIDTH: u16 = 13;
+
+    let app = App::new(Buffer::from_lines(vec![
+        "\u{4e00}\u{4e8c}\u{4e09}\u{56db}".to_owned(),
+        "\u{4e94}\u{516d}".to_owned(),
+    ]));
+    let mut terminal = Terminal::new(TestBackend::new(ODD_WIDTH, 2))?;
+    terminal.draw(|frame| app.render(frame))?;
+
+    assert_eq!(
+        vec![
+            " | |1| |\u{4e00}| |\u{4e8c}| |\u{4e09}| |\u{56db}| | ",
+            " | |2| |\u{4e94}| |\u{516d}| | | | | | ",
+        ],
+        grid(terminal.backend().buffer())
+    );
+
+    Ok(())
+}
+
+/// A frame drawn over an earlier one leaves nothing of it behind, so the rows a shorter text does
+/// not reach are the terminal's own blanks rather than the rows that were drawn there before.
+#[test]
+fn a_frame_drawn_over_a_taller_one_keeps_none_of_its_rows() -> Result<()> {
+    let mut cells = Cells::empty(area());
+    App::new(fixture()).draw(&mut cells, area());
+    App::new(Buffer::from_text("\u{77ed}")).draw(&mut cells, area());
+
+    assert_eq!(
+        vec![
+            " | |1| |\u{77ed}| | | | | | | ",
+            " | | | | | | | | | | | ",
+            " | | | | | | | | | | | ",
+            " | | | | | | | | | | | ",
+            " | | | | | | | | | | | ",
+        ],
+        grid(&cells)
+    );
+
+    Ok(())
+}
+
 /// Validation 5: a frame costs the window it draws rather than the text behind it, which is the
 /// property the anchor-relative layout was built for and the one a frame that laid the whole
 /// buffer out would lose.
@@ -264,8 +311,7 @@ fn paragraphs(lines: usize) -> Buffer {
     )
 }
 
-/// Draws [`FRAMES`] frames of an application, from the top of its text and from a screen well into
-/// it, so that a frame drawn near the anchor and one drawn far from it are timed alike.
+/// Draws [`FRAMES`] frames of an application into cells of the fixture's own size.
 ///
 /// # Returns
 ///

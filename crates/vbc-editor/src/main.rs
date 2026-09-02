@@ -37,6 +37,10 @@ Press CTRL-D and CTRL-U to scroll half a window, CTRL-E and CTRL-Y one row.
 每一段都是一个逻辑行，可能会占据屏幕上的很多行。
 Press q to quit.";
 
+/// # Returns
+///
+/// [`ExitCode::SUCCESS`] if the program took the terminal over, drew into it and gave it back,
+/// and [`ExitCode::FAILURE`] otherwise.
 fn main() -> ExitCode {
     let app = match open() {
         Ok(app) => app,

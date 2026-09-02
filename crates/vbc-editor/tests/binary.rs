@@ -13,7 +13,9 @@
 //! The program itself needs a terminal to be a program, so it is run under `script`, which makes
 //! one. Nothing is typed at it until it has said it took the terminal over, because a key sent
 //! before then is a key the terminal is still buffering by line. Without `script` on the machine
-//! there is nothing to run in, and the test says it was skipped rather than passing quietly.
+//! there is nothing to run in, and the test says it was skipped rather than passing quietly --
+//! except in continuous integration, where a run that never ran the program is a run that checked
+//! nothing, so a missing `script` fails there instead of being reported to nobody.
 
 use std::io::{Read, Write};
 use std::process::{Child, Command, Stdio};
@@ -66,6 +68,10 @@ const THIRD_LINE_GUTTER: &str = "\u{1b}[38;5;8;49m  3 ";
 
 /// How long the program is given to draw its first frame, and to stop once it has been asked to.
 const PATIENCE: Duration = Duration::from_secs(20);
+
+/// The variable a continuous-integration run sets, which is where a terminal to run the program in
+/// is required rather than looked for.
+const CONTINUOUS_INTEGRATION: &str = "CI";
 
 /// Validation 4: a frame drawn through `CrosstermBackend` reaches the bytes a terminal is written
 /// with, rather than stopping at the library's own cells.
@@ -132,6 +138,10 @@ fn written(app: &App, area: Rect) -> Result<Vec<u8>> {
 #[test]
 fn the_binary_draws_a_frame_and_quits_on_a_key() -> Result<()> {
     let Some(mut editor) = start()? else {
+        assert!(
+            std::env::var_os(CONTINUOUS_INTEGRATION).is_none(),
+            "`script` is not installed, so the program was never run in a terminal"
+        );
         eprintln!("skipped: `script` is not installed, so there is no terminal to run in");
         return Ok(());
     };
