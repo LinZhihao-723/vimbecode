@@ -10,9 +10,16 @@ readme.workspace = true
 keywords.workspace = true
 categories.workspace = true
 
+[[bin]]
+name = "vimbecode"
+path = "src/main.rs"
+
 [dependencies]
 crossterm = "0.29.0"
-ratatui = { version = "0.30.2", default-features = false, features = ["std"] }
+ratatui = { version = "0.30.2", default-features = false, features = [
+    "crossterm_0_29",
+    "std",
+] }
 vbc-layout = { path = "../vbc-layout" }
 
 [dev-dependencies]

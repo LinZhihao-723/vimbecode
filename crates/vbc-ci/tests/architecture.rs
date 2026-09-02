@@ -9,6 +9,11 @@
 //! for the vocabulary a layout is checked in, because that vocabulary is the language the fuzz
 //! search reads a layout in rather than a language the editor is written in.
 //!
+//! A fifth rule is about what the layout is for rather than what it costs. A module that only its
+//! own tests import is a module the application has drifted away from, and a workspace can
+//! accumulate a great deal of such work without a single test going red, so the modules the editor
+//! is composed from are required here to be named by source that ships.
+//!
 //! Each rule is a property of the code rather than of a run, so each is read off the source. Two
 //! things decide whether such a scan is worth anything: what it reads, and what it looks for. It
 //! reads every crate of the workspace and every module of every crate, subdirectories included,
@@ -102,6 +107,14 @@ impl Gutter {
     }
 }
 ";
+
+/// The modules of the layout engine the editor is composed from, each paired with the source tree
+/// that has to reach for it. A module nothing but its own tests import is a module the application
+/// has drifted away from, however much the module itself is worth on its own.
+const COMPOSED: [(&str, &str); 2] = [
+    ("vbc_layout::buffer", "crates/vbc-editor/src/"),
+    ("vbc_layout::viewport", "crates/vbc-editor/src/"),
+];
 
 /// A crate added to the workspace after these guards were written.
 const LATER_CRATE: &str = "\
@@ -221,6 +234,45 @@ fn the_layout_stack_the_invariants_and_the_fuzz_harness_share_that_type() {
         assert!(
             source.contains(declaration),
             "{file} does not hold `{declaration}`, so it addresses the text some other way"
+        );
+    }
+}
+
+#[test]
+fn every_layout_module_the_editor_is_built_on_is_reached_for_by_source_that_ships() {
+    let root = guard::workspace();
+    for (module, directory) in COMPOSED {
+        let importers = guard::importers(&root, module).expect("the workspace is scanned");
+
+        assert!(
+            importers.iter().any(|path| path.starts_with(directory)),
+            "no source under {directory} names `{module}`, so nothing that ships composes it"
+        );
+    }
+}
+
+#[test]
+fn a_layout_module_the_editor_stopped_composing_is_caught() {
+    let fixture = Fixture::of(&guard::workspace());
+    for (module, directory) in COMPOSED {
+        let importers = guard::importers(fixture.root(), module).expect("the fixture is scanned");
+        for path in importers.iter().filter(|path| path.starts_with(directory)) {
+            let source =
+                guard::read(&fixture.root().join(path)).expect("a source of the fixture is read");
+            fixture.write(path, &without(&source, module));
+        }
+    }
+
+    for (module, directory) in COMPOSED {
+        let importers = guard::importers(fixture.root(), module).expect("the fixture is scanned");
+
+        assert_eq!(
+            Vec::<&String>::new(),
+            importers
+                .iter()
+                .filter(|path| path.starts_with(directory))
+                .collect::<Vec<&String>>(),
+            "`{module}` was reported as composed by a tree that no longer names it"
         );
     }
 }
@@ -455,6 +507,17 @@ fn declared_types(source: &str) -> Vec<String> {
         .windows(2)
         .filter(|pair| ["enum", "struct", "type"].contains(&pair[0].text()))
         .map(|pair| pair[1].text().to_owned())
+        .collect()
+}
+
+/// # Returns
+///
+/// `source` with every line naming `module` left out.
+fn without(source: &str, module: &str) -> String {
+    source
+        .lines()
+        .filter(|line| !line.contains(module))
+        .map(|line| format!("{line}\n"))
         .collect()
 }
 
