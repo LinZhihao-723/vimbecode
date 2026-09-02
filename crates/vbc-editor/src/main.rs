@@ -99,6 +99,8 @@ fn open() -> Result<App, Box<dyn Error>> {
 /// Returns an error if:
 ///
 /// * Forwards [`crossterm::terminal::enable_raw_mode`]'s return values on failure.
+/// * Forwards [`crossterm::execute`]'s return values on failure.
+/// * Forwards [`vbc_editor::event::reader::enable_bracketed_paste`]'s return values on failure.
 /// * Forwards [`ratatui::Terminal::new`]'s return values on failure.
 fn enter() -> Result<Terminal<CrosstermBackend<Stdout>>, Box<dyn Error>> {
     enable_raw_mode()?;
@@ -115,6 +117,8 @@ fn enter() -> Result<Terminal<CrosstermBackend<Stdout>>, Box<dyn Error>> {
 ///
 /// Returns an error if:
 ///
+/// * Forwards [`vbc_editor::event::reader::disable_bracketed_paste`]'s return values on failure.
+/// * Forwards [`crossterm::execute`]'s return values on failure.
 /// * Forwards [`crossterm::terminal::disable_raw_mode`]'s return values on failure.
 /// * Forwards [`ratatui::Terminal::show_cursor`]'s return values on failure.
 fn leave(mut terminal: Terminal<CrosstermBackend<Stdout>>) -> Result<(), Box<dyn Error>> {
@@ -133,6 +137,8 @@ fn leave(mut terminal: Terminal<CrosstermBackend<Stdout>>) -> Result<(), Box<dyn
 /// Returns an error if:
 ///
 /// * Forwards [`ratatui::Terminal::draw`]'s return values on failure.
+/// * Forwards [`ratatui::Terminal::autoresize`]'s return values on failure.
+/// * Forwards [`area`]'s return values on failure.
 /// * Forwards [`App::scroll`]'s return values on failure.
 fn run(
     terminal: &mut Terminal<CrosstermBackend<Stdout>>,
