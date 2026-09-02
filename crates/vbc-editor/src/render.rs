@@ -133,7 +133,9 @@ impl Renderer {
         let mut column = 0;
         for grapheme in graphemes(row.prefix()) {
             let width = self.metrics.grapheme_width(grapheme, column);
-            self.draw_grapheme(buffer, area, y, column, grapheme, width);
+            if "\t" != grapheme {
+                self.draw_grapheme(buffer, area, y, column, grapheme, width);
+            }
             column += width;
         }
 
@@ -151,6 +153,10 @@ impl Renderer {
 
     /// Draws one grapheme into the cells it claims, leaving the row untouched where the grapheme
     /// occupies no columns at all or where the whole of it does not fit.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `area` is not inside `buffer`.
     fn draw_grapheme(
         &self,
         buffer: &mut Buffer,
@@ -182,6 +188,10 @@ impl Renderer {
     ///
     /// A tab is drawn across a row boundary rather than moved whole, so a row that ends in front
     /// of one is not marked.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `area` is not inside `buffer`.
     fn mark_wide_gap(
         &self,
         buffer: &mut Buffer,
@@ -214,6 +224,10 @@ impl Renderer {
 
     /// Resets a row's cells to blanks drawn in this renderer's style, so that neither a symbol nor
     /// a claim left there by an earlier frame survives.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `area` is not inside `buffer`.
     fn blank(&self, buffer: &mut Buffer, area: Rect, y: u16) {
         for x in area.x..area.right() {
             buffer[(x, y)].reset();

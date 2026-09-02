@@ -18,7 +18,7 @@ use std::num::{NonZeroU16, NonZeroUsize};
 use ratatui::backend::TestBackend;
 use ratatui::buffer::{Buffer, CellDiffOption, CellWidth};
 use ratatui::layout::Rect;
-use ratatui::style::Style;
+use ratatui::style::{Color, Style};
 use ratatui::Terminal;
 use vbc_editor::render::{cursor_cell, Renderer, WIDE_CHARACTER_MARKER};
 use vbc_layout::line::{self, DisplayRow, Options};
@@ -258,6 +258,34 @@ fn a_continuation_row_is_drawn_behind_the_decoration_the_layout_measured() {
         vec![" | | | |a|b|c|d|e|f|g|h", " | | | |>|>|i|j| | | | ",],
         grid(terminal.backend().buffer())
     );
+}
+
+#[test]
+fn a_tab_in_a_continuation_marker_is_drawn_as_the_blanks_it_advances_by() {
+    let options = Options::new().with_show_break("\t".to_owned());
+    let terminal = draw("abcdefghijklmnop", 12, Metrics::default(), &options);
+
+    assert_eq!(
+        vec![
+            "a|b|c|d|e|f|g|h|i|j|k|l".to_owned(),
+            " | | | | | | | |m|n|o|p".to_owned(),
+        ],
+        grid(terminal.backend().buffer())
+    );
+}
+
+#[test]
+fn every_cell_a_row_owns_is_drawn_in_the_renderer_s_style() {
+    let metrics = Metrics::default();
+    let renderer = Renderer::new(metrics).with_style(Style::new().fg(Color::Red));
+    let area = Rect::new(0, 0, 4, 1);
+    let mut buffer = Buffer::empty(area);
+    let rows = rows_of("ab", 4, metrics, &Options::new());
+
+    renderer.draw_row(&mut buffer, area, 0, &rows[0], None);
+
+    assert_eq!(Color::Red, buffer[(0, 0)].fg);
+    assert_eq!(Color::Red, buffer[(3, 0)].fg);
 }
 
 #[test]
