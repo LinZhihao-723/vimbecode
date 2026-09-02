@@ -12,6 +12,8 @@ categories.workspace = true
 
 [dependencies]
 crossterm = "0.29.0"
+ratatui = { version = "0.30.2", default-features = false, features = ["std"] }
+vbc-layout = { path = "../vbc-layout" }
 
 [dev-dependencies]
 anyhow = "1.0.104"
