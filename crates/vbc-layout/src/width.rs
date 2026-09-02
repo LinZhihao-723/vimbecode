@@ -156,6 +156,13 @@ pub fn graphemes(text: &str) -> impl Iterator<Item = &str> {
     text.graphemes(true)
 }
 
+/// # Returns
+///
+/// The grapheme clusters of `text` paired with the byte offset each starts at, in order.
+pub fn grapheme_indices(text: &str) -> impl Iterator<Item = (usize, &str)> {
+    text.grapheme_indices(true)
+}
+
 /// The characters vim widens under `ambiwidth=double` that `unicode-width` leaves one column wide,
 /// as the inclusive ranges of a sorted, non-overlapping table.
 ///
