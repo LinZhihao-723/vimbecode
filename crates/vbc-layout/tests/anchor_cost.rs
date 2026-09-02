@@ -64,7 +64,7 @@ const CACHE_WORDS: [&str; 10] = [
 
 /// The number of source files the crate holds, which keeps a scan that finds nothing from passing
 /// because it read nothing.
-const SOURCE_FILES: usize = 6;
+const SOURCE_FILES: usize = 7;
 
 #[test]
 fn a_mapping_costs_the_same_over_a_short_text_and_a_long_one() {
