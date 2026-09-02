@@ -11,8 +11,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::Terminal;
 use std::num::NonZeroUsize;
 use vbc_editor::gutter::{Gutter, Label, Options, DEFAULT_MIN_WIDTH};
-use vbc_layout::invariants::Row;
-use vbc_layout::line::{self, Options as LineOptions};
+use vbc_layout::line::{self, DisplayRow, Options as LineOptions};
 use vbc_layout::width::Metrics;
 
 /// A line 32 columns wide, which wraps into exactly four rows of a window eight columns wide.
@@ -94,23 +93,13 @@ impl Rendered {
 /// # Returns
 ///
 /// The display rows `lines` wraps into at a window [`TEXT_WIDTH`] columns wide, top to bottom.
-fn wrap(lines: &[&str]) -> Vec<Row> {
+fn wrap(lines: &[&str]) -> Vec<DisplayRow> {
     let width = NonZeroUsize::new(TEXT_WIDTH).expect("the text width is non-zero");
     let options = LineOptions::new();
     lines
         .iter()
         .enumerate()
-        .flat_map(|(index, text)| {
-            line::lay_out(text, width, Metrics::default(), &options)
-                .into_iter()
-                .map(move |row| Row {
-                    line: index,
-                    start: row.start(),
-                    text: row.text().to_owned(),
-                    cells: row.cells().to_owned(),
-                    columns: row.columns().to_vec(),
-                })
-        })
+        .flat_map(|(line, text)| line::lay_out(line, text, width, Metrics::default(), &options))
         .collect()
 }
 
@@ -124,7 +113,7 @@ fn wrap(lines: &[&str]) -> Vec<Row> {
 /// Returns an error if the terminal cannot be built or drawn to.
 fn render(
     options: &Options,
-    rows: &[Row],
+    rows: &[DisplayRow],
     cursor_line: usize,
     line_count: usize,
     height: u16,

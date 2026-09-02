@@ -21,12 +21,21 @@
 //! half of a double-width character. And where a row ended early because the grapheme coming next
 //! was too wide for the cells it had left, those cells are filled with
 //! [`WIDE_CHARACTER_MARKER`], which is what vim leaves there.
+//!
+//! A row is drawn either in one style or in the styles a [`StyledRow`] paints its runs of cells
+//! in, and the two paths place a grapheme in the same cell: the styled path walks the segments the
+//! row was styled into, each of which starts at the column the layout measured. They differ in one
+//! thing only, which is the blanks a tab is drawn as. The unstyled path leaves them to the blanking
+//! the row begins with, while the styled path fills them, because a tab under a span carries that
+//! span's background.
 
 use ratatui::buffer::{Buffer, CellDiffOption, CellWidth};
 use ratatui::layout::{Position, Rect};
 use ratatui::style::Style;
 use vbc_layout::line::DisplayRow;
 use vbc_layout::width::{graphemes, Metrics};
+
+use crate::style::StyledRow;
 
 /// The character vim leaves in the cells a row has left over when the grapheme coming next is too
 /// wide to fit in them.
@@ -130,25 +139,133 @@ impl Renderer {
         let y = area.y + screen_row;
         self.blank(buffer, area, y);
 
-        let mut column = 0;
-        for grapheme in graphemes(row.prefix()) {
-            let width = self.metrics.grapheme_width(grapheme, column);
-            if "\t" != grapheme {
-                self.draw_grapheme(buffer, area, y, column, grapheme, width);
-            }
-            column += width;
-        }
+        self.draw_prefix(buffer, area, y, row.prefix());
 
         let columns = row.columns();
         for (index, grapheme) in graphemes(row.text()).enumerate() {
             if "\t" == grapheme {
                 continue;
             }
-            let start = columns[index];
-            self.draw_grapheme(buffer, area, y, start, grapheme, columns[index + 1] - start);
+            let column = columns[index];
+            self.draw_grapheme(
+                buffer,
+                area,
+                Placement {
+                    y,
+                    column,
+                    grapheme,
+                    width: columns[index + 1] - column,
+                    style: self.style,
+                },
+            );
         }
 
         self.mark_wide_gap(buffer, area, y, row, next);
+    }
+
+    /// Draws the styled rows rendering one logical line, top to bottom, stopping at the bottom of
+    /// the area.
+    ///
+    /// # Returns
+    ///
+    /// The number of rows drawn, which is fewer than `rows` holds where the area filled up.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `area` is not inside `buffer`.
+    pub fn draw_styled_line(
+        &self,
+        buffer: &mut Buffer,
+        area: Rect,
+        top: u16,
+        rows: &[StyledRow],
+    ) -> u16 {
+        let mut drawn = 0;
+        for (index, row) in rows.iter().enumerate() {
+            let Some(screen_row) = top.checked_add(drawn).filter(|row| *row < area.height) else {
+                break;
+            };
+            self.draw_styled_row(buffer, area, screen_row, row, rows.get(index + 1));
+            drawn += 1;
+        }
+
+        drawn
+    }
+
+    /// Draws one styled row into the cells of `screen_row`, each of its segments in the style the
+    /// spans painting it asked for, laid over the style the renderer draws in.
+    ///
+    /// `next` is the row that follows this one within the same logical line, and is what says
+    /// whether the cells this row has left over are the ones vim marks with
+    /// [`WIDE_CHARACTER_MARKER`].
+    ///
+    /// # Panics
+    ///
+    /// Panics if `area` is not inside `buffer`.
+    pub fn draw_styled_row(
+        &self,
+        buffer: &mut Buffer,
+        area: Rect,
+        screen_row: u16,
+        row: &StyledRow,
+        next: Option<&StyledRow>,
+    ) {
+        if area.height <= screen_row {
+            return;
+        }
+
+        let y = area.y + screen_row;
+        self.blank(buffer, area, y);
+        self.draw_prefix(buffer, area, y, row.prefix());
+
+        for segment in row.segments() {
+            let style = self.style.patch(segment.style());
+            let mut column = segment.column();
+            for grapheme in graphemes(segment.cells()) {
+                let width = self.metrics.grapheme_width(grapheme, column);
+                self.draw_grapheme(
+                    buffer,
+                    area,
+                    Placement {
+                        y,
+                        column,
+                        grapheme,
+                        width,
+                        style,
+                    },
+                );
+                column += width;
+            }
+        }
+
+        self.mark_wide_gap(buffer, area, y, row.row(), next.map(StyledRow::row));
+    }
+
+    /// Draws the decoration a continuation row carries, which is drawn in the renderer's own style
+    /// however the row's text is styled.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `area` is not inside `buffer`.
+    fn draw_prefix(&self, buffer: &mut Buffer, area: Rect, y: u16, prefix: &str) {
+        let mut column = 0;
+        for grapheme in graphemes(prefix) {
+            let width = self.metrics.grapheme_width(grapheme, column);
+            if "\t" != grapheme {
+                self.draw_grapheme(
+                    buffer,
+                    area,
+                    Placement {
+                        y,
+                        column,
+                        grapheme,
+                        width,
+                        style: self.style,
+                    },
+                );
+            }
+            column += width;
+        }
     }
 
     /// Draws one grapheme into the cells it claims, leaving the row untouched where the grapheme
@@ -157,15 +274,14 @@ impl Renderer {
     /// # Panics
     ///
     /// Panics if `area` is not inside `buffer`.
-    fn draw_grapheme(
-        &self,
-        buffer: &mut Buffer,
-        area: Rect,
-        y: u16,
-        column: usize,
-        grapheme: &str,
-        width: usize,
-    ) {
+    fn draw_grapheme(&self, buffer: &mut Buffer, area: Rect, placed: Placement<'_>) {
+        let Placement {
+            y,
+            column,
+            grapheme,
+            width,
+            style,
+        } = placed;
         if 0 == width || usize::from(area.width) < column + width {
             return;
         }
@@ -175,7 +291,7 @@ impl Renderer {
 
         let claimed =
             u16::try_from(width).expect("a grapheme that fits in an area fits in a `u16`");
-        buffer[position].set_symbol(grapheme).set_style(self.style);
+        buffer[position].set_symbol(grapheme).set_style(style);
         if grapheme.cell_width() != claimed {
             buffer[position].set_diff_option(CellDiffOption::ForcedWidth(
                 claimed.try_into().expect("a drawn grapheme claims a cell"),
@@ -264,6 +380,17 @@ pub fn cursor_cell(
         area.y + screen_row,
         row.columns()[grapheme - row.start()],
     )
+}
+
+/// One grapheme as a renderer places it: the cells of a screen line it claims, and the style it is
+/// drawn in there.
+#[derive(Clone, Copy, Debug)]
+struct Placement<'placement> {
+    y: u16,
+    column: usize,
+    grapheme: &'placement str,
+    width: usize,
+    style: Style,
 }
 
 /// # Returns

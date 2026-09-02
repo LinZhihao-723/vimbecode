@@ -27,8 +27,8 @@ use vbc_layout::buffer::LINE_SEPARATOR;
 use vbc_layout::line::DisplayRow;
 use vbc_layout::width::grapheme_indices;
 
-/// How a run of cells is drawn.
-pub type Style = crossterm::style::ContentStyle;
+/// How a run of cells is drawn, which is the type the cells of a drawn terminal buffer carry.
+pub type Style = ratatui::style::Style;
 
 /// A styled region of a block's source, held as the byte range it covers.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -235,21 +235,32 @@ impl StyledSegment {
     }
 }
 
-/// One display row with its styles applied: the decoration the row carries, drawn unstyled,
-/// followed by the styled segments the row's text is drawn as.
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
+/// One display row with its styles applied: the row the layout produced, the decoration it
+/// carries drawn unstyled, and the styled segments its text is drawn as.
+///
+/// The display row is kept rather than copied out of, so a styled row can be drawn without the
+/// caller carrying the row it was built from alongside it.
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct StyledRow {
-    prefix: String,
+    row: DisplayRow,
     segments: Vec<StyledSegment>,
 }
 
 impl StyledRow {
     /// # Returns
     ///
+    /// The display row the layout produced, which is the row these styles were applied to.
+    #[must_use]
+    pub fn row(&self) -> &DisplayRow {
+        &self.row
+    }
+
+    /// # Returns
+    ///
     /// The decoration drawn in front of the row's segments, empty on the row that starts a line.
     #[must_use]
     pub fn prefix(&self) -> &str {
-        &self.prefix
+        self.row.prefix()
     }
 
     #[must_use]
@@ -263,7 +274,7 @@ impl StyledRow {
     /// it was built from is drawn in.
     #[must_use]
     pub fn cells(&self) -> String {
-        let mut cells = self.prefix.clone();
+        let mut cells = self.prefix().to_owned();
         for segment in &self.segments {
             cells.push_str(&segment.cells);
         }
@@ -355,7 +366,7 @@ fn style_row(row: &DisplayRow, row_start: usize, runs: &[Run]) -> StyledRow {
     }
 
     StyledRow {
-        prefix: row.prefix().to_owned(),
+        row: row.clone(),
         segments,
     }
 }
@@ -377,7 +388,7 @@ mod tests {
     use std::num::NonZeroUsize;
     use std::ops::Range;
 
-    use crossterm::style::Color;
+    use ratatui::style::Color;
     use vbc_layout::line::{self, Options};
     use vbc_layout::width::{AmbiWidth, Metrics};
 
@@ -536,13 +547,13 @@ mod tests {
         let (start, text) = lines.next().expect("the source holds a first line");
         assert_eq!(
             vec![(0..2, "ab", Style::default())],
-            drawn(&styled(&block, start, text, UNWRAPPED, &Options::new())[0])
+            drawn(&styled(&block, 0, start, text, UNWRAPPED, &Options::new())[0])
         );
 
         let (start, text) = lines.next().expect("the source holds a second line");
         assert_eq!(
             vec![(3..5, "cd", red())],
-            drawn(&styled(&block, start, text, UNWRAPPED, &Options::new())[0])
+            drawn(&styled(&block, 1, start, text, UNWRAPPED, &Options::new())[0])
         );
     }
 
@@ -569,20 +580,23 @@ mod tests {
     fn rows(block: &Block, width: usize, options: &Options) -> Vec<StyledRow> {
         let (start, text) = block.lines().next().expect("a block holds a first line");
 
-        styled(block, start, text, width, options)
+        styled(block, 0, start, text, width, options)
     }
 
     /// # Returns
     ///
-    /// The styled rows the logical line `text` of `block`, starting at `start`, is drawn as.
+    /// The styled rows the logical line `line` of `block`, whose text is `text` and which starts
+    /// at byte `start` of the source, is drawn as.
     fn styled(
         block: &Block,
+        line: usize,
         start: usize,
         text: &str,
         width: usize,
         options: &Options,
     ) -> Vec<StyledRow> {
         let rows = line::lay_out(
+            line,
             text,
             NonZeroUsize::new(width).expect("a fixture is drawn in at least one column"),
             Metrics::new(
@@ -610,19 +624,13 @@ mod tests {
     ///
     /// One of the two styles the fixtures tell apart.
     fn red() -> Style {
-        Style {
-            foreground_color: Some(Color::Red),
-            ..Style::default()
-        }
+        Style::new().fg(Color::Red)
     }
 
     /// # Returns
     ///
     /// The other of the two styles the fixtures tell apart.
     fn blue() -> Style {
-        Style {
-            background_color: Some(Color::Blue),
-            ..Style::default()
-        }
+        Style::new().bg(Color::Blue)
     }
 }

@@ -14,6 +14,7 @@ use std::num::NonZeroUsize;
 use std::ops::Range;
 
 use proptest::prelude::*;
+use ratatui::style::{Color, Modifier};
 use vbc_editor::style::{Block, Span, Style};
 use vbc_layout::line::{self, DisplayRow, Options};
 use vbc_layout::width::{grapheme_indices, graphemes, AmbiWidth, Metrics};
@@ -58,10 +59,11 @@ impl Case {
     fn rendered(&self) -> Vec<(usize, Vec<DisplayRow>)> {
         self.block
             .lines()
-            .map(|(start, text)| {
+            .enumerate()
+            .map(|(line, (start, text))| {
                 (
                     start,
-                    line::lay_out(text, self.width, self.metrics, &self.options),
+                    line::lay_out(line, text, self.width, self.metrics, &self.options),
                 )
             })
             .collect()
@@ -287,18 +289,9 @@ fn boundaries(source: &str) -> Vec<usize> {
 fn styles() -> Vec<Style> {
     vec![
         Style::default(),
-        Style {
-            foreground_color: Some(crossterm::style::Color::Red),
-            ..Style::default()
-        },
-        Style {
-            background_color: Some(crossterm::style::Color::Blue),
-            ..Style::default()
-        },
-        Style {
-            attributes: crossterm::style::Attribute::Bold.into(),
-            ..Style::default()
-        },
+        Style::new().fg(Color::Red),
+        Style::new().bg(Color::Blue),
+        Style::new().add_modifier(Modifier::BOLD),
     ]
 }
 

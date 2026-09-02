@@ -165,8 +165,8 @@ fn screen(case: &Case, state: &EditorState) -> ScreenText {
     let options = options_of(case);
 
     let mut rows = Vec::new();
-    for line in lines_of(&state.buffer) {
-        let laid_out = line::lay_out(line, viewport, metrics, &options);
+    for (line_index, line) in lines_of(&state.buffer).enumerate() {
+        let laid_out = line::lay_out(line_index, line, viewport, metrics, &options);
         for (index, row) in laid_out.iter().enumerate() {
             rows.push(draw(row, laid_out.get(index + 1), width, metrics));
         }

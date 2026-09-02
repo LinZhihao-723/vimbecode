@@ -491,6 +491,7 @@ fn screen(case: &MappingCase) -> Vec<ScreenRow> {
         .enumerate()
         .flat_map(|(line, text)| {
             line::lay_out(
+                line,
                 text,
                 case.wrapping.width(),
                 case.wrapping.metrics(),

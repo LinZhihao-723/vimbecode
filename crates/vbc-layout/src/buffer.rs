@@ -20,7 +20,7 @@ use std::fmt::{Display, Formatter, Result as FmtResult};
 use std::mem;
 use std::ops::Range;
 
-use crate::invariants::LogicalPosition;
+use crate::position::LogicalPosition;
 use crate::width::{grapheme_indices, graphemes};
 
 /// The character separating one logical line from the next in a buffer's text.

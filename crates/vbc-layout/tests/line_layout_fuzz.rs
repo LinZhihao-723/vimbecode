@@ -151,7 +151,7 @@ proptest! {
 ///
 /// The rows `input` lays out into.
 fn lay_out(input: &LineInput) -> Vec<DisplayRow> {
-    line::lay_out(&input.line, input.width, input.metrics, &input.options)
+    line::lay_out(0, &input.line, input.width, input.metrics, &input.options)
 }
 
 /// # Returns

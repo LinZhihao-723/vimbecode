@@ -60,6 +60,11 @@ const DRAWING_WORDS: [&str; 3] = ["ratatui", "set_char", "set_symbol"];
 /// The name of the dependency a crate that draws is built on.
 const DRAWING_DEPENDENCY: &str = "ratatui";
 
+/// The word naming the vocabulary a layout is checked in, and the stem of the module declaring it,
+/// which is the one source that vocabulary is written in rather than reached for.
+const INVARIANT: &str = "invariant";
+const INVARIANT_MODULE: &str = "invariants";
+
 /// The root modules a crate is reached through.
 const ROOT_MODULES: [&str; 2] = ["lib.rs", "main.rs"];
 
@@ -392,6 +397,47 @@ pub fn scan_for_mappings_where_rows_are_drawn(root: &Path) -> Result<Vec<Finding
     Ok(findings)
 }
 
+/// Scans a tree for a source that ships reaching for the vocabulary a layout is checked in.
+///
+/// # Returns
+///
+/// Every word naming that vocabulary outside the module declaring it, in order, on success.
+///
+/// # Errors
+///
+/// Returns an error if:
+///
+/// * Forwards [`sources`]'s return values on failure.
+/// * Forwards [`coverage`]'s return values on failure.
+/// * Forwards [`read`]'s return values on failure.
+pub fn scan_for_invariant_vocabulary(root: &Path) -> Result<Vec<Finding>, Error> {
+    let scanned = sources(root)?;
+    coverage(root, &scanned)?;
+
+    let mut findings = Vec::new();
+    for path in scanned {
+        if path
+            .file_stem()
+            .is_some_and(|stem| INVARIANT_MODULE == stem)
+        {
+            continue;
+        }
+
+        let source = read(&path)?;
+        findings.extend(
+            invariant_vocabulary(&source)
+                .into_iter()
+                .map(|(line, word)| Finding {
+                    path: relative(root, &path),
+                    line,
+                    word,
+                }),
+        );
+    }
+
+    Ok(findings)
+}
+
 /// # Returns
 ///
 /// The path of every source of a tree that draws into a terminal buffer, in order, on success.
@@ -496,6 +542,23 @@ pub fn mappings(source: &str) -> Vec<(usize, String)> {
                 .find(|mapping| lowercase.contains(*mapping))
                 .map(|mapping| (word.line(), (*mapping).to_owned()))
         })
+        .collect()
+}
+
+/// # Returns
+///
+/// Every word of a source naming the vocabulary a layout is checked in outside its tests, each
+/// paired with the line it is written on. The declaration handing the module to the tests names it
+/// without reaching for it, so it is not one of them.
+#[must_use]
+pub fn invariant_vocabulary(source: &str) -> Vec<(usize, String)> {
+    let words = shape::words(source);
+    words
+        .iter()
+        .enumerate()
+        .filter(|(index, word)| !word.tested() && (0 == *index || "mod" != words[index - 1].text()))
+        .filter(|(_, word)| word.text().to_lowercase().contains(INVARIANT))
+        .map(|(_, word)| (word.line(), INVARIANT.to_owned()))
         .collect()
 }
 

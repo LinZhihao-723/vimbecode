@@ -55,9 +55,11 @@ fn drawing_a_whole_viewport_costs_a_fraction_of_mapping_its_rows() {
     );
     let rows: Vec<DisplayRow> = lines
         .iter()
-        .map(|line| {
+        .enumerate()
+        .map(|(line, text)| {
             line::lay_out(
                 line,
+                text,
                 wrapping.width(),
                 wrapping.metrics(),
                 wrapping.options(),

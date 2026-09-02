@@ -1,11 +1,13 @@
 //! The rules the workspace's own source is held to, and the proof that holding it to them bites.
 //!
-//! Three of these rules pay for the layout the editor is built on. Nothing may keep a cache of
+//! Four of these rules pay for the layout the editor is built on. Nothing may keep a cache of
 //! what it laid out, because a cache is what an anchored mapping exists to do without and what
 //! every edit would then have to invalidate. Nothing outside the tests may lay a whole text out,
-//! because that cost is the one the anchor was designed away from. And nothing that draws rows may
-//! map them, because a renderer is handed the rows it draws and a renderer that asks where they
-//! begin spends a frame's budget finding what it was already holding.
+//! because that cost is the one the anchor was designed away from. Nothing that draws rows may map
+//! them, because a renderer is handed the rows it draws and a renderer that asks where they begin
+//! spends a frame's budget finding what it was already holding. And nothing that ships may reach
+//! for the vocabulary a layout is checked in, because that vocabulary is the language the fuzz
+//! search reads a layout in rather than a language the editor is written in.
 //!
 //! Each rule is a property of the code rather than of a run, so each is read off the source. Two
 //! things decide whether such a scan is worth anything: what it reads, and what it looks for. It
@@ -54,6 +56,10 @@ const SEAMS: [(&str, &str); 3] = [
 /// workspace holds and therefore the one thing the scan for such a layout is known to find.
 const REFERENCE_LAYOUT: &str = "crates/vbc-layout/tests/fuzz/reference.rs";
 
+/// The fuzz harness the invariant vocabulary exists for, which is where it is reached for now that
+/// nothing that ships reaches for it.
+const FUZZ_HARNESS: &str = "crates/vbc-layout/tests/fuzz/harness.rs";
+
 /// A cache of what was laid out, as a module of any crate could hold it.
 const CACHE: &str = "\
 struct Frame {
@@ -81,6 +87,18 @@ impl Gutter {
     fn row_of(&self, text: &Text, at: LogicalPosition) -> usize {
         let offset = visual_offset_from_anchor(&text.lines, text.top, at, &text.wrapping, 1);
         offset.expect(\"a drawn row is mapped\").rows
+    }
+}
+";
+
+/// A gutter reaching for the vocabulary a layout is checked in, which is what ties the type that
+/// ships to the one the fuzz search happens to want.
+const INVARIANT_VOCABULARY: &str = "\
+use vbc_layout::invariants::Row;
+
+impl Gutter {
+    fn labelled(&self, rows: &[Row]) -> usize {
+        rows.len()
     }
 }
 ";
@@ -117,6 +135,14 @@ fn nothing_that_draws_names_the_mapping_that_would_place_its_rows() {
 }
 
 #[test]
+fn nothing_that_ships_reaches_for_the_vocabulary_a_layout_is_checked_in() {
+    let findings = guard::scan_for_invariant_vocabulary(&guard::workspace())
+        .expect("the workspace is scanned");
+
+    assert_eq!(Vec::<Finding>::new(), findings);
+}
+
+#[test]
 fn the_scan_for_a_whole_text_layout_finds_the_one_the_tests_hold() {
     let reference = guard::read(&guard::workspace().join(REFERENCE_LAYOUT))
         .expect("the reference layout is readable");
@@ -124,6 +150,17 @@ fn the_scan_for_a_whole_text_layout_finds_the_one_the_tests_hold() {
     assert!(
         !guard::whole_text_layouts(&reference).is_empty(),
         "{REFERENCE_LAYOUT} lays no whole text out, so the scan looks for a shape nothing takes"
+    );
+}
+
+#[test]
+fn the_scan_for_the_invariant_vocabulary_finds_the_one_the_fuzz_harness_reaches_for() {
+    let harness =
+        guard::read(&guard::workspace().join(FUZZ_HARNESS)).expect("the fuzz harness is readable");
+
+    assert!(
+        !guard::invariant_vocabulary(&harness).is_empty(),
+        "{FUZZ_HARNESS} names no invariant vocabulary, so the scan looks for a shape nothing takes"
     );
 }
 
@@ -255,6 +292,29 @@ fn a_gutter_that_maps_the_rows_it_draws_is_caught() {
 }
 
 #[test]
+fn a_gutter_that_reaches_for_the_invariant_vocabulary_is_caught() {
+    let fixture = Fixture::of(&guard::workspace());
+    fixture.append("crates/vbc-editor/src/gutter.rs", INVARIANT_VOCABULARY);
+    let findings =
+        guard::scan_for_invariant_vocabulary(fixture.root()).expect("the fixture is scanned");
+
+    assert_eq!(
+        vec!["crates/vbc-editor/src/gutter.rs"],
+        paths(&findings),
+        "a source that ships reaching for the invariant vocabulary went uncaught"
+    );
+    assert_eq!(vec!["invariant"], words(&findings));
+    assert_eq!(
+        vec![line_of(
+            &fixture,
+            "crates/vbc-editor/src/gutter.rs",
+            "vbc_layout::invariants"
+        )],
+        findings.iter().map(Finding::line).collect::<Vec<usize>>()
+    );
+}
+
+#[test]
 fn a_layout_the_tests_reach_for_is_not_an_offence() {
     let fixture = Fixture::of(&guard::workspace());
     fixture.append(
@@ -277,6 +337,7 @@ fn a_scan_that_would_read_nothing_fails() {
         guard::scan_for_caches as fn(&Path) -> Result<Vec<Finding>, Error>,
         guard::scan_for_whole_text_layouts,
         guard::scan_for_mappings_where_rows_are_drawn,
+        guard::scan_for_invariant_vocabulary,
     ] {
         assert_eq!(
             Err(Error::NoCrates {
@@ -296,6 +357,7 @@ fn a_scan_of_a_tree_it_cannot_read_the_whole_of_fails() {
         guard::scan_for_caches as fn(&Path) -> Result<Vec<Finding>, Error>,
         guard::scan_for_whole_text_layouts,
         guard::scan_for_mappings_where_rows_are_drawn,
+        guard::scan_for_invariant_vocabulary,
     ] {
         assert_eq!(
             Err(Error::UnreadModule {
@@ -378,6 +440,10 @@ fn a_copy_of_the_workspace_breaks_none_of_these_rules() {
         Vec::<Finding>::new(),
         guard::scan_for_mappings_where_rows_are_drawn(fixture.root())
             .expect("the fixture is scanned")
+    );
+    assert_eq!(
+        Vec::<Finding>::new(),
+        guard::scan_for_invariant_vocabulary(fixture.root()).expect("the fixture is scanned")
     );
 }
 
