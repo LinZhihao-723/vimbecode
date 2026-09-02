@@ -200,6 +200,10 @@ impl Source {
     /// # Returns
     ///
     /// A newly created source, already delivering.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the reading thread or the timer thread cannot be spawned.
     pub fn start<ReaderType: Reader + Send + 'static>(reader: ReaderType, config: Config) -> Self {
         let (events, receiver) = mpsc::channel();
         let redraw_pending = Arc::new(AtomicBool::new(false));

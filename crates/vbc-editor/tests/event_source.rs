@@ -155,6 +155,31 @@ fn redraw_ticks_keep_their_cadence_while_a_read_is_wedged() -> Result<()> {
 }
 
 #[test]
+fn redraw_ticks_nobody_took_do_not_pile_up() -> Result<()> {
+    const IDLE_TICKS: u32 = 20;
+    const TOLERATED: usize = 5;
+
+    let source = start(Vec::new(), config());
+    thread::sleep(TICK * IDLE_TICKS);
+
+    let deadline = Instant::now() + TICK;
+    let mut queued = 0;
+    while Instant::now() < deadline {
+        if source.recv_timeout(Duration::from_millis(1)).is_err() {
+            break;
+        }
+        queued += 1;
+    }
+
+    assert!(
+        queued <= TOLERATED,
+        "{queued} redraw ticks were waiting after {IDLE_TICKS} of them went untaken, so an \
+         application that stops reading comes back to a backlog"
+    );
+    Ok(())
+}
+
+#[test]
 fn a_terminal_that_stops_being_readable_is_reported_rather_than_waited_on() -> Result<()> {
     let source = start(
         vec![Step::Event(key('a')), Step::Fail("the terminal went away")],
