@@ -48,9 +48,14 @@ const DECORATION_WIDTH: usize = TAB_STOP + 2;
 /// # Returns
 ///
 /// The style a terminal cell carries once `style` has been drawn onto it, which is `style` laid
-/// over the cell's reset colours rather than `style` on its own.
+/// over the cell's reset colours rather than `style` on its own. The underline colour is one of
+/// them, because a crossterm backend can set one.
 fn painted(style: Style) -> Style {
-    Style::new().fg(Color::Reset).bg(Color::Reset).patch(style)
+    Style::new()
+        .fg(Color::Reset)
+        .bg(Color::Reset)
+        .underline_color(Color::Reset)
+        .patch(style)
 }
 
 /// # Returns

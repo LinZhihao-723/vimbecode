@@ -26,9 +26,14 @@ const AREA_WIDTH: u16 = 16;
 /// # Returns
 ///
 /// The style a terminal cell carries once `style` has been drawn onto it, which is `style` laid
-/// over the cell's reset colours rather than `style` on its own.
+/// over the cell's reset colours rather than `style` on its own. The underline colour is one of
+/// them, because a crossterm backend can set one.
 fn painted(style: Style) -> Style {
-    Style::new().fg(Color::Reset).bg(Color::Reset).patch(style)
+    Style::new()
+        .fg(Color::Reset)
+        .bg(Color::Reset)
+        .underline_color(Color::Reset)
+        .patch(style)
 }
 
 /// What one render produced, read back cell by cell.

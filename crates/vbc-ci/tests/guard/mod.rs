@@ -438,6 +438,29 @@ pub fn scan_for_invariant_vocabulary(root: &Path) -> Result<Vec<Finding>, Error>
     Ok(findings)
 }
 
+/// Scans a tree for the sources that reach for a module of another crate.
+///
+/// # Returns
+///
+/// The path of every source of a tree that names `module`, in order, on success.
+///
+/// # Errors
+///
+/// Returns an error if:
+///
+/// * Forwards [`sources`]'s return values on failure.
+/// * Forwards [`read`]'s return values on failure.
+pub fn importers(root: &Path, module: &str) -> Result<Vec<String>, Error> {
+    let mut importers = Vec::new();
+    for path in sources(root)? {
+        if read(&path)?.contains(module) {
+            importers.push(relative(root, &path));
+        }
+    }
+
+    Ok(importers)
+}
+
 /// # Returns
 ///
 /// The path of every source of a tree that draws into a terminal buffer, in order, on success.
