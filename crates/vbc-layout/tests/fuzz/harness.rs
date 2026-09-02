@@ -103,7 +103,7 @@ impl Seed {
         const MIX: u64 = 0x9E37_79B9_7F4A_7C15;
 
         let mut bytes = [0_u8; 32];
-        for (index, chunk) in bytes.chunks_exact_mut(8).enumerate() {
+        for (index, chunk) in bytes.as_chunks_mut::<8>().0.iter_mut().enumerate() {
             chunk.copy_from_slice(&(self.0 ^ (index as u64).wrapping_mul(MIX)).to_le_bytes());
         }
         TestRng::from_seed(RngAlgorithm::ChaCha, &bytes)

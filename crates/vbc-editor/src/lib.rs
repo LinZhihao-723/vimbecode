@@ -4,4 +4,6 @@
 //! rendered through the layout engine.
 
 pub mod event;
+pub mod gutter;
 pub mod render;
+pub mod style;
