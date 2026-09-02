@@ -37,6 +37,14 @@ const AREA_WIDTH: u16 = 7;
 /// The columns a tab advances by in these fixtures.
 const TAB_STOP: usize = 8;
 
+/// A line indented by one tab, wide enough that its continuation rows are decorated.
+const INDENTED: &str = "\tan indented line that wraps";
+
+/// The columns [`INDENTED`] is wrapped into, and the columns the decoration its continuation rows
+/// carry occupies: the repeated indent followed by the two-column marker.
+const INDENTED_WIDTH: usize = 16;
+const DECORATION_WIDTH: usize = TAB_STOP + 2;
+
 /// # Returns
 ///
 /// The style a terminal cell carries once `style` has been drawn onto it, which is `style` laid
@@ -71,19 +79,29 @@ fn blue() -> Style {
 
 /// # Returns
 ///
+/// The layout options under which the continuation rows of a wrapped line carry a decoration.
+fn decorating() -> LineOptions {
+    LineOptions::new()
+        .with_break_indent(true)
+        .with_break_indent_min(2)
+        .with_show_break("> ".to_owned())
+}
+
+/// # Returns
+///
 /// The rows the logical line `line` of `block`, whose text is `text`, lays out into `width`
 /// columns.
 ///
 /// # Panics
 ///
 /// Panics if `width` is zero.
-fn lay_out(line: usize, text: &str, width: usize) -> Vec<DisplayRow> {
+fn lay_out(line: usize, text: &str, width: usize, options: &LineOptions) -> Vec<DisplayRow> {
     line::lay_out(
         line,
         text,
         NonZeroUsize::new(width).expect("a fixture is drawn in at least one column"),
         metrics(),
-        &LineOptions::new(),
+        options,
     )
 }
 
@@ -135,7 +153,12 @@ fn a_line_is_laid_out_styled_numbered_and_drawn_in_one_call_path() -> Result<()>
         let mut rows: Vec<DisplayRow> = Vec::new();
         let mut top = 0;
         for (line, (start, text)) in block.lines().enumerate() {
-            let laid_out = lay_out(line, text, usize::from(text_area.width));
+            let laid_out = lay_out(
+                line,
+                text,
+                usize::from(text_area.width),
+                &LineOptions::new(),
+            );
             let styled = block.style_rows(start, &laid_out);
             top += renderer.draw_styled_line(frame.buffer_mut(), text_area, top, &styled);
             rows.extend(laid_out);
@@ -168,11 +191,13 @@ fn a_line_is_laid_out_styled_numbered_and_drawn_in_one_call_path() -> Result<()>
 }
 
 /// Validation 4: the styles a row was drawn with reach the cells the terminal holds, across the
-/// wrap boundary a span crosses and across the blanks a styled tab is drawn as.
+/// wrap boundary a span crosses, across the blanks a styled tab is drawn as, and beside the
+/// decoration a continuation row carries, which is drawn in the renderer's own style however the
+/// text behind it is styled.
 #[test]
 fn a_styled_row_carries_its_styles_into_the_terminal_grid() -> Result<()> {
     let block = Block::with_spans("abcdef".to_owned(), vec![Span::new(2..4, red())]);
-    let terminal = draw(&block, TEXT_WIDTH, 2)?;
+    let terminal = draw(&block, TEXT_WIDTH, 2, &LineOptions::new())?;
 
     assert_eq!(vec!["a|b|c", "d|e|f"], symbols(&terminal));
     assert_eq!(
@@ -193,7 +218,7 @@ fn a_styled_row_carries_its_styles_into_the_terminal_grid() -> Result<()> {
     );
 
     let tabbed = Block::with_spans("a\tb".to_owned(), vec![Span::new(1..2, blue())]);
-    let terminal = draw(&tabbed, TAB_STOP + 1, 1)?;
+    let terminal = draw(&tabbed, TAB_STOP + 1, 1, &LineOptions::new())?;
 
     assert_eq!(vec!["a| | | | | | | |b"], symbols(&terminal));
     let drawn = styles(&terminal, 0);
@@ -203,6 +228,54 @@ fn a_styled_row_carries_its_styles_into_the_terminal_grid() -> Result<()> {
         "the blanks a styled tab is drawn as do not carry its span"
     );
     assert_eq!(painted(Style::default()), drawn[TAB_STOP], "`b` was styled");
+
+    let indented = Block::with_spans(
+        INDENTED.to_owned(),
+        vec![Span::new(0..INDENTED.len(), red())],
+    );
+    let terminal = draw(&indented, INDENTED_WIDTH, 5, &decorating())?;
+
+    let continuation = styles(&terminal, 1);
+    assert_eq!(
+        vec![painted(Style::default()); DECORATION_WIDTH],
+        continuation[..DECORATION_WIDTH],
+        "the decoration a continuation row carries went undrawn or took the style of the span \
+         behind it"
+    );
+    assert_eq!(
+        painted(red()),
+        continuation[DECORATION_WIDTH],
+        "the text beside the decoration lost the span covering it"
+    );
+
+    Ok(())
+}
+
+/// Validation 4: a styled line fills only the rows its area holds, and reports how many of them it
+/// filled, so a caller stacking one line under the next stops where the unstyled pair of the same
+/// calls stops.
+#[test]
+fn a_styled_line_stops_at_the_bottom_of_the_area() -> Result<()> {
+    let block = Block::with_spans("abcdefghi".to_owned(), vec![Span::new(3..6, red())]);
+    let (start, text) = block.lines().next().expect("a block holds a first line");
+    let rows = lay_out(0, text, TEXT_WIDTH, &LineOptions::new());
+    let styled = block.style_rows(start, &rows);
+    assert_eq!(3, rows.len());
+
+    let narrowed = u16::try_from(TEXT_WIDTH).expect("a fixture fits in a terminal");
+    let mut drawn = 0;
+    let mut terminal = Terminal::new(TestBackend::new(narrowed, 2))?;
+    terminal.draw(|frame| {
+        let area = frame.area();
+        drawn = Renderer::new(metrics()).draw_styled_line(frame.buffer_mut(), area, 0, &styled);
+    })?;
+
+    assert_eq!(
+        2, drawn,
+        "a styled line drew rows its area has no cells for"
+    );
+    assert_eq!(vec!["a|b|c", "d|e|f"], symbols(&terminal));
+    assert_eq!(vec![painted(red()); TEXT_WIDTH], styles(&terminal, 1));
 
     Ok(())
 }
@@ -217,19 +290,12 @@ fn a_styled_row_carries_its_styles_into_the_terminal_grid() -> Result<()> {
 #[test]
 fn a_styled_row_draws_the_cells_its_display_row_draws() -> Result<()> {
     let fixtures = [
-        ("a\u{0301}\t中文 abcdef", 6, LineOptions::new()),
-        ("ab中cd中ef", 3, LineOptions::new()),
-        (
-            "\tan indented line that wraps",
-            10,
-            LineOptions::new()
-                .with_break_indent(true)
-                .with_break_indent_min(2)
-                .with_show_break("> ".to_owned()),
-        ),
+        ("a\u{0301}\t中文 abcdef", 6, LineOptions::new(), false),
+        ("ab中cd中ef", 3, LineOptions::new(), false),
+        (INDENTED, INDENTED_WIDTH, decorating(), true),
     ];
 
-    for (source, width, options) in fixtures {
+    for (source, width, options, decorated) in fixtures {
         let block = Block::with_spans(source.to_owned(), vec![Span::new(0..7, red())]);
         let rows = line::lay_out(
             0,
@@ -241,6 +307,11 @@ fn a_styled_row_draws_the_cells_its_display_row_draws() -> Result<()> {
         let styled = block.style_rows(0, &rows);
         let height = u16::try_from(rows.len()).expect("a fixture fits on a screen");
         assert!(1 < rows.len(), "`{source}` must wrap to be worth drawing");
+        assert_eq!(
+            decorated,
+            rows.iter().any(|row| !row.prefix().is_empty()),
+            "`{source}` does not carry the decoration the fixture is here to draw"
+        );
 
         let narrowed = u16::try_from(width).expect("a fixture fits in a terminal");
         let mut plain = Terminal::new(TestBackend::new(narrowed, height))?;
@@ -288,9 +359,14 @@ fn a_styled_row_draws_the_cells_its_display_row_draws() -> Result<()> {
 /// # Panics
 ///
 /// Panics if the line lays out into more rows than `height`.
-fn draw(block: &Block, width: usize, height: u16) -> Result<Terminal<TestBackend>> {
+fn draw(
+    block: &Block,
+    width: usize,
+    height: u16,
+    options: &LineOptions,
+) -> Result<Terminal<TestBackend>> {
     let (start, text) = block.lines().next().expect("a block holds a first line");
-    let rows = lay_out(0, text, width);
+    let rows = lay_out(0, text, width, options);
     let styled: Vec<StyledRow> = block.style_rows(start, &rows);
     assert_eq!(usize::from(height), styled.len());
 

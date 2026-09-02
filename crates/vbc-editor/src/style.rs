@@ -247,6 +247,9 @@ pub struct StyledRow {
 }
 
 impl StyledRow {
+    /// # Returns
+    ///
+    /// The display row the layout produced, which is the row these styles were applied to.
     #[must_use]
     pub fn row(&self) -> &DisplayRow {
         &self.row
