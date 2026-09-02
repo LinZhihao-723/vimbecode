@@ -177,7 +177,7 @@ pub struct DisplayRow {
     prefix: String,
     text: String,
     cells: String,
-    width: usize,
+    columns: Vec<usize>,
 }
 
 impl DisplayRow {
@@ -224,10 +224,22 @@ impl DisplayRow {
 
     /// # Returns
     ///
+    /// The column each of the row's graphemes is drawn at, its decoration accounted for, followed
+    /// by the column just past the row's last grapheme.
+    #[must_use]
+    pub fn columns(&self) -> &[usize] {
+        &self.columns
+    }
+
+    /// # Returns
+    ///
     /// The number of columns the row occupies, its decoration included.
     #[must_use]
     pub fn width(&self) -> usize {
-        self.width
+        *self
+            .columns
+            .last()
+            .expect("a row's columns end with the column past its text")
     }
 }
 
@@ -263,7 +275,7 @@ pub fn lay_out(
             prefix: String::new(),
             text: String::new(),
             cells: String::new(),
-            width: 0,
+            columns: vec![0],
         }];
     }
 
@@ -302,6 +314,7 @@ pub fn lay_out(
         };
         let mut cells = prefix.clone();
         let mut column = if decorated { decoration_width } else { 0 };
+        let mut columns = Vec::new();
         let mut index = start;
         while index < clusters.len() {
             let grapheme = clusters[index].1;
@@ -334,9 +347,11 @@ pub fn lay_out(
             } else {
                 cells.push_str(grapheme);
             }
+            columns.push(column);
             column += grapheme_width;
             index += 1;
         }
+        columns.push(column);
 
         let text_start = clusters[start].0;
         let text_end = clusters
@@ -348,7 +363,7 @@ pub fn lay_out(
             prefix,
             text: line[text_start..text_end].to_owned(),
             cells,
-            width: column,
+            columns,
         });
         start = index;
     }
@@ -444,10 +459,10 @@ fn carried_tab_columns(
         return None;
     }
     let previous = previous?;
-    if width <= previous.width {
+    if width <= previous.width() {
         return None;
     }
-    let started = drawn - width + previous.width;
+    let started = drawn - width + previous.width();
     let reached = started + metrics.tab_width(started);
     (drawn < reached).then(|| reached - drawn)
 }
