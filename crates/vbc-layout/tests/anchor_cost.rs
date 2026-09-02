@@ -11,11 +11,13 @@
 //! busy machine slows both sides alike, and the tolerance is wide enough that only a mapping whose
 //! cost actually follows the text can break it -- laying the whole buffer out would be hundreds of
 //! times slower on the larger text rather than a few times.
+//!
+//! The other half of the claim -- that nothing keeps a cache of what it laid out, which is what a
+//! mapping this cheap has no need of -- is a property of the source rather than of a run, and it
+//! is read off every crate of the workspace by `vbc-ci`'s architecture guards.
 
-use std::fs;
 use std::hint::black_box;
 use std::num::NonZeroUsize;
-use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use vbc_layout::anchor::{
@@ -48,28 +50,6 @@ const REACH: usize = 12;
 /// slower over the larger text, so nothing but a mapping whose cost follows the text passes.
 const TOLERANCE: u32 = 4;
 
-/// The words that would name a cache, a memoized answer, or the mutable state one is kept in.
-const CACHE_WORDS: [&str; 10] = [
-    "cache",
-    "memo",
-    "oncecell",
-    "oncelock",
-    "lazy_static",
-    "refcell",
-    "mutex",
-    "rwlock",
-    "static mut",
-    "thread_local",
-];
-
-/// The reference layout the invariant search runs over, which sits in the test tree rather than in
-/// `src` and is held to the same rule as the crate's own sources.
-const REFERENCE_LAYOUT: &str = "tests/fuzz/reference.rs";
-
-/// The number of files the scan reads, which keeps a scan that finds nothing from passing because
-/// it read nothing.
-const SOURCE_FILES: usize = 9;
-
 #[test]
 fn a_mapping_costs_the_same_over_a_short_text_and_a_long_one() {
     let wrapping = Wrapping::new(
@@ -96,33 +76,6 @@ fn a_mapping_costs_the_same_over_a_short_text_and_a_long_one() {
         "{MAPPINGS} mappings cost {small_cost:?} over {SMALL_TEXT} lines and {large_cost:?} over \
          {LARGE_TEXT}, so the measurement is not comparing the same work"
     );
-}
-
-#[test]
-fn the_crate_keeps_no_cache_of_what_it_laid_out() {
-    let mut scanned = 0;
-    for path in sources() {
-        let source = fs::read_to_string(&path).expect("a source file of this crate is readable");
-        scanned += 1;
-        for (number, line) in source.lines().enumerate() {
-            let code = line.trim_start();
-            if code.starts_with("//") {
-                continue;
-            }
-
-            let lowercase = code.to_lowercase();
-            for word in CACHE_WORDS {
-                assert!(
-                    !lowercase.contains(word),
-                    "{}:{} names `{word}`: {code}",
-                    path.display(),
-                    number + 1
-                );
-            }
-        }
-    }
-
-    assert_eq!(SOURCE_FILES, scanned);
 }
 
 /// # Returns
@@ -179,22 +132,4 @@ fn cost(lines: &[String], wrapping: &Wrapping) -> Duration {
     }
 
     fastest
-}
-
-/// # Returns
-///
-/// The path of every source file of this crate, together with the reference layout.
-///
-/// # Panics
-///
-/// Panics if the crate's source directory cannot be read.
-fn sources() -> Vec<PathBuf> {
-    let crate_root = Path::new(env!("CARGO_MANIFEST_DIR"));
-
-    fs::read_dir(crate_root.join("src"))
-        .expect("this crate holds a source directory")
-        .map(|entry| entry.expect("a source directory entry is readable").path())
-        .filter(|path| path.extension().is_some_and(|extension| "rs" == extension))
-        .chain([crate_root.join(REFERENCE_LAYOUT)])
-        .collect()
 }

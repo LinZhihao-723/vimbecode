@@ -6,18 +6,18 @@
 //! rows it was already holding. The renderer is handed the rows instead, so drawing one costs the
 //! cells it fills and nothing else.
 //!
-//! Two things say so here. The renderer's own source is read and required to name no part of the
-//! mapping, which a renderer that reached for one could not avoid. And the two are timed against
-//! each other: drawing a whole viewport is required to cost a small fraction of what mapping the
-//! rows of that viewport costs, which only a renderer that maps nothing can manage. The
-//! measurement is a ratio of the fastest of several runs, so a busy machine slows both sides
-//! alike, and the margin is wide enough that only a renderer whose cost actually follows the
-//! mapping can break it.
+//! The two are timed against each other here: drawing a whole viewport is required to cost a small
+//! fraction of what mapping the rows of that viewport costs, which only a renderer that maps
+//! nothing can manage. The measurement is a ratio of the fastest of several runs, so a busy
+//! machine slows both sides alike, and the margin is wide enough that only a renderer whose cost
+//! actually follows the mapping can break it.
+//!
+//! That a renderer names no part of the mapping in the first place is a property of the source
+//! rather than of a run, and it is read off every source of the workspace that draws -- this one,
+//! the gutter beside it, and whatever draws next -- by `vbc-ci`'s architecture guards.
 
-use std::fs;
 use std::hint::black_box;
 use std::num::NonZeroUsize;
-use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use ratatui::buffer::Buffer;
@@ -29,23 +29,6 @@ use vbc_layout::anchor::{
 use vbc_layout::invariants::LogicalPosition;
 use vbc_layout::line::{self, DisplayRow, Options};
 use vbc_layout::width::Metrics;
-
-/// The renderer's own source, which is what the scan reads.
-const RENDERER_SOURCE: &str = "src/render.rs";
-
-/// The definition the scan requires the source to hold, so that a scan of a renamed or emptied
-/// file fails rather than passing because it found nothing.
-const RENDERER_DEFINITION: &str = "pub fn draw_row(";
-
-/// The words that would name the anchor mapping or the whole-document layout a renderer must not
-/// reach for.
-const MAPPING_WORDS: [&str; 5] = [
-    "anchor",
-    "visual_offset",
-    "char_idx",
-    "wrappedlayout",
-    "lay_out",
-];
 
 /// The number of columns the timed viewport is drawn in.
 const WIDTH: usize = 80;
@@ -61,34 +44,6 @@ const RUNS: usize = 9;
 /// that maps every row it draws costs about thirty times as much, so nothing but a renderer that
 /// maps nothing passes.
 const MARGIN: u32 = 8;
-
-#[test]
-fn the_renderer_names_no_part_of_the_anchor_mapping() {
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(RENDERER_SOURCE);
-    let source = fs::read_to_string(&path).expect("the renderer's source is readable");
-    assert!(
-        source.contains(RENDERER_DEFINITION),
-        "{} holds no `{RENDERER_DEFINITION}`, so the scan read the wrong file",
-        path.display()
-    );
-
-    for (number, text) in source.lines().enumerate() {
-        let code = text.trim_start();
-        if code.starts_with("//") {
-            continue;
-        }
-
-        let lowercase = code.to_lowercase();
-        for word in MAPPING_WORDS {
-            assert!(
-                !lowercase.contains(word),
-                "{}:{} names `{word}`: {code}",
-                path.display(),
-                number + 1
-            );
-        }
-    }
-}
 
 #[test]
 fn drawing_a_whole_viewport_costs_a_fraction_of_mapping_its_rows() {
