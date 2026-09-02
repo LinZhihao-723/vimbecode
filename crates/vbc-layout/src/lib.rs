@@ -5,4 +5,5 @@
 
 pub mod buffer;
 pub mod invariants;
+pub mod line;
 pub mod width;
