@@ -698,6 +698,11 @@ fn escape_single_quotes(text: &str) -> String {
 /// swallows the key the state is captured with ends its run rather than leaving vim waiting for a
 /// key that never comes.
 ///
+/// A screen row is read one character at a time rather than one cell at a time: vim measures the
+/// character a cell starts and the read moves on by that many cells, so the cells a double-width
+/// character spans are never read. Only vim measures, so the capture stays an authority the
+/// editor's own widths are checked against rather than a mirror of them.
+///
 /// # Returns
 ///
 /// The script vim sources after it has opened the starting buffer.
@@ -712,7 +717,16 @@ function! g:VbcScreenText() abort
   let l:right = l:left + winwidth(0) - 1
   let l:rows = []
   for l:row in range(l:top, l:top + winheight(0) - 1)
-    let l:cells = map(range(l:left, l:right), 'screenstring(' . l:row . ', v:val)')
+    let l:cells = []
+    let l:col = l:left
+    while l:col <= l:right
+      let l:cell = screenstring(l:row, l:col)
+      if l:cell ==# ''
+        let l:cell = ' '
+      endif
+      call add(l:cells, l:cell)
+      let l:col += max([1, strdisplaywidth(l:cell)])
+    endwhile
     call add(l:rows, substitute(join(l:cells, ''), ' \+$', '', ''))
   endfor
   return l:rows

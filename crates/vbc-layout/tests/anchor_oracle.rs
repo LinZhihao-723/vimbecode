@@ -66,16 +66,11 @@ const CURSOR_DIVERGENCES: [(&str, &str); 4] = [
 ];
 
 /// The number of cases whose every position this mapping draws where vim drew it.
-const SCREENS_ANCHORED: usize = 62;
+const SCREENS_ANCHORED: usize = 63;
 
 /// The cases whose recorded screen holds something other than the graphemes this crate lays out,
 /// with the reason.
-const SCREEN_DIVERGENCES: [(&str, &str); 11] = [
-    (
-        "cjk-mixed-latin-delete-char",
-        "the recorded screen repeats every double-width character that starts at an odd column, \
-         which is what vim's own capture reports after the deletion redrew part of the row",
-    ),
+const SCREEN_DIVERGENCES: [(&str, &str); 10] = [
     ("emoji-skin-tone-modifier", ZERO_WIDTH_JOINER),
     ("emoji-zwj-family-delete-cluster", ZERO_WIDTH_JOINER),
     ("emoji-zwj-family-wrap-edge", ZERO_WIDTH_JOINER),
