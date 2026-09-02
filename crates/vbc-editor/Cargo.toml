@@ -18,3 +18,4 @@ vbc-layout = { path = "../vbc-layout" }
 [dev-dependencies]
 anyhow = "1.0.104"
 proptest = "1.11.0"
+vbc-oracle = { path = "../vbc-oracle" }

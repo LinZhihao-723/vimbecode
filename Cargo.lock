@@ -1098,6 +1098,7 @@ dependencies = [
  "proptest",
  "ratatui",
  "vbc-layout",
+ "vbc-oracle",
 ]
 
 [[package]]
