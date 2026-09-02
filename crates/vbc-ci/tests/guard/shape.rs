@@ -89,14 +89,6 @@ impl Word {
     }
 }
 
-/// What a delimiter opened, which is what the words inside it are read against.
-#[derive(Debug, Default)]
-struct Frame {
-    header: Vec<String>,
-    repetition: bool,
-    test: bool,
-}
-
 /// Reads a Rust source into the words it is written from.
 ///
 /// # Returns
@@ -220,6 +212,14 @@ pub fn words(source: &str) -> Vec<Word> {
     }
 
     words
+}
+
+/// What a delimiter opened, which is what the words inside it are read against.
+#[derive(Debug, Default)]
+struct Frame {
+    header: Vec<String>,
+    repetition: bool,
+    test: bool,
 }
 
 /// # Returns
