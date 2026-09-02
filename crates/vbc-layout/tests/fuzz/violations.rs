@@ -5,10 +5,10 @@
 //! invariants at once would fail every one of the harness's tests without any of them exercising
 //! the check it is named for.
 
+use super::reference::WholeDocumentLayout;
 use vbc_layout::invariants::{
     graphemes, DisplayPosition, Layout, LogicalPosition, Row, Screen, View,
 };
-use vbc_layout::screen::WrappedLayout;
 
 /// A layout that draws one column more than the viewport holds, in blanks the text does not
 /// account for.
@@ -18,7 +18,7 @@ impl Layout for OverdrawsRows {
     fn lay_out(&self, view: View<'_>) -> Screen {
         let occupied = view.viewport.width() + 1;
         let metrics = view.viewport.wrapping.metrics();
-        let mut screen = WrappedLayout.lay_out(view);
+        let mut screen = WholeDocumentLayout.lay_out(view);
         for row in &mut screen.rows {
             let drawn = metrics.text_width(&row.cells, 0);
             row.cells
@@ -36,7 +36,7 @@ impl Layout for OverdrawsRows {
         view: View<'_>,
         position: LogicalPosition,
     ) -> Option<DisplayPosition> {
-        WrappedLayout.display_position(view, position)
+        WholeDocumentLayout.display_position(view, position)
     }
 
     fn logical_position(
@@ -44,7 +44,7 @@ impl Layout for OverdrawsRows {
         view: View<'_>,
         position: DisplayPosition,
     ) -> Option<LogicalPosition> {
-        WrappedLayout.logical_position(view, position)
+        WholeDocumentLayout.logical_position(view, position)
     }
 }
 
@@ -57,7 +57,7 @@ pub struct DropsAGrapheme;
 
 impl Layout for DropsAGrapheme {
     fn lay_out(&self, view: View<'_>) -> Screen {
-        let mut screen = WrappedLayout.lay_out(view);
+        let mut screen = WholeDocumentLayout.lay_out(view);
         if screen.rows.len() < 2 {
             return screen;
         }
@@ -78,7 +78,7 @@ impl Layout for DropsAGrapheme {
         view: View<'_>,
         position: LogicalPosition,
     ) -> Option<DisplayPosition> {
-        WrappedLayout.display_position(view, position)
+        WholeDocumentLayout.display_position(view, position)
     }
 
     fn logical_position(
@@ -86,7 +86,7 @@ impl Layout for DropsAGrapheme {
         view: View<'_>,
         position: DisplayPosition,
     ) -> Option<LogicalPosition> {
-        WrappedLayout.logical_position(view, position)
+        WholeDocumentLayout.logical_position(view, position)
     }
 }
 
@@ -113,7 +113,7 @@ impl PadsWithAnEmptyRow {
 
 impl Layout for PadsWithAnEmptyRow {
     fn lay_out(&self, view: View<'_>) -> Screen {
-        let mut screen = WrappedLayout.lay_out(view);
+        let mut screen = WholeDocumentLayout.lay_out(view);
         if !Self::plants(view, &screen) {
             return screen;
         }
@@ -136,8 +136,8 @@ impl Layout for PadsWithAnEmptyRow {
         view: View<'_>,
         position: LogicalPosition,
     ) -> Option<DisplayPosition> {
-        let display = WrappedLayout.display_position(view, position)?;
-        if !Self::plants(view, &WrappedLayout.lay_out(view)) || 0 == display.row {
+        let display = WholeDocumentLayout.display_position(view, position)?;
+        if !Self::plants(view, &WholeDocumentLayout.lay_out(view)) || 0 == display.row {
             return Some(display);
         }
 
@@ -152,14 +152,14 @@ impl Layout for PadsWithAnEmptyRow {
         view: View<'_>,
         position: DisplayPosition,
     ) -> Option<LogicalPosition> {
-        if !Self::plants(view, &WrappedLayout.lay_out(view)) {
-            return WrappedLayout.logical_position(view, position);
+        if !Self::plants(view, &WholeDocumentLayout.lay_out(view)) {
+            return WholeDocumentLayout.logical_position(view, position);
         }
 
         match position.row {
-            0 => WrappedLayout.logical_position(view, position),
+            0 => WholeDocumentLayout.logical_position(view, position),
             1 => None,
-            row => WrappedLayout.logical_position(
+            row => WholeDocumentLayout.logical_position(
                 view,
                 DisplayPosition {
                     row: row - 1,
@@ -176,7 +176,7 @@ pub struct OverflowsEndOfLine;
 
 impl Layout for OverflowsEndOfLine {
     fn lay_out(&self, view: View<'_>) -> Screen {
-        WrappedLayout.lay_out(view)
+        WholeDocumentLayout.lay_out(view)
     }
 
     fn display_position(
@@ -184,12 +184,12 @@ impl Layout for OverflowsEndOfLine {
         view: View<'_>,
         position: LogicalPosition,
     ) -> Option<DisplayPosition> {
-        let line_len = view.document.line_len(position.line)?;
+        let line_len = view.buffer.line_len(position.line)?;
         if position.grapheme != line_len {
-            return WrappedLayout.display_position(view, position);
+            return WholeDocumentLayout.display_position(view, position);
         }
 
-        let screen = WrappedLayout.lay_out(view);
+        let screen = WholeDocumentLayout.lay_out(view);
         let row = screen
             .rows
             .iter()
@@ -204,7 +204,7 @@ impl Layout for OverflowsEndOfLine {
         view: View<'_>,
         position: DisplayPosition,
     ) -> Option<LogicalPosition> {
-        WrappedLayout.logical_position(view, position)
+        WholeDocumentLayout.logical_position(view, position)
     }
 }
 
@@ -214,7 +214,7 @@ pub struct MergesLastCell;
 
 impl Layout for MergesLastCell {
     fn lay_out(&self, view: View<'_>) -> Screen {
-        WrappedLayout.lay_out(view)
+        WholeDocumentLayout.lay_out(view)
     }
 
     fn display_position(
@@ -222,7 +222,7 @@ impl Layout for MergesLastCell {
         view: View<'_>,
         position: LogicalPosition,
     ) -> Option<DisplayPosition> {
-        WrappedLayout.display_position(view, position)
+        WholeDocumentLayout.display_position(view, position)
     }
 
     fn logical_position(
@@ -230,8 +230,8 @@ impl Layout for MergesLastCell {
         view: View<'_>,
         position: DisplayPosition,
     ) -> Option<LogicalPosition> {
-        let logical = WrappedLayout.logical_position(view, position)?;
-        let screen = WrappedLayout.lay_out(view);
+        let logical = WholeDocumentLayout.logical_position(view, position)?;
+        let screen = WholeDocumentLayout.lay_out(view);
         let row = screen.rows.get(position.row)?;
         if graphemes(&row.text).count() < 2 || logical.grapheme + 1 != row.end() {
             return Some(logical);

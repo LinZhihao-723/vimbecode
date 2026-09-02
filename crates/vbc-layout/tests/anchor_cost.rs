@@ -62,8 +62,12 @@ const CACHE_WORDS: [&str; 10] = [
     "thread_local",
 ];
 
-/// The number of source files the crate holds, which keeps a scan that finds nothing from passing
-/// because it read nothing.
+/// The reference layout the invariant search runs over, which sits in the test tree rather than in
+/// `src` and is held to the same rule as the crate's own sources.
+const REFERENCE_LAYOUT: &str = "tests/fuzz/reference.rs";
+
+/// The number of files the scan reads, which keeps a scan that finds nothing from passing because
+/// it read nothing.
 const SOURCE_FILES: usize = 8;
 
 #[test]
@@ -179,17 +183,18 @@ fn cost(lines: &[String], wrapping: &Wrapping) -> Duration {
 
 /// # Returns
 ///
-/// The path of every source file of this crate.
+/// The path of every source file of this crate, together with the reference layout.
 ///
 /// # Panics
 ///
 /// Panics if the crate's source directory cannot be read.
 fn sources() -> Vec<PathBuf> {
-    let directory = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let crate_root = Path::new(env!("CARGO_MANIFEST_DIR"));
 
-    fs::read_dir(directory)
+    fs::read_dir(crate_root.join("src"))
         .expect("this crate holds a source directory")
         .map(|entry| entry.expect("a source directory entry is readable").path())
         .filter(|path| path.extension().is_some_and(|extension| "rs" == extension))
+        .chain([crate_root.join(REFERENCE_LAYOUT)])
         .collect()
 }

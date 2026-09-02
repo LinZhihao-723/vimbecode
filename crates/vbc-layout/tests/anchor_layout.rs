@@ -10,8 +10,9 @@
 //! walk an anchor at the top of the text would ever take.
 
 use vbc_layout::anchor::{char_idx_at_visual_offset, visual_offset_from_anchor, VisualOffset};
+use vbc_layout::buffer::Buffer;
 use vbc_layout::invariants::{
-    DisplayPosition, Document, Layout, LogicalPosition, Row, Screen, View, Viewport,
+    DisplayPosition, Layout, LogicalPosition, Row, Screen, View, Viewport,
 };
 use vbc_layout::line;
 
@@ -45,13 +46,13 @@ struct Anchored {
 impl Anchored {
     /// # Returns
     ///
-    /// The position every mapping of `document` is anchored at.
-    fn anchor(&self, document: &Document) -> LogicalPosition {
+    /// The position every mapping of `buffer` is anchored at.
+    fn anchor(&self, buffer: &Buffer) -> LogicalPosition {
         LogicalPosition {
             line: if self.from_the_top {
                 0
             } else {
-                document.lines().len() - 1
+                buffer.lines().len() - 1
             },
             grapheme: 0,
         }
@@ -59,11 +60,11 @@ impl Anchored {
 
     /// # Returns
     ///
-    /// The screen row the anchor of the view's document is drawn on.
+    /// The screen row the anchor of the view's buffer is drawn on.
     fn origin(&self, view: View<'_>) -> usize {
-        let anchor = self.anchor(view.document);
+        let anchor = self.anchor(view.buffer);
 
-        view.document.lines()[..anchor.line]
+        view.buffer.lines()[..anchor.line]
             .iter()
             .map(|text| rows_of(text, view.viewport).len())
             .sum()
@@ -73,7 +74,7 @@ impl Anchored {
 impl Layout for Anchored {
     fn lay_out(&self, view: View<'_>) -> Screen {
         let mut rows: Vec<Row> = view
-            .document
+            .buffer
             .lines()
             .iter()
             .enumerate()
@@ -90,7 +91,7 @@ impl Layout for Anchored {
             })
             .collect();
         if ends_on_a_full_row(&rows, view.viewport) {
-            let end = view.document.end();
+            let end = view.buffer.end();
             rows.push(Row {
                 line: end.line,
                 start: end.grapheme,
@@ -109,8 +110,8 @@ impl Layout for Anchored {
         position: LogicalPosition,
     ) -> Option<DisplayPosition> {
         let offset = visual_offset_from_anchor(
-            view.document.lines(),
-            self.anchor(view.document),
+            view.buffer.lines(),
+            self.anchor(view.buffer),
             position,
             &view.viewport.wrapping,
             MAX_ROWS,
@@ -134,8 +135,8 @@ impl Layout for Anchored {
             column: position.column,
         };
         let landing = char_idx_at_visual_offset(
-            view.document.lines(),
-            self.anchor(view.document),
+            view.buffer.lines(),
+            self.anchor(view.buffer),
             offset,
             &view.viewport.wrapping,
         )

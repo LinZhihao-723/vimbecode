@@ -1,31 +1,37 @@
-//! The screen a window draws: vim's wrapped rows, scrolled to the slice of the text the cursor is
-//! on, and the mapping between that screen and the text.
+//! The reference layout the invariant search runs over: vim's wrapped rows for a whole
+//! document, scrolled to the slice of the text the cursor is on, and the mapping between that
+//! screen and the text.
 //!
-//! This is the layout the editor renders with, composed of the parts that own the rules rather
-//! than of rules of its own: [`crate::line`] decides where a logical line breaks, [`crate::anchor`]
-//! decides which cell draws a position, and this module decides only which rows the window shows.
+//! It lives in the test tree rather than in the crate, and its name says what it costs, because
+//! laying every line of the buffer out on every call is the cost the anchored mapping exists to
+//! avoid. A search can afford it over a generated document of a few lines; a renderer cannot
+//! afford it over a transcript, and must not be able to reach for it by accident.
+//!
+//! The layout owns no rule of its own beyond which rows the window shows:
+//! [`vbc_layout::line`] decides where a logical line breaks and [`vbc_layout::anchor`] decides
+//! which cell draws a position.
 //!
 //! A layout is a pure function of the view, so it carries none of the scroll state an editor keeps
 //! between draws. The window it shows is therefore the one a reader lands on when the text is
 //! revealed from its first row: the rows are scrolled down only as far as it takes to bring the
-//! cursor onto the last of them, and never further. A renderer that keeps a viewport of its own
-//! scrolls that instead, and pays for the rows it draws rather than for the text above them, which
-//! is what the anchored mapping is for.
+//! cursor onto the last of them, and never further.
 //!
 //! A cursor resting past the end of a line whose last row is exactly full is drawn in the first
 //! cell of the row below, which for the last line of the text is a row no text reaches. The window
 //! draws that row as an empty one rather than leaving the cursor off the screen, which is the row
 //! vim draws the same cursor on.
 
-use crate::anchor::{char_idx_at_visual_offset, visual_offset_from_anchor, VisualOffset, Wrapping};
-use crate::invariants::{DisplayPosition, Layout, LogicalPosition, Row, Screen, View};
-use crate::line::{self, DisplayRow};
+use vbc_layout::anchor::{
+    char_idx_at_visual_offset, visual_offset_from_anchor, VisualOffset, Wrapping,
+};
+use vbc_layout::invariants::{DisplayPosition, Layout, LogicalPosition, Row, Screen, View};
+use vbc_layout::line::{self, DisplayRow};
 
-/// The layout vimbecode draws its text with.
+/// A layout that draws a view by laying every line of its buffer out.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub struct WrappedLayout;
+pub struct WholeDocumentLayout;
 
-impl Layout for WrappedLayout {
+impl Layout for WholeDocumentLayout {
     fn lay_out(&self, view: View<'_>) -> Screen {
         Screen {
             rows: Drawn::of(view).rows,
@@ -87,7 +93,7 @@ impl Drawn {
             })
             .collect();
         if wrapped.len() == cursor_row {
-            let end = view.document.end();
+            let end = view.buffer.end();
             rows.push(Row {
                 line: end.line,
                 start: end.grapheme,
@@ -133,7 +139,7 @@ impl Drawn {
         position: LogicalPosition,
     ) -> Option<DisplayPosition> {
         let offset = visual_offset_from_anchor(
-            view.document.lines(),
+            view.buffer.lines(),
             self.anchor,
             position,
             &view.viewport.wrapping,
@@ -165,7 +171,7 @@ impl Drawn {
             column: position.column,
         };
         let landing = char_idx_at_visual_offset(
-            view.document.lines(),
+            view.buffer.lines(),
             self.anchor,
             asked,
             &view.viewport.wrapping,
@@ -183,7 +189,7 @@ impl Drawn {
 fn wrap(view: View<'_>) -> Vec<(usize, DisplayRow)> {
     let wrapping: &Wrapping = &view.viewport.wrapping;
 
-    view.document
+    view.buffer
         .lines()
         .iter()
         .enumerate()
@@ -215,9 +221,9 @@ fn cursor_row(view: View<'_>, wrapped_rows: usize) -> usize {
         grapheme: 0,
     };
     let offset = visual_offset_from_anchor(
-        view.document.lines(),
+        view.buffer.lines(),
         start,
-        view.document.clamp(view.cursor),
+        view.buffer.clamp(view.cursor),
         &view.viewport.wrapping,
         wrapped_rows,
     )
@@ -237,15 +243,17 @@ fn signed(count: usize) -> isize {
     isize::try_from(count).expect("a row count fits in an `isize`")
 }
 
-#[cfg(test)]
+/// The rows and mappings the reference layout is pinned to by hand, which is what keeps the
+/// invariant search from being checked against a layout nobody ever read.
 mod tests {
     use std::num::NonZeroUsize;
 
     use super::*;
 
-    use crate::invariants::{check, Document, Viewport, Violation};
-    use crate::line::Options;
-    use crate::width::Metrics;
+    use vbc_layout::buffer::Buffer;
+    use vbc_layout::invariants::{check, Viewport, Violation};
+    use vbc_layout::line::Options;
+    use vbc_layout::width::Metrics;
 
     /// # Returns
     ///
@@ -266,7 +274,7 @@ mod tests {
     ///
     /// The cells of each row the view draws, top to bottom.
     fn cells(view: View<'_>) -> Vec<String> {
-        WrappedLayout
+        WholeDocumentLayout
             .lay_out(view)
             .rows
             .into_iter()
@@ -276,10 +284,10 @@ mod tests {
 
     #[test]
     fn a_text_shorter_than_the_window_is_drawn_from_its_first_row() {
-        let document = Document::new(vec!["abcdef".to_owned(), "gh".to_owned()]);
+        let buffer = Buffer::from_lines(vec!["abcdef".to_owned(), "gh".to_owned()]);
         let viewport = viewport(4, 5, Options::new());
         let view = View {
-            document: &document,
+            buffer: &buffer,
             viewport: &viewport,
             cursor: LogicalPosition {
                 line: 0,
@@ -292,10 +300,10 @@ mod tests {
 
     #[test]
     fn the_window_scrolls_down_only_as_far_as_the_cursor() {
-        let document = Document::new(vec!["abcdefghij".to_owned()]);
+        let buffer = Buffer::from_lines(vec!["abcdefghij".to_owned()]);
         let viewport = viewport(2, 2, Options::new());
         let at = |grapheme| View {
-            document: &document,
+            buffer: &buffer,
             viewport: &viewport,
             cursor: LogicalPosition { line: 0, grapheme },
         };
@@ -308,10 +316,10 @@ mod tests {
 
     #[test]
     fn a_cursor_past_a_full_last_row_is_drawn_on_a_row_of_its_own() {
-        let document = Document::new(vec!["abcd".to_owned()]);
+        let buffer = Buffer::from_lines(vec!["abcd".to_owned()]);
         let viewport = viewport(4, 3, Options::new());
         let view = View {
-            document: &document,
+            buffer: &buffer,
             viewport: &viewport,
             cursor: LogicalPosition {
                 line: 0,
@@ -322,17 +330,17 @@ mod tests {
         assert_eq!(vec!["abcd", ""], cells(view));
         assert_eq!(
             Some(DisplayPosition { row: 1, column: 0 }),
-            WrappedLayout.display_position(view, view.cursor)
+            WholeDocumentLayout.display_position(view, view.cursor)
         );
-        assert_eq!(Vec::<Violation>::new(), check(&WrappedLayout, view));
+        assert_eq!(Vec::<Violation>::new(), check(&WholeDocumentLayout, view));
     }
 
     #[test]
     fn a_window_one_row_tall_gives_that_row_to_the_cursor_past_the_text() {
-        let document = Document::new(vec!["abcd".to_owned()]);
+        let buffer = Buffer::from_lines(vec!["abcd".to_owned()]);
         let viewport = viewport(4, 1, Options::new());
         let view = View {
-            document: &document,
+            buffer: &buffer,
             viewport: &viewport,
             cursor: LogicalPosition {
                 line: 0,
@@ -343,25 +351,26 @@ mod tests {
         assert_eq!(vec![""], cells(view));
         assert_eq!(
             Some(DisplayPosition { row: 0, column: 0 }),
-            WrappedLayout.display_position(view, view.cursor)
+            WholeDocumentLayout.display_position(view, view.cursor)
         );
-        assert_eq!(Vec::<Violation>::new(), check(&WrappedLayout, view));
+        assert_eq!(Vec::<Violation>::new(), check(&WholeDocumentLayout, view));
     }
 
     #[test]
     fn a_cell_drawing_no_position_maps_to_nothing() {
-        let document = Document::new(vec!["漢a漢".to_owned()]);
+        let buffer = Buffer::from_lines(vec!["漢a漢".to_owned()]);
         let viewport = viewport(4, 4, Options::new().with_show_break(">".to_owned()));
         let view = View {
-            document: &document,
+            buffer: &buffer,
             viewport: &viewport,
             cursor: LogicalPosition {
                 line: 0,
                 grapheme: 0,
             },
         };
-        let at =
-            |row, column| WrappedLayout.logical_position(view, DisplayPosition { row, column });
+        let at = |row, column| {
+            WholeDocumentLayout.logical_position(view, DisplayPosition { row, column })
+        };
         let position = |grapheme| Some(LogicalPosition { line: 0, grapheme });
 
         assert_eq!(vec!["漢a", ">漢"], cells(view));
@@ -386,10 +395,10 @@ mod tests {
 
     #[test]
     fn a_position_the_window_scrolled_past_has_no_display_position() {
-        let document = Document::new(vec!["abcdefgh".to_owned(), "ij".to_owned()]);
+        let buffer = Buffer::from_lines(vec!["abcdefgh".to_owned(), "ij".to_owned()]);
         let viewport = viewport(2, 2, Options::new());
         let view = View {
-            document: &document,
+            buffer: &buffer,
             viewport: &viewport,
             cursor: LogicalPosition {
                 line: 0,
@@ -397,7 +406,7 @@ mod tests {
             },
         };
         let at = |line, grapheme| {
-            WrappedLayout.display_position(view, LogicalPosition { line, grapheme })
+            WholeDocumentLayout.display_position(view, LogicalPosition { line, grapheme })
         };
 
         assert_eq!(vec!["ab", "cd"], cells(view));
@@ -408,17 +417,17 @@ mod tests {
 
     #[test]
     fn the_window_never_draws_more_rows_than_it_holds() {
-        let document = Document::new(vec!["abcdefghij".to_owned(), "klmnop".to_owned()]);
+        let buffer = Buffer::from_lines(vec!["abcdefghij".to_owned(), "klmnop".to_owned()]);
         for height in 1..=8 {
             let viewport = viewport(3, height, Options::new());
             for line in 0..2 {
                 for grapheme in 0..=6 {
                     let view = View {
-                        document: &document,
+                        buffer: &buffer,
                         viewport: &viewport,
                         cursor: LogicalPosition { line, grapheme },
                     };
-                    let rows = WrappedLayout.lay_out(view).rows.len();
+                    let rows = WholeDocumentLayout.lay_out(view).rows.len();
                     assert!(
                         rows <= height,
                         "a window {height} rows tall drew {rows} rows"
@@ -430,10 +439,10 @@ mod tests {
 
     #[test]
     fn a_continuation_row_keeps_a_decoration_only_while_its_text_fits_beside_it() {
-        let document = Document::new(vec!["a漢a漢漢a".to_owned()]);
+        let buffer = Buffer::from_lines(vec!["a漢a漢漢a".to_owned()]);
         let viewport = viewport(4, 6, Options::new().with_show_break(">>>".to_owned()));
         let view = View {
-            document: &document,
+            buffer: &buffer,
             viewport: &viewport,
             cursor: LogicalPosition {
                 line: 0,
@@ -444,6 +453,6 @@ mod tests {
         // A row starting on a two-column cluster has one column too few for the marker beside it
         // and drops it; the row starting on `a` keeps it.
         assert_eq!(vec!["a漢a", "漢漢", ">>>a"], cells(view));
-        assert_eq!(Vec::<Violation>::new(), check(&WrappedLayout, view));
+        assert_eq!(Vec::<Violation>::new(), check(&WholeDocumentLayout, view));
     }
 }

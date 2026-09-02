@@ -1,7 +1,7 @@
-//! The invariant search over the real layout: that it survives a hundred thousand generated views,
-//! that the harness catches each invariant being broken, that a failure is reported as a shrunk
-//! case with a replayable seed, and that the generator really draws the text and the options the
-//! search is only useful for covering.
+//! The invariant search over the reference layout: that it survives a hundred thousand generated
+//! views, that the harness catches each invariant being broken, that a failure is reported as a
+//! shrunk case with a replayable seed, and that the generator really draws the text and the
+//! options the search is only useful for covering.
 
 mod fuzz;
 
@@ -11,12 +11,12 @@ use proptest::test_runner::{Config, TestRunner};
 use fuzz::harness::{
     layout_input, search, FuzzFailure, LayoutInput, Seed, DEFAULT_CASES, FLAG, ZWJ_FAMILY,
 };
+use fuzz::reference::WholeDocumentLayout;
 use fuzz::violations::{
     DropsAGrapheme, MergesLastCell, OverdrawsRows, OverflowsEndOfLine, PadsWithAnEmptyRow,
 };
 use vbc_layout::invariants::{graphemes, Invariant, Layout};
 use vbc_layout::line;
-use vbc_layout::screen::WrappedLayout;
 use vbc_layout::width::{AmbiWidth, DEFAULT_TAB_STOP};
 
 /// The seed every search in these tests starts from, chosen so each planted defect is found.
@@ -25,9 +25,9 @@ const SEED: Seed = Seed::new(0x7669_6D62_6563_6F64);
 /// A second seed, used to check that a search follows the seed it is given.
 const ALTERNATE_SEED: Seed = Seed::new(0x6C61_796F_7574_0001);
 
-/// The number of cases the search over the real layout runs. A layout defect that shows up on one
-/// case in ten thousand is a defect a reader meets, so the search is run at a scale that meets it
-/// too.
+/// The number of cases the search over the reference layout runs. A layout defect that shows up
+/// on one case in ten thousand is a defect a reader meets, so the search is run at a scale that
+/// meets it too.
 const SOAK_CASES: u32 = 100_000;
 
 /// The seed the coverage tests draw their cases from, and the number they draw.
@@ -123,11 +123,7 @@ fn assert_covers(
 ///
 /// Whether any line of the case holds `text`.
 fn holds(input: &LayoutInput, text: &str) -> bool {
-    input
-        .document
-        .lines()
-        .iter()
-        .any(|line| line.contains(text))
+    input.buffer.lines().iter().any(|line| line.contains(text))
 }
 
 /// # Returns
@@ -139,7 +135,7 @@ fn squeezes_a_wide_cluster(input: &LayoutInput) -> bool {
     let metrics = wrapping.metrics();
     let width = input.viewport.width();
 
-    input.document.lines().iter().any(|line| {
+    input.buffer.lines().iter().any(|line| {
         let decoration =
             line::continuation_decoration(line, wrapping.width(), metrics, wrapping.options());
         let decoration_width = metrics.text_width(&decoration, 0);
@@ -162,7 +158,7 @@ fn squeezes_a_wide_cluster(input: &LayoutInput) -> bool {
 ///
 /// Whether the case's cursor rests past the last grapheme of its line.
 fn rests_past_a_line(input: &LayoutInput) -> bool {
-    input.document.line_len(input.cursor.line) == Some(input.cursor.grapheme)
+    input.buffer.line_len(input.cursor.line) == Some(input.cursor.grapheme)
 }
 
 /// # Returns
@@ -174,7 +170,7 @@ fn rests_past_a_full_row(input: &LayoutInput) -> bool {
         return false;
     }
     let wrapping = &input.viewport.wrapping;
-    let Some(line) = input.document.line(input.cursor.line) else {
+    let Some(line) = input.buffer.line(input.cursor.line) else {
         return false;
     };
 
@@ -189,18 +185,18 @@ fn rests_past_a_full_row(input: &LayoutInput) -> bool {
 }
 
 #[test]
-fn the_real_layout_satisfies_every_invariant() {
+fn the_reference_layout_satisfies_every_invariant() {
     for seed in 0..8 {
-        if let Err(failure) = search(&WrappedLayout, Seed::new(seed), DEFAULT_CASES) {
-            panic!("the real layout broke an invariant:\n{failure}");
+        if let Err(failure) = search(&WholeDocumentLayout, Seed::new(seed), DEFAULT_CASES) {
+            panic!("the reference layout broke an invariant:\n{failure}");
         }
     }
 }
 
 #[test]
-fn the_real_layout_survives_a_hundred_thousand_cases() {
-    if let Err(failure) = search(&WrappedLayout, SEED, SOAK_CASES) {
-        panic!("the real layout broke an invariant:\n{failure}");
+fn the_reference_layout_survives_a_hundred_thousand_cases() {
+    if let Err(failure) = search(&WholeDocumentLayout, SEED, SOAK_CASES) {
+        panic!("the reference layout broke an invariant:\n{failure}");
     }
 }
 
@@ -348,7 +344,7 @@ fn every_generated_grapheme_fits_a_row_and_fills_a_cell() {
     for input in cases(COVERAGE_SEED, COVERAGE_CASES) {
         let metrics = input.viewport.wrapping.metrics();
         let width = input.viewport.width();
-        for line in input.document.lines() {
+        for line in input.buffer.lines() {
             let mut column = 0;
             for grapheme in graphemes(line) {
                 let occupied = metrics.grapheme_width(grapheme, column);

@@ -3,7 +3,7 @@
 //! Defines the two coordinate spaces a layout maps between, the [`Layout`] trait the real layout
 //! implements, and the checks that decide whether a layout obeys the invariants for a given view.
 //!
-//! A view is a document, the window it is drawn into, and the cursor. The cursor belongs there
+//! A view is a buffer, the window it is drawn into, and the cursor. The cursor belongs there
 //! because a window shows a slice of a text taller than itself, and which slice it shows is
 //! whichever one holds the cursor: a layout that could not see the cursor could not choose.
 //!
@@ -19,6 +19,7 @@ use std::num::NonZeroUsize;
 pub use crate::width::graphemes;
 
 use crate::anchor::Wrapping;
+use crate::buffer::Buffer;
 
 /// The invariants a layout is checked against, in the order [`check`] reports them.
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -121,78 +122,6 @@ impl Display for Viewport {
     }
 }
 
-/// The logical text a layout renders, holding one entry per logical line with newlines excluded.
-///
-/// A document always holds at least one line, so every document has a position the cursor can rest
-/// at.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct Document {
-    lines: Vec<String>,
-}
-
-impl Document {
-    /// Factory function.
-    ///
-    /// # Returns
-    ///
-    /// A document holding `lines`, or a document holding one empty line if `lines` is empty.
-    #[must_use]
-    pub fn new(lines: Vec<String>) -> Self {
-        if lines.is_empty() {
-            return Self {
-                lines: vec![String::new()],
-            };
-        }
-        Self { lines }
-    }
-
-    #[must_use]
-    pub fn lines(&self) -> &[String] {
-        &self.lines
-    }
-
-    #[must_use]
-    pub fn line(&self, index: usize) -> Option<&str> {
-        self.lines.get(index).map(String::as_str)
-    }
-
-    /// # Returns
-    ///
-    /// The number of graphemes on the line at `index`, or `None` if the document has no such line.
-    #[must_use]
-    pub fn line_len(&self, index: usize) -> Option<usize> {
-        self.line(index).map(|line| graphemes(line).count())
-    }
-
-    /// # Returns
-    ///
-    /// The position past the last grapheme of the document's last line, which is the furthest
-    /// position the document holds.
-    #[must_use]
-    pub fn end(&self) -> LogicalPosition {
-        let line = self.lines.len() - 1;
-        LogicalPosition {
-            line,
-            grapheme: self.line_len(line).unwrap_or(0),
-        }
-    }
-
-    /// Moves a position onto the nearest position the document holds.
-    ///
-    /// # Returns
-    ///
-    /// `position` if the document holds it, otherwise the closest position it does hold.
-    #[must_use]
-    pub fn clamp(&self, position: LogicalPosition) -> LogicalPosition {
-        let line = position.line.min(self.lines.len() - 1);
-        let len = self.line_len(line).unwrap_or(0);
-        LogicalPosition {
-            line,
-            grapheme: position.grapheme.min(len),
-        }
-    }
-}
-
 /// A position in the logical text.
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct LogicalPosition {
@@ -272,7 +201,7 @@ pub struct Screen {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct View<'view> {
     /// The logical text being rendered.
-    pub document: &'view Document,
+    pub buffer: &'view Buffer,
 
     /// The window the text is drawn into.
     pub viewport: &'view Viewport,
@@ -337,7 +266,7 @@ pub trait Layout {
 ///
 /// The round trip is required of the positions the screen draws; where the cursor rests past the
 /// last grapheme of a line, [`Invariant::CursorVisible`] governs instead. The cursor is clamped
-/// into the document before anything is drawn.
+/// into the buffer before anything is drawn.
 ///
 /// # Type Parameters
 ///
@@ -349,14 +278,14 @@ pub trait Layout {
 /// layout breaks none.
 pub fn check<LayoutType: Layout>(layout: &LayoutType, view: View<'_>) -> Vec<Violation> {
     let view = View {
-        cursor: view.document.clamp(view.cursor),
+        cursor: view.buffer.clamp(view.cursor),
         ..view
     };
     let screen = layout.lay_out(view);
     [
         check_row_width(&screen, view.viewport),
         check_grapheme_conservation(&screen, view),
-        check_no_empty_rows(&screen, view.document),
+        check_no_empty_rows(&screen, view.buffer),
         check_cursor_visible(layout, &screen, view),
         check_round_trip(layout, &screen, view),
     ]
@@ -410,7 +339,7 @@ fn check_grapheme_conservation(screen: &Screen, view: View<'_>) -> Option<Violat
     };
 
     let mut counts: BTreeMap<&str, i64> = BTreeMap::new();
-    for grapheme in reached(view.document, start, end).filter(|grapheme| !is_space(grapheme)) {
+    for grapheme in reached(view.buffer, start, end).filter(|grapheme| !is_space(grapheme)) {
         *counts.entry(grapheme).or_default() += 1;
     }
     for row in &screen.rows {
@@ -437,7 +366,7 @@ fn check_grapheme_conservation(screen: &Screen, view: View<'_>) -> Option<Violat
         line: 0,
         grapheme: 0,
     };
-    let whole_document = top == start && view.document.end() == end;
+    let whole_document = top == start && view.buffer.end() == end;
     let height = view.viewport.height.get();
     (!whole_document && screen.rows.len() != height).then(|| {
         Violation::new(
@@ -445,7 +374,7 @@ fn check_grapheme_conservation(screen: &Screen, view: View<'_>) -> Option<Violat
             format!(
                 "the rows reach from {start} to {end} of a document ending at {}, drawn on {} of \
                  the window's {height} rows",
-                view.document.end(),
+                view.buffer.end(),
                 screen.rows.len()
             ),
         )
@@ -456,14 +385,13 @@ fn check_grapheme_conservation(screen: &Screen, view: View<'_>) -> Option<Violat
 ///
 /// An [`Invariant::NoEmptyRows`] violation if a row shows no text without rendering an empty
 /// logical line or closing the screen, otherwise `None`.
-fn check_no_empty_rows(screen: &Screen, document: &Document) -> Option<Violation> {
+fn check_no_empty_rows(screen: &Screen, buffer: &Buffer) -> Option<Violation> {
     let last_index = screen.rows.len().saturating_sub(1);
     screen.rows.iter().enumerate().find_map(|(index, row)| {
         if !row.text.is_empty() || index == last_index {
             return None;
         }
-        let renders_empty_line =
-            0 == row.start && document.line(row.line).is_some_and(str::is_empty);
+        let renders_empty_line = 0 == row.start && buffer.line(row.line).is_some_and(str::is_empty);
         (!renders_empty_line).then(|| {
             Violation::new(
                 Invariant::NoEmptyRows,
@@ -621,15 +549,15 @@ fn round_trip_from_logical<LayoutType: Layout>(
 
 /// # Returns
 ///
-/// The graphemes of the document from `start` up to `end`, in order, which is nothing at all where
+/// The graphemes of the buffer from `start` up to `end`, in order, which is nothing at all where
 /// `end` does not come after `start`.
 fn reached(
-    document: &Document,
+    buffer: &Buffer,
     start: LogicalPosition,
     end: LogicalPosition,
 ) -> impl Iterator<Item = &str> {
     (start.line..=end.line)
-        .filter_map(move |line| document.line(line).map(|text| (line, text)))
+        .filter_map(move |line| buffer.line(line).map(|text| (line, text)))
         .flat_map(move |(line, text)| {
             let from = if line == start.line {
                 start.grapheme
