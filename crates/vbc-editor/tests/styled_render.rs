@@ -235,15 +235,24 @@ proptest! {
             case
         );
         for (span, widened) in given.iter().zip(case.block.spans()) {
-            prop_assert!(
-                boundaries.contains(&widened.range().start)
-                    && boundaries.contains(&widened.range().end),
-                "a span is drawn from inside a cluster: {case:?}"
-            );
-            prop_assert!(
-                widened.range().start <= span.range().start.min(source.len())
-                    && span.range().end.min(source.len()) <= widened.range().end,
-                "a span was narrowed rather than widened to the clusters it lands in: {case:?}"
+            let start = span.range().start.min(source.len());
+            let end = span.range().end.min(source.len());
+            let reached = boundaries
+                .iter()
+                .rev()
+                .find(|&&boundary| boundary <= start)
+                .copied()
+                .expect("a source begins on a cluster boundary");
+            let past = boundaries
+                .iter()
+                .find(|&&boundary| end <= boundary)
+                .copied()
+                .expect("a source ends on a cluster boundary");
+            prop_assert_eq!(
+                reached..past,
+                widened.range().clone(),
+                "a span is drawn from something other than the clusters it lands in: {:?}",
+                case
             );
         }
 
