@@ -34,6 +34,11 @@ const SOAK_CASES: u32 = 100_000;
 const COVERAGE_SEED: Seed = Seed::new(0x636F_7665_7261_6765);
 const COVERAGE_CASES: usize = 2_000;
 
+/// The number of the drawn cases that must carry each of the two shapes layouts break on, set
+/// above what the generator's unconstrained arm reaches on its own so that dropping a deliberate
+/// arm turns this into a failing test rather than a smaller number nobody reads.
+const HARD_SHAPE_CASES: usize = 420;
+
 /// Draws cases from the generator a search runs over, so that what a search covers can be measured
 /// rather than assumed.
 ///
@@ -324,7 +329,7 @@ fn the_generator_draws_the_shapes_layouts_break_on() {
     assert_covers(
         &drawn,
         "a two-column cluster with under two columns beside a continuation decoration",
-        100,
+        HARD_SHAPE_CASES,
         squeezes_a_wide_cluster,
     );
     assert_covers(&drawn, "a cursor past the end of its line", 100, |input| {
@@ -333,7 +338,7 @@ fn the_generator_draws_the_shapes_layouts_break_on() {
     assert_covers(
         &drawn,
         "a cursor past the end of a line whose last row is full",
-        100,
+        HARD_SHAPE_CASES,
         rests_past_a_full_row,
     );
 }

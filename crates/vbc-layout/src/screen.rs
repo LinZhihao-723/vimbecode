@@ -385,6 +385,28 @@ mod tests {
     }
 
     #[test]
+    fn a_position_the_window_scrolled_past_has_no_display_position() {
+        let document = Document::new(vec!["abcdefgh".to_owned(), "ij".to_owned()]);
+        let viewport = viewport(2, 2, Options::new());
+        let view = View {
+            document: &document,
+            viewport: &viewport,
+            cursor: LogicalPosition {
+                line: 0,
+                grapheme: 0,
+            },
+        };
+        let at = |line, grapheme| {
+            WrappedLayout.display_position(view, LogicalPosition { line, grapheme })
+        };
+
+        assert_eq!(vec!["ab", "cd"], cells(view));
+        assert_eq!(Some(DisplayPosition { row: 1, column: 1 }), at(0, 3));
+        assert_eq!(None, at(0, 4));
+        assert_eq!(None, at(1, 0));
+    }
+
+    #[test]
     fn the_window_never_draws_more_rows_than_it_holds() {
         let document = Document::new(vec!["abcdefghij".to_owned(), "klmnop".to_owned()]);
         for height in 1..=8 {
