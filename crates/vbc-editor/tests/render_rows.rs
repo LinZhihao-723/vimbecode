@@ -326,6 +326,7 @@ fn a_row_is_drawn_at_the_offset_of_the_area_it_is_given() {
 /// Panics if `width` is zero.
 fn rows_of(line: &str, width: usize, metrics: Metrics, options: &Options) -> Vec<DisplayRow> {
     line::lay_out(
+        0,
         line,
         NonZeroUsize::new(width).expect("a test's width is not zero"),
         metrics,

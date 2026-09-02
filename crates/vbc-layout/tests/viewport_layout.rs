@@ -152,7 +152,8 @@ impl AfterScrolling {
             .expect("a scrolled viewport is drawn");
         let above: usize = buffer.lines()[..viewport.anchor()]
             .iter()
-            .map(|text| rows_of(text, area).len())
+            .enumerate()
+            .map(|(line, text)| rows_of(line, text, area).len())
             .sum();
         let row = above + viewport.vertical_offset();
         self.scrolled
@@ -170,15 +171,10 @@ impl Layout for AfterScrolling {
             .iter()
             .enumerate()
             .flat_map(|(line, text)| {
-                rows_of(text, view.viewport)
-                    .into_iter()
-                    .map(move |row| Row {
-                        line,
-                        start: row.start(),
-                        text: row.text().to_owned(),
-                        cells: row.cells().to_owned(),
-                        columns: row.columns().to_vec(),
-                    })
+                rows_of(line, text, view.viewport)
+                    .iter()
+                    .map(Row::from)
+                    .collect::<Vec<Row>>()
             })
             .collect();
         if drawn_full(&rows, view.viewport) {
@@ -289,6 +285,7 @@ proptest! {
                 input.lines.len()
             );
             let rows = line::lay_out(
+                viewport.anchor(),
                 &input.lines[viewport.anchor()],
                 input.width,
                 Metrics::default(),
@@ -374,10 +371,11 @@ fn wrapping_of(width: NonZeroUsize) -> Wrapping {
 
 /// # Returns
 ///
-/// The rows rendering `line` in `area`.
-fn rows_of(line: &str, area: &Area) -> Vec<line::DisplayRow> {
+/// The rows rendering the logical line `line`, whose text is `text`, in `area`.
+fn rows_of(line: usize, text: &str, area: &Area) -> Vec<line::DisplayRow> {
     line::lay_out(
         line,
+        text,
         area.wrapping.width(),
         area.wrapping.metrics(),
         area.wrapping.options(),
@@ -402,10 +400,9 @@ fn screen_rows(lines: &[String], width: NonZeroUsize) -> Vec<(usize, usize)> {
         .iter()
         .enumerate()
         .flat_map(|(line, text)| {
-            line::lay_out(text, width, Metrics::default(), &Options::new())
-                .into_iter()
-                .map(move |row| (line, row.start()))
+            line::lay_out(line, text, width, Metrics::default(), &Options::new())
         })
+        .map(|row| (row.line(), row.start()))
         .collect()
 }
 

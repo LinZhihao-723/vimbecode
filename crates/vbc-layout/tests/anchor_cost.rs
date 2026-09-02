@@ -68,7 +68,7 @@ const REFERENCE_LAYOUT: &str = "tests/fuzz/reference.rs";
 
 /// The number of files the scan reads, which keeps a scan that finds nothing from passing because
 /// it read nothing.
-const SOURCE_FILES: usize = 8;
+const SOURCE_FILES: usize = 9;
 
 #[test]
 fn a_mapping_costs_the_same_over_a_short_text_and_a_long_one() {

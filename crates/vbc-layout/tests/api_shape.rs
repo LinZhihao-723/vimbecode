@@ -1,12 +1,16 @@
 //! Checks the shape of the workspace's own source: that it declares one type for the text being
 //! edited, that the layout stack, the invariants and the fuzz harness all address the text through
-//! that one type, and that no layout laying a whole document out is reachable outside the tests.
+//! that one type, that no layout laying a whole document out is reachable outside the tests, and
+//! that nothing outside the tests reaches for the invariant vocabulary.
 //!
-//! Both claims are properties of the code rather than of a run, so both are read off the sources.
-//! A second text type is not a defect a case can catch -- it is two seams drifting apart, and what
-//! it costs is paid later, by whoever has to pick one. A whole-document layout costs more plainly:
-//! it lays every line of the buffer out on every call, which is the cost the anchored mapping
-//! exists to avoid, so a renderer reaching for one gives that up without being told.
+//! Every claim is a property of the code rather than of a run, so every one is read off the
+//! sources. A second text type is not a defect a case can catch -- it is two seams drifting apart,
+//! and what it costs is paid later, by whoever has to pick one. A whole-document layout costs more
+//! plainly: it lays every line of the buffer out on every call, which is the cost the anchored
+//! mapping exists to avoid, so a renderer reaching for one gives that up without being told. And
+//! the invariant vocabulary is the language a checked layout is read in rather than a language the
+//! editor is written in: production code that borrows a type from it ties what ships to what the
+//! fuzz search happens to need.
 //!
 //! Each scan counts the files it read, and the scan for a shape checks that the shape is one this
 //! tree really takes, so a scan finding nothing because it looked nowhere fails rather than passes.
@@ -20,7 +24,8 @@ const MINIMUM_SOURCE_FILES: usize = 18;
 
 /// The files these scans are about, which a scan that read anything else but missed one of these
 /// has said nothing.
-const REQUIRED_SOURCES: [&str; 3] = [
+const REQUIRED_SOURCES: [&str; 4] = [
+    "crates/vbc-editor/src/gutter.rs",
     "crates/vbc-layout/src/buffer.rs",
     "crates/vbc-layout/src/invariants.rs",
     "crates/vbc-layout/src/lib.rs",
@@ -53,6 +58,16 @@ const SEAMS: [(&str, &str); 3] = [
 /// The reference layout the invariant search runs against, which is the one whole-document layout
 /// this tree holds.
 const REFERENCE_LAYOUT: &str = "crates/vbc-layout/tests/fuzz/reference.rs";
+
+/// The module holding the invariant vocabulary, and the one line of production source allowed to
+/// name it, which is the declaration that hands it to the tests.
+const INVARIANTS: &str = "invariants";
+const INVARIANTS_MODULE: &str = "crates/vbc-layout/src/invariants.rs";
+const INVARIANTS_DECLARATION: &str = "pub mod invariants;";
+
+/// The fuzz harness the vocabulary exists for, which is where it is reached for now that no
+/// production source does.
+const FUZZ_HARNESS: &str = "crates/vbc-layout/tests/fuzz/harness.rs";
 
 #[test]
 fn the_workspace_declares_one_type_for_the_text_being_edited() {
@@ -121,6 +136,43 @@ fn no_layout_outside_the_tests_lays_a_whole_document_out() {
             .lines()
             .any(|line| lays_a_whole_document_out(line.trim_start())),
         "{REFERENCE_LAYOUT} lays no whole document out, so the scan looks for nothing"
+    );
+}
+
+#[test]
+fn no_source_outside_the_tests_reaches_for_the_invariant_vocabulary() {
+    let mut reaching = Vec::new();
+    let mut scanned = Vec::new();
+    for path in sources() {
+        let source = read(&path);
+        let relative = relative(&path);
+        scanned.push(relative.clone());
+        if INVARIANTS_MODULE == relative {
+            continue;
+        }
+
+        for (number, line) in source.lines().enumerate() {
+            let code = line.trim_start();
+            if code.starts_with("//") || INVARIANTS_DECLARATION == code {
+                continue;
+            }
+            if code.contains(INVARIANTS) {
+                reaching.push(format!("{relative}:{}: {code}", number + 1));
+            }
+        }
+    }
+
+    assert_scanned(&scanned);
+    assert_eq!(Vec::<String>::new(), reaching);
+
+    // A scan for a shape says nothing unless the shape is one this tree really takes, and the fuzz
+    // harness the vocabulary exists for is where it is now reached for.
+    let harness = read(&workspace().join(FUZZ_HARNESS));
+    assert!(
+        harness
+            .lines()
+            .any(|line| line.trim_start().contains(INVARIANTS)),
+        "{FUZZ_HARNESS} names no invariant vocabulary, so the scan looks for nothing"
     );
 }
 

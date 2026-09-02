@@ -66,7 +66,8 @@ impl Anchored {
 
         view.buffer.lines()[..anchor.line]
             .iter()
-            .map(|text| rows_of(text, view.viewport).len())
+            .enumerate()
+            .map(|(line, text)| rows_of(line, text, view.viewport).len())
             .sum()
     }
 }
@@ -79,15 +80,10 @@ impl Layout for Anchored {
             .iter()
             .enumerate()
             .flat_map(|(line, text)| {
-                rows_of(text, view.viewport)
-                    .into_iter()
-                    .map(move |row| Row {
-                        line,
-                        start: row.start(),
-                        text: row.text().to_owned(),
-                        cells: row.cells().to_owned(),
-                        columns: row.columns().to_vec(),
-                    })
+                rows_of(line, text, view.viewport)
+                    .iter()
+                    .map(Row::from)
+                    .collect::<Vec<Row>>()
             })
             .collect();
         if ends_on_a_full_row(&rows, view.viewport) {
@@ -166,10 +162,11 @@ fn a_mapping_anchored_below_the_text_satisfies_every_invariant() {
 
 /// # Returns
 ///
-/// The rows rendering `line` in `viewport`.
-fn rows_of(line: &str, viewport: &Viewport) -> Vec<line::DisplayRow> {
+/// The rows rendering the logical line `line`, whose text is `text`, in `viewport`.
+fn rows_of(line: usize, text: &str, viewport: &Viewport) -> Vec<line::DisplayRow> {
     line::lay_out(
         line,
+        text,
         viewport.wrapping.width(),
         viewport.wrapping.metrics(),
         viewport.wrapping.options(),

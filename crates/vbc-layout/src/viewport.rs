@@ -29,8 +29,8 @@ use std::num::NonZeroUsize;
 use crate::anchor::{
     char_idx_at_visual_offset, visual_offset_from_anchor, Error, VisualOffset, Wrapping,
 };
-use crate::invariants::LogicalPosition;
 use crate::line::{self, DisplayRow};
+use crate::position::LogicalPosition;
 
 /// A scroll of the viewport, named after the vim key that asks for it.
 ///
@@ -625,6 +625,7 @@ fn rows_of(lines: &[String], line: usize, wrapping: &Wrapping) -> Result<Vec<Dis
     })?;
 
     Ok(line::lay_out(
+        line,
         text,
         wrapping.width(),
         wrapping.metrics(),

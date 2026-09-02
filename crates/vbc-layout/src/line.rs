@@ -163,8 +163,8 @@ impl Default for Options {
     }
 }
 
-/// One display row of a wrapped logical line: the slice of the line the row shows, together with
-/// the decoration drawn in front of it.
+/// One display row of a wrapped logical line: the logical line the row belongs to and the slice of
+/// it the row shows, together with the decoration drawn in front of that slice.
 ///
 /// The decoration is the repeated indent and the continuation marker, in that order, and is empty
 /// on the row that starts a line. A row carries the line's own bytes as well as the cells they are
@@ -172,6 +172,7 @@ impl Default for Options {
 /// knows the column a tab was measured against, so only the layout can spell one out.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DisplayRow {
+    line: usize,
     start: usize,
     end: usize,
     prefix: String,
@@ -181,6 +182,14 @@ pub struct DisplayRow {
 }
 
 impl DisplayRow {
+    /// # Returns
+    ///
+    /// The zero-based index of the logical line this row shows a slice of.
+    #[must_use]
+    pub fn line(&self) -> usize {
+        self.line
+    }
+
     /// # Returns
     ///
     /// The grapheme offset within the logical line at which the row's text starts.
@@ -262,19 +271,21 @@ impl DisplayRow {
 ///
 /// # Returns
 ///
-/// The rows rendering `line`, top to bottom.
+/// The rows rendering the logical line `line`, whose text is `text`, top to bottom.
 #[must_use]
 pub fn lay_out(
-    line: &str,
+    line: usize,
+    text: &str,
     width: NonZeroUsize,
     metrics: Metrics,
     options: &Options,
 ) -> Vec<DisplayRow> {
-    let decoration = continuation_decoration(line, width, metrics, options);
+    let decoration = continuation_decoration(text, width, metrics, options);
     let width = width.get();
-    let clusters: Vec<(usize, &str)> = grapheme_indices(line).collect();
+    let clusters: Vec<(usize, &str)> = grapheme_indices(text).collect();
     if clusters.is_empty() {
         return vec![DisplayRow {
+            line,
             start: 0,
             end: 0,
             prefix: String::new(),
@@ -360,12 +371,13 @@ pub fn lay_out(
         let text_start = clusters[start].0;
         let text_end = clusters
             .get(index)
-            .map_or_else(|| line.len(), |&(offset, _)| offset);
+            .map_or_else(|| text.len(), |&(offset, _)| offset);
         rows.push(DisplayRow {
+            line,
             start,
             end: index,
             prefix,
-            text: line[text_start..text_end].to_owned(),
+            text: text[text_start..text_end].to_owned(),
             cells,
             columns,
         });
@@ -553,6 +565,7 @@ mod tests {
     /// The cells each row of `line` is drawn in when it is laid out `width` columns wide.
     fn rows(line: &str, width: usize, metrics: Metrics, options: &Options) -> Vec<String> {
         lay_out(
+            0,
             line,
             NonZeroUsize::new(width).expect("a test's width is not zero"),
             metrics,
@@ -566,6 +579,7 @@ mod tests {
     #[test]
     fn an_empty_line_is_one_empty_row() {
         let laid_out = lay_out(
+            0,
             "",
             NonZeroUsize::new(20).expect("a test's width is not zero"),
             Metrics::default(),
@@ -584,6 +598,7 @@ mod tests {
     fn rows_partition_the_line_they_render() {
         let line = "\tthe indented 中文 line that wraps a few times over";
         let laid_out = lay_out(
+            0,
             line,
             NonZeroUsize::new(13).expect("a test's width is not zero"),
             metrics(4),
@@ -652,6 +667,7 @@ mod tests {
 
         for (width, indent, drawn) in expected {
             let laid_out = lay_out(
+                0,
                 SENTENCE,
                 NonZeroUsize::new(width).expect("a test's width is not zero"),
                 Metrics::default(),
@@ -986,6 +1002,7 @@ mod tests {
     #[test]
     fn a_grapheme_wider_than_the_whole_viewport_is_placed_alone() {
         let laid_out = lay_out(
+            0,
             "中中",
             NonZeroUsize::new(1).expect("a test's width is not zero"),
             Metrics::default(),
@@ -1002,6 +1019,7 @@ mod tests {
         // line by grapheme cannot express. The tab is placed whole instead, on a row wider than
         // the viewport.
         let spilling = lay_out(
+            0,
             "\tX",
             NonZeroUsize::new(12).expect("a test's width is not zero"),
             metrics(20),

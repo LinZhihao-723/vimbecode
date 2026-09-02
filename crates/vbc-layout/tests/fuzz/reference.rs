@@ -84,13 +84,7 @@ impl Drawn {
             .iter()
             .skip(top)
             .take(height)
-            .map(|(line, row)| Row {
-                line: *line,
-                start: row.start(),
-                text: row.text().to_owned(),
-                cells: row.cells().to_owned(),
-                columns: row.columns().to_vec(),
-            })
+            .map(Row::from)
             .collect();
         if wrapped.len() == cursor_row {
             let end = view.buffer.end();
@@ -103,20 +97,20 @@ impl Drawn {
             });
         }
 
-        let (last_line, last_row) = wrapped
+        let last_row = wrapped
             .last()
             .expect("a document lays out into at least one row");
         let (anchor, anchor_row) = match wrapped.get(top) {
-            Some((line, row)) => (
+            Some(row) => (
                 LogicalPosition {
-                    line: *line,
+                    line: row.line(),
                     grapheme: row.start(),
                 },
                 0,
             ),
             None => (
                 LogicalPosition {
-                    line: *last_line,
+                    line: last_row.line(),
                     grapheme: last_row.start(),
                 },
                 -1,
@@ -184,9 +178,8 @@ impl Drawn {
 
 /// # Returns
 ///
-/// Every row the document wraps into, top to bottom, each paired with the logical line it renders
-/// a slice of.
-fn wrap(view: View<'_>) -> Vec<(usize, DisplayRow)> {
+/// Every row the document wraps into, top to bottom.
+fn wrap(view: View<'_>) -> Vec<DisplayRow> {
     let wrapping: &Wrapping = &view.viewport.wrapping;
 
     view.buffer
@@ -195,13 +188,12 @@ fn wrap(view: View<'_>) -> Vec<(usize, DisplayRow)> {
         .enumerate()
         .flat_map(|(line, text)| {
             line::lay_out(
+                line,
                 text,
                 wrapping.width(),
                 wrapping.metrics(),
                 wrapping.options(),
             )
-            .into_iter()
-            .map(move |row| (line, row))
         })
         .collect()
 }

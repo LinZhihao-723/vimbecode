@@ -1,7 +1,8 @@
 //! The invariants every vimbecode layout must satisfy.
 //!
-//! Defines the two coordinate spaces a layout maps between, the [`Layout`] trait the real layout
-//! implements, and the checks that decide whether a layout obeys the invariants for a given view.
+//! Defines the [`Layout`] trait the real layout implements, the vocabulary a checked layout is
+//! read through, and the checks that decide whether a layout obeys the invariants for a given
+//! view.
 //!
 //! A view is a buffer, the window it is drawn into, and the cursor. The cursor belongs there
 //! because a window shows a slice of a text taller than itself, and which slice it shows is
@@ -16,10 +17,12 @@ use std::collections::BTreeMap;
 use std::fmt::{Display, Formatter, Result as FmtResult};
 use std::num::NonZeroUsize;
 
+pub use crate::position::{DisplayPosition, LogicalPosition};
 pub use crate::width::graphemes;
 
 use crate::anchor::Wrapping;
 use crate::buffer::Buffer;
+use crate::line::DisplayRow;
 
 /// The invariants a layout is checked against, in the order [`check`] reports them.
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -122,39 +125,6 @@ impl Display for Viewport {
     }
 }
 
-/// A position in the logical text.
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
-pub struct LogicalPosition {
-    /// The zero-based index of the logical line.
-    pub line: usize,
-
-    /// The zero-based grapheme offset within the line. An offset equal to the line's grapheme count
-    /// addresses the position past the line's last grapheme.
-    pub grapheme: usize,
-}
-
-impl Display for LogicalPosition {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        write!(f, "logical(line {}, grapheme {})", self.line, self.grapheme)
-    }
-}
-
-/// A position on the screen.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct DisplayPosition {
-    /// The zero-based index of the visual row.
-    pub row: usize,
-
-    /// The zero-based display column within the row.
-    pub column: usize,
-}
-
-impl Display for DisplayPosition {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        write!(f, "display(row {}, column {})", self.row, self.column)
-    }
-}
-
 /// One visual row of a laid-out screen, together with the logical text it shows.
 ///
 /// A row carries both the slice of the logical line it renders and the cells it is drawn in, which
@@ -186,6 +156,18 @@ impl Row {
     #[must_use]
     pub fn end(&self) -> usize {
         self.start + graphemes(&self.text).count()
+    }
+}
+
+impl From<&DisplayRow> for Row {
+    fn from(row: &DisplayRow) -> Self {
+        Self {
+            line: row.line(),
+            start: row.start(),
+            text: row.text().to_owned(),
+            cells: row.cells().to_owned(),
+            columns: row.columns().to_vec(),
+        }
     }
 }
 

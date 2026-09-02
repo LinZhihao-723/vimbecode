@@ -135,15 +135,15 @@ fn squeezes_a_wide_cluster(input: &LayoutInput) -> bool {
     let metrics = wrapping.metrics();
     let width = input.viewport.width();
 
-    input.buffer.lines().iter().any(|line| {
+    input.buffer.lines().iter().enumerate().any(|(line, text)| {
         let decoration =
-            line::continuation_decoration(line, wrapping.width(), metrics, wrapping.options());
+            line::continuation_decoration(text, wrapping.width(), metrics, wrapping.options());
         let decoration_width = metrics.text_width(&decoration, 0);
         if decoration.is_empty() || decoration_width + 2 <= width {
             return false;
         }
 
-        line::lay_out(line, wrapping.width(), metrics, wrapping.options())
+        line::lay_out(line, text, wrapping.width(), metrics, wrapping.options())
             .iter()
             .skip(1)
             .any(|row| {
@@ -170,12 +170,13 @@ fn rests_past_a_full_row(input: &LayoutInput) -> bool {
         return false;
     }
     let wrapping = &input.viewport.wrapping;
-    let Some(line) = input.buffer.line(input.cursor.line) else {
+    let Some(text) = input.buffer.line(input.cursor.line) else {
         return false;
     };
 
     line::lay_out(
-        line,
+        input.cursor.line,
+        text,
         wrapping.width(),
         wrapping.metrics(),
         wrapping.options(),

@@ -24,7 +24,7 @@ use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::widgets::Widget;
 
-use vbc_layout::invariants::Row;
+use vbc_layout::line::DisplayRow;
 
 /// The narrowest a gutter is drawn, in display columns, matching vim's default `'numberwidth'`.
 pub const DEFAULT_MIN_WIDTH: usize = 4;
@@ -225,14 +225,15 @@ impl Options {
     ///
     /// What the gutter shows beside `row`, or [`None`] while neither numbering is on.
     #[must_use]
-    pub fn label(&self, row: &Row, cursor_line: usize) -> Option<Label> {
+    pub fn label(&self, row: &DisplayRow, cursor_line: usize) -> Option<Label> {
+        let line = row.line();
         match (self.number, self.relative_number) {
             (false, false) => None,
-            _ if row.start != 0 => Some(Label::Continuation),
-            (true, false) => Some(Label::Absolute(row.line + 1)),
-            (false, true) => Some(Label::Relative(row.line.abs_diff(cursor_line))),
-            (true, true) if row.line == cursor_line => Some(Label::Current(row.line + 1)),
-            (true, true) => Some(Label::Relative(row.line.abs_diff(cursor_line))),
+            _ if row.start() != 0 => Some(Label::Continuation),
+            (true, false) => Some(Label::Absolute(line + 1)),
+            (false, true) => Some(Label::Relative(line.abs_diff(cursor_line))),
+            (true, true) if line == cursor_line => Some(Label::Current(line + 1)),
+            (true, true) => Some(Label::Relative(line.abs_diff(cursor_line))),
         }
     }
 
@@ -262,7 +263,7 @@ impl Default for Options {
 #[derive(Clone, Copy, Debug)]
 pub struct Gutter<'gutter> {
     options: &'gutter Options,
-    rows: &'gutter [Row],
+    rows: &'gutter [DisplayRow],
     cursor_line: usize,
     line_count: usize,
 }
@@ -280,7 +281,7 @@ impl<'gutter> Gutter<'gutter> {
     #[must_use]
     pub fn new(
         options: &'gutter Options,
-        rows: &'gutter [Row],
+        rows: &'gutter [DisplayRow],
         cursor_line: usize,
         line_count: usize,
     ) -> Self {

@@ -240,7 +240,8 @@ fn lay_out(case: &Case, state: &EditorState) -> (Metrics, Vec<Vec<DisplayRow>>) 
     let metrics = metrics_of(case);
     let options = options_of(case);
     let lines = lines_of(&state.buffer)
-        .map(|line| line::lay_out(line, width, metrics, &options))
+        .enumerate()
+        .map(|(line, text)| line::lay_out(line, text, width, metrics, &options))
         .collect();
 
     (metrics, lines)

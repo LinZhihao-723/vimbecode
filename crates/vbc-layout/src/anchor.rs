@@ -24,8 +24,8 @@ use std::error::Error as StdError;
 use std::fmt::{Display, Formatter, Result as FmtResult};
 use std::num::NonZeroUsize;
 
-use crate::invariants::LogicalPosition;
 use crate::line::{self, DisplayRow, Options};
+use crate::position::LogicalPosition;
 use crate::width::Metrics;
 
 /// The ways a position can fail to be mapped.
@@ -129,9 +129,9 @@ impl Wrapping {
 
     /// # Returns
     ///
-    /// The rows rendering `line` under this wrapping.
-    fn lay_out(&self, line: &str) -> Vec<DisplayRow> {
-        line::lay_out(line, self.width, self.metrics, &self.options)
+    /// The rows rendering the logical line `line`, whose text is `text`, under this wrapping.
+    fn lay_out(&self, line: usize, text: &str) -> Vec<DisplayRow> {
+        line::lay_out(line, text, self.width, self.metrics, &self.options)
     }
 }
 
@@ -320,7 +320,7 @@ fn rows_of(lines: &[String], line: usize, wrapping: &Wrapping) -> Result<Vec<Dis
         line_count: lines.len(),
     })?;
 
-    Ok(wrapping.lay_out(text))
+    Ok(wrapping.lay_out(line, text))
 }
 
 /// Checks that a position addresses a grapheme of the line `rows` renders, or the position just
