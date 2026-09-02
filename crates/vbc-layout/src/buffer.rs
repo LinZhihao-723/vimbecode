@@ -433,12 +433,17 @@ mod tests {
     /// The flag of Japan, a pair of regional indicators.
     const FLAG: &str = "\u{1F1EF}\u{1F1F5}";
 
+    /// The Devanagari syllable "ki": a consonant carrying a mark that occupies a column of its
+    /// own, which the legacy segmentation splits off and the extended one does not.
+    const SPACING_MARK: &str = "\u{915}\u{93F}";
+
     /// Text whose lines hold, in turn: ASCII and CJK; a ZWJ sequence and a flag; letters carrying
-    /// combining marks and one more CJK character; nothing; and ASCII again.
+    /// marks that occupy no column of their own, a letter carrying one that does, and one more CJK
+    /// character; nothing; and ASCII again.
     const MIXED_TEXT: &str = concat!(
         "ab\u{4E2D}\u{6587}\n",
         "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}\u{200D}\u{1F466}x\u{1F1EF}\u{1F1F5}\n",
-        "e\u{301}\u{323}a\u{301}\u{4E2D}\n",
+        "e\u{301}\u{323}a\u{301}\u{915}\u{93F}\u{4E2D}\n",
         "\n",
         "tail"
     );
@@ -447,8 +452,16 @@ mod tests {
     ///
     /// Every entry begins with a character that never joins the one before it, so concatenating
     /// entries yields exactly as many clusters as entries.
-    const ALPHABET: [&str; 8] = [
-        "a", "b", " ", "\n", "\u{4E2D}", "\u{6587}", ZWJ_FAMILY, FLAG,
+    const ALPHABET: [&str; 9] = [
+        "a",
+        "b",
+        " ",
+        "\n",
+        "\u{4E2D}",
+        "\u{6587}",
+        ZWJ_FAMILY,
+        FLAG,
+        SPACING_MARK,
     ];
 
     /// # Returns
@@ -667,7 +680,9 @@ mod tests {
         let mut rejected = 0;
         for offset in 0..=buffer.len() {
             if boundaries.contains(&offset) {
-                assert!(buffer.position(offset).is_ok());
+                buffer
+                    .position(offset)
+                    .expect("a cluster boundary is a position");
             } else {
                 assert_eq!(
                     Err(Error::NotAGraphemeBoundary { offset }),
