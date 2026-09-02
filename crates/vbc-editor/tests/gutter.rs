@@ -372,6 +372,26 @@ fn rows_past_the_text_are_left_bare() -> Result<()> {
     Ok(())
 }
 
+/// A drawing area reaching past the terminal is clipped to it rather than drawn off the end.
+#[test]
+fn an_area_larger_than_the_terminal_is_clipped() -> Result<()> {
+    let rows = wrap(&["one", "two"]);
+    let options = Options::new().with_number(true);
+    let mut terminal = Terminal::new(TestBackend::new(AREA_WIDTH, 2))?;
+    terminal.draw(|frame| {
+        let gutter = Gutter::new(&options, &rows, 0, 2);
+        frame.render_widget(gutter, Rect::new(0, 0, AREA_WIDTH * 2, 8));
+    })?;
+    let drawn = Rendered {
+        buffer: terminal.backend().buffer().clone(),
+        width: options.width(2),
+    };
+
+    assert_eq!(drawn.cells(0), "  1 ");
+    assert_eq!(drawn.cells(1), "  2 ");
+    Ok(())
+}
+
 /// A screen scrolled onto the middle of a wrapped line numbers none of the rows it shows.
 #[test]
 fn a_screen_starting_mid_line_shows_no_number() -> Result<()> {

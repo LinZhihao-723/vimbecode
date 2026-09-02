@@ -46,14 +46,10 @@ pub enum Label {
 }
 
 impl Label {
-    /// # Parameters
-    ///
-    /// * `width` - The number of display columns the gutter occupies.
-    ///
     /// # Returns
     ///
-    /// The cells the label is drawn in, which are `width` columns wide unless the number needs
-    /// more room than the gutter was given.
+    /// The cells the label is drawn in across a gutter `width` columns wide, which are that wide
+    /// unless the number needs more room than the gutter was given.
     #[must_use]
     pub fn cells(self, width: usize) -> String {
         match self {
@@ -94,9 +90,7 @@ impl Options {
         }
     }
 
-    /// # Parameters
-    ///
-    /// * `enabled` - Whether absolute line numbers are shown, as vim's `'number'`.
+    /// Sets whether absolute line numbers are shown, as vim's `'number'`.
     ///
     /// # Returns
     ///
@@ -107,10 +101,7 @@ impl Options {
         self
     }
 
-    /// # Parameters
-    ///
-    /// * `enabled` - Whether distances from the cursor's line are shown, as vim's
-    ///   `'relativenumber'`.
+    /// Sets whether distances from the cursor's line are shown, as vim's `'relativenumber'`.
     ///
     /// # Returns
     ///
@@ -121,9 +112,7 @@ impl Options {
         self
     }
 
-    /// # Parameters
-    ///
-    /// * `columns` - The narrowest the gutter is drawn, as vim's `'numberwidth'`.
+    /// Sets the narrowest the gutter is drawn, in display columns, as vim's `'numberwidth'`.
     ///
     /// # Returns
     ///
@@ -134,9 +123,7 @@ impl Options {
         self
     }
 
-    /// # Parameters
-    ///
-    /// * `style` - The style a numbered row's cells are drawn in.
+    /// Sets the style a numbered row's cells are drawn in.
     ///
     /// # Returns
     ///
@@ -147,9 +134,7 @@ impl Options {
         self
     }
 
-    /// # Parameters
-    ///
-    /// * `style` - The style the cursor's own line is drawn in when both numberings are on.
+    /// Sets the style the cursor's own line is drawn in when both numberings are on.
     ///
     /// # Returns
     ///
@@ -160,9 +145,7 @@ impl Options {
         self
     }
 
-    /// # Parameters
-    ///
-    /// * `style` - The style a continuation row's blanks are drawn in.
+    /// Sets the style a continuation row's blanks are drawn in.
     ///
     /// # Returns
     ///
@@ -221,10 +204,8 @@ impl Options {
         self.continuation_style
     }
 
-    /// # Parameters
-    ///
-    /// * `line_count` - The number of logical lines in the buffer, which is the largest absolute
-    ///   number the gutter may have to show.
+    /// Measures the gutter against `line_count`, the number of logical lines in the buffer and so
+    /// the largest absolute number the gutter may have to show.
     ///
     /// # Returns
     ///
@@ -238,10 +219,7 @@ impl Options {
         self.min_width.max(digits + 1)
     }
 
-    /// # Parameters
-    ///
-    /// * `row` - The display row the label is drawn beside.
-    /// * `cursor_line` - The zero-based logical line the cursor rests on.
+    /// Labels `row` against `cursor_line`, the zero-based logical line the cursor rests on.
     ///
     /// # Returns
     ///
@@ -258,10 +236,6 @@ impl Options {
         }
     }
 
-    /// # Parameters
-    ///
-    /// * `label` - The label whose style is wanted.
-    ///
     /// # Returns
     ///
     /// The style `label` is drawn in.
@@ -294,12 +268,11 @@ pub struct Gutter<'gutter> {
 }
 
 impl<'gutter> Gutter<'gutter> {
-    /// # Parameters
+    /// Creates the gutter of one drawn screen.
     ///
-    /// * `options` - How the gutter numbers lines and how it is styled.
-    /// * `rows` - The display rows the screen draws, top to bottom.
-    /// * `cursor_line` - The zero-based logical line the cursor rests on.
-    /// * `line_count` - The number of logical lines in the buffer.
+    /// `rows` are the display rows the screen draws, top to bottom, `cursor_line` is the
+    /// zero-based logical line the cursor rests on, and `line_count` is the number of logical
+    /// lines in the buffer.
     ///
     /// # Returns
     ///
@@ -342,6 +315,7 @@ impl<'gutter> Gutter<'gutter> {
 
 impl Widget for Gutter<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
+        let area = area.intersection(buf.area);
         let width = self.width().min(usize::from(area.width));
         if width == 0 || area.is_empty() {
             return;
@@ -358,10 +332,6 @@ impl Widget for Gutter<'_> {
     }
 }
 
-/// # Parameters
-///
-/// * `value` - The number whose decimal length is wanted.
-///
 /// # Returns
 ///
 /// How many decimal digits `value` is written in.
