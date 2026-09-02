@@ -23,8 +23,9 @@ use std::str::FromStr;
 use proptest::prelude::*;
 use proptest::test_runner::{Config, RngAlgorithm, TestCaseError, TestError, TestRng, TestRunner};
 use vbc_layout::anchor::Wrapping;
+use vbc_layout::buffer::Buffer;
 use vbc_layout::invariants::{
-    check, graphemes, Document, Layout, LogicalPosition, View, Viewport, Violation,
+    check, graphemes, Layout, LogicalPosition, View, Viewport, Violation,
 };
 use vbc_layout::line::Options;
 use vbc_layout::width::{AmbiWidth, Metrics};
@@ -123,12 +124,12 @@ impl FromStr for Seed {
     }
 }
 
-/// One generated case: the document laid out, the window it is laid out into, and where the cursor
+/// One generated case: the buffer laid out, the window it is laid out into, and where the cursor
 /// rests.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct LayoutInput {
     /// The text being laid out.
-    pub document: Document,
+    pub buffer: Buffer,
 
     /// The window the text is laid out into.
     pub viewport: Viewport,
@@ -144,7 +145,7 @@ impl LayoutInput {
     #[must_use]
     pub fn view(&self) -> View<'_> {
         View {
-            document: &self.document,
+            buffer: &self.buffer,
             viewport: &self.viewport,
             cursor: self.cursor,
         }
@@ -156,13 +157,13 @@ impl LayoutInput {
     #[must_use]
     pub fn size(&self) -> usize {
         let grapheme_count: usize = self
-            .document
+            .buffer
             .lines()
             .iter()
             .map(|line| graphemes(line).count())
             .sum();
         grapheme_count
-            + self.document.lines().len()
+            + self.buffer.lines().len()
             + self.viewport.width()
             + self.viewport.height.get()
     }
@@ -172,7 +173,7 @@ impl Display for LayoutInput {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         writeln!(f, "{}", self.viewport)?;
         writeln!(f, "cursor at {}", self.cursor)?;
-        for (index, line) in self.document.lines().iter().enumerate() {
+        for (index, line) in self.buffer.lines().iter().enumerate() {
             writeln!(f, "line {index}: `{}`", line.escape_debug())?;
         }
 
@@ -391,7 +392,7 @@ fn end_of_line_case() -> impl Strategy<Value = LayoutInput> {
 
 /// # Returns
 ///
-/// A strategy generating the lines of a document from `alphabet`.
+/// A strategy generating the lines of a buffer from `alphabet`.
 fn lines(alphabet: &'static [&'static str]) -> impl Strategy<Value = Vec<String>> {
     let line = proptest::collection::vec(proptest::sample::select(alphabet), 0..=MAX_LINE_LEN)
         .prop_map(|clusters| clusters.concat());
@@ -440,7 +441,7 @@ fn display_options() -> impl Strategy<Value = GeneratedOptions> {
 /// # Returns
 ///
 /// A strategy generating the line and the column a case's cursor rests at, which clamps into the
-/// document it is generated for.
+/// buffer it is generated for.
 fn cursor() -> impl Strategy<Value = (usize, usize)> {
     (
         0..MAX_LINES,
@@ -450,14 +451,14 @@ fn cursor() -> impl Strategy<Value = (usize, usize)> {
 
 /// # Returns
 ///
-/// The case the generated parts describe, with its cursor clamped into its document.
+/// The case the generated parts describe, with its cursor clamped into its buffer.
 fn case(
     lines: Vec<String>,
     geometry: Geometry,
     options: GeneratedOptions,
     cursor: (usize, usize),
 ) -> LayoutInput {
-    let document = Document::new(lines);
+    let buffer = Buffer::from_lines(lines);
     let ambiwidth = if options.wide_ambiguous {
         AmbiWidth::Double
     } else {
@@ -480,13 +481,13 @@ fn case(
         height: NonZeroUsize::new(geometry.height).expect("a generated height is at least one"),
     };
     let (line, column) = cursor;
-    let cursor = document.clamp(LogicalPosition {
-        line: line % document.lines().len(),
+    let cursor = buffer.clamp(LogicalPosition {
+        line: line % buffer.lines().len(),
         grapheme: column,
     });
 
     LayoutInput {
-        document,
+        buffer,
         viewport,
         cursor,
     }

@@ -1,5 +1,9 @@
 //! The text vimbecode edits, and the index that addresses it.
 //!
+//! It is the one text the rest of vimbecode works on: an edit is made against it, a layout draws
+//! it, and the invariants are stated over it, so the editor and the renderer never have to agree
+//! on which of two texts they are looking at.
+//!
 //! The text is kept as one string per logical line rather than as a rope: at the sizes a prompt
 //! reaches -- a few kilobytes -- the flat form outruns a rope on every edit measured, a paste at
 //! the front of the text included. Alongside the lines a buffer carries the byte offset each line
@@ -103,7 +107,7 @@ impl StdError for Error {}
 /// begins at.
 ///
 /// A buffer always holds at least one line, so the empty text is one empty line and every buffer
-/// has a position an edit can be made at.
+/// has a position an edit can be made at and the cursor can rest at.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Buffer {
     lines: Vec<String>,
@@ -135,6 +139,25 @@ impl Buffer {
     #[must_use]
     pub fn from_text(text: &str) -> Self {
         let lines: Vec<String> = text.split(LINE_SEPARATOR).map(str::to_owned).collect();
+        let mut buffer = Self {
+            lines,
+            line_starts: Vec::new(),
+        };
+        buffer.reindex_from(0);
+        buffer
+    }
+
+    /// Factory function.
+    ///
+    /// # Returns
+    ///
+    /// A newly created buffer holding `lines`, or one holding the empty text if `lines` is empty.
+    #[must_use]
+    pub fn from_lines(lines: Vec<String>) -> Self {
+        if lines.is_empty() {
+            return Self::new();
+        }
+
         let mut buffer = Self {
             lines,
             line_starts: Vec::new(),
@@ -214,6 +237,34 @@ impl Buffer {
     #[must_use]
     pub fn line_len(&self, index: usize) -> Option<usize> {
         self.line(index).map(|line| graphemes(line).count())
+    }
+
+    /// # Returns
+    ///
+    /// The position past the last grapheme of the buffer's last line, which is the furthest
+    /// position the buffer holds.
+    #[must_use]
+    pub fn end(&self) -> LogicalPosition {
+        let line = self.lines.len() - 1;
+        LogicalPosition {
+            line,
+            grapheme: self.line_len(line).unwrap_or(0),
+        }
+    }
+
+    /// Moves a position onto the nearest position the buffer holds.
+    ///
+    /// # Returns
+    ///
+    /// `position` if the buffer holds it, otherwise the closest position it does hold.
+    #[must_use]
+    pub fn clamp(&self, position: LogicalPosition) -> LogicalPosition {
+        let line = position.line.min(self.lines.len() - 1);
+        let len = self.line_len(line).unwrap_or(0);
+        LogicalPosition {
+            line,
+            grapheme: position.grapheme.min(len),
+        }
     }
 
     /// Converts a position into a byte offset into the buffer's text.
@@ -624,6 +675,27 @@ mod tests {
             }),
             buffer.position(7)
         );
+    }
+
+    #[test]
+    fn lines_are_indexed_as_the_text_they_join_into_is() {
+        let buffer = Buffer::from_lines(vec!["ab".to_owned(), "cde".to_owned(), String::new()]);
+
+        assert_eq!(Buffer::from_text("ab\ncde\n"), buffer);
+        assert_consistent(&buffer, "ab\ncde\n");
+        assert_eq!(Buffer::new(), Buffer::from_lines(Vec::new()));
+    }
+
+    #[test]
+    fn a_position_outside_the_buffer_clamps_onto_one_inside_it() {
+        let buffer = Buffer::from_text("ab\ncde\n");
+        let clamp = |line, grapheme| buffer.clamp(LogicalPosition { line, grapheme });
+        let position = |line, grapheme| LogicalPosition { line, grapheme };
+
+        assert_eq!(position(2, 0), buffer.end());
+        assert_eq!(position(1, 1), clamp(1, 1));
+        assert_eq!(position(1, 3), clamp(1, 9));
+        assert_eq!(position(2, 0), clamp(9, 9));
     }
 
     #[test]

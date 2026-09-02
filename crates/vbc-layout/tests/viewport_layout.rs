@@ -21,8 +21,9 @@ use proptest::prelude::*;
 use vbc_layout::anchor::{
     char_idx_at_visual_offset, visual_offset_from_anchor, VisualOffset, Wrapping,
 };
+use vbc_layout::buffer::Buffer;
 use vbc_layout::invariants::{
-    DisplayPosition, Document, Layout, LogicalPosition, Row, Screen, View, Viewport as Area,
+    DisplayPosition, Layout, LogicalPosition, Row, Screen, View, Viewport as Area,
 };
 use vbc_layout::line::{self, Options};
 use vbc_layout::viewport::{Command, Scrolled, Viewport, Window};
@@ -94,18 +95,18 @@ const MAX_COMMANDS: usize = 6;
 /// compares every row of the screen, and only a test can afford to build one.
 struct AfterScrolling {
     commands: &'static [Command],
-    scrolled: RefCell<Option<(Document, Area, LogicalPosition, usize)>>,
+    scrolled: RefCell<Option<(Buffer, Area, LogicalPosition, usize)>>,
 }
 
 impl AfterScrolling {
     /// # Returns
     ///
-    /// The viewport the commands leave, scrolled from the top of the document.
+    /// The viewport the commands leave, scrolled from the top of the buffer.
     ///
     /// # Panics
     ///
     /// Panics if a scroll failed, which none of a generated case's does.
-    fn viewport(&self, document: &Document, area: &Area) -> Viewport {
+    fn viewport(&self, buffer: &Buffer, area: &Area) -> Viewport {
         let window = Window::new(area.height).with_scrolloff(SCROLLOFF);
         let mut state = Scrolled {
             viewport: Viewport::new(),
@@ -118,7 +119,7 @@ impl AfterScrolling {
             state = state
                 .viewport
                 .scroll(
-                    document.lines(),
+                    buffer.lines(),
                     &area.wrapping,
                     window,
                     state.cursor,
@@ -138,24 +139,24 @@ impl AfterScrolling {
     /// # Panics
     ///
     /// Panics if the viewport's top row is not drawn, which a scrolled one always is.
-    fn top(&self, document: &Document, area: &Area) -> (LogicalPosition, usize) {
+    fn top(&self, buffer: &Buffer, area: &Area) -> (LogicalPosition, usize) {
         if let Some((cached, drawn, position, row)) = self.scrolled.borrow().as_ref() {
-            if cached == document && drawn == area {
+            if cached == buffer && drawn == area {
                 return (*position, *row);
             }
         }
 
-        let viewport = self.viewport(document, area);
+        let viewport = self.viewport(buffer, area);
         let position = viewport
-            .top_position(document.lines(), &area.wrapping)
+            .top_position(buffer.lines(), &area.wrapping)
             .expect("a scrolled viewport is drawn");
-        let above: usize = document.lines()[..viewport.anchor()]
+        let above: usize = buffer.lines()[..viewport.anchor()]
             .iter()
             .map(|text| rows_of(text, area).len())
             .sum();
         let row = above + viewport.vertical_offset();
         self.scrolled
-            .replace(Some((document.clone(), area.clone(), position, row)));
+            .replace(Some((buffer.clone(), area.clone(), position, row)));
 
         (position, row)
     }
@@ -164,7 +165,7 @@ impl AfterScrolling {
 impl Layout for AfterScrolling {
     fn lay_out(&self, view: View<'_>) -> Screen {
         let mut rows: Vec<Row> = view
-            .document
+            .buffer
             .lines()
             .iter()
             .enumerate()
@@ -181,7 +182,7 @@ impl Layout for AfterScrolling {
             })
             .collect();
         if drawn_full(&rows, view.viewport) {
-            let end = view.document.end();
+            let end = view.buffer.end();
             rows.push(Row {
                 line: end.line,
                 start: end.grapheme,
@@ -199,9 +200,9 @@ impl Layout for AfterScrolling {
         view: View<'_>,
         position: LogicalPosition,
     ) -> Option<DisplayPosition> {
-        let (top, origin) = self.top(view.document, view.viewport);
+        let (top, origin) = self.top(view.buffer, view.viewport);
         let offset = visual_offset_from_anchor(
-            view.document.lines(),
+            view.buffer.lines(),
             top,
             position,
             &view.viewport.wrapping,
@@ -221,13 +222,13 @@ impl Layout for AfterScrolling {
         view: View<'_>,
         position: DisplayPosition,
     ) -> Option<LogicalPosition> {
-        let (top, origin) = self.top(view.document, view.viewport);
+        let (top, origin) = self.top(view.buffer, view.viewport);
         let offset = VisualOffset {
             rows: signed(position.row) - signed(origin),
             column: position.column,
         };
         let landing =
-            char_idx_at_visual_offset(view.document.lines(), top, offset, &view.viewport.wrapping)
+            char_idx_at_visual_offset(view.buffer.lines(), top, offset, &view.viewport.wrapping)
                 .ok()?;
 
         (offset == landing.offset).then_some(landing.position)
