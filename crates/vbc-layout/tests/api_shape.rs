@@ -14,9 +14,17 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// The number of source files the workspace's crates hold, which keeps a scan that finds nothing
-/// from passing because it read nothing.
-const SOURCE_FILES: usize = 18;
+/// The fewest source files the workspace's crates hold, which keeps a scan that finds nothing from
+/// passing because it read nothing.
+const MINIMUM_SOURCE_FILES: usize = 18;
+
+/// The files these scans are about, which a scan that read anything else but missed one of these
+/// has said nothing.
+const REQUIRED_SOURCES: [&str; 3] = [
+    "crates/vbc-layout/src/buffer.rs",
+    "crates/vbc-layout/src/invariants.rs",
+    "crates/vbc-layout/src/lib.rs",
+];
 
 /// The words naming a type that would hold the text being edited.
 const TEXT_WORDS: [&str; 2] = ["buffer", "document"];
@@ -49,10 +57,10 @@ const REFERENCE_LAYOUT: &str = "crates/vbc-layout/tests/fuzz/reference.rs";
 #[test]
 fn the_workspace_declares_one_type_for_the_text_being_edited() {
     let mut declared = Vec::new();
-    let mut scanned = 0;
+    let mut scanned = Vec::new();
     for path in sources() {
         let source = read(&path);
-        scanned += 1;
+        scanned.push(relative(&path));
         for line in source.lines() {
             let Some(name) = declared_type(line.trim_start()) else {
                 continue;
@@ -65,7 +73,7 @@ fn the_workspace_declares_one_type_for_the_text_being_edited() {
         }
     }
 
-    assert_eq!(SOURCE_FILES, scanned);
+    assert_scanned(&scanned);
     assert_eq!(
         vec![(TEXT_MODULE.to_owned(), TEXT_TYPE.to_owned())],
         declared
@@ -85,10 +93,10 @@ fn the_layout_stack_the_invariants_and_the_fuzz_harness_share_that_type() {
 
 #[test]
 fn no_layout_outside_the_tests_lays_a_whole_document_out() {
-    let mut scanned = 0;
+    let mut scanned = Vec::new();
     for path in sources() {
         let source = read(&path);
-        scanned += 1;
+        scanned.push(relative(&path));
         for (number, line) in source.lines().enumerate() {
             let code = line.trim_start();
             if code.starts_with("//") {
@@ -103,7 +111,7 @@ fn no_layout_outside_the_tests_lays_a_whole_document_out() {
             );
         }
     }
-    assert_eq!(SOURCE_FILES, scanned);
+    assert_scanned(&scanned);
 
     // A scan for a shape says nothing unless the shape is one this tree really takes, and the
     // reference layout the invariant search runs against is where it now lives.
@@ -113,6 +121,26 @@ fn no_layout_outside_the_tests_lays_a_whole_document_out() {
             .lines()
             .any(|line| lays_a_whole_document_out(line.trim_start())),
         "{REFERENCE_LAYOUT} lays no whole document out, so the scan looks for nothing"
+    );
+}
+
+/// Checks that a scan read the files it is about, and the rest of the workspace besides.
+///
+/// # Panics
+///
+/// Panics if a file of [`REQUIRED_SOURCES`] went unread, or if fewer than
+/// [`MINIMUM_SOURCE_FILES`] were read.
+fn assert_scanned(scanned: &[String]) {
+    for required in REQUIRED_SOURCES {
+        assert!(
+            scanned.iter().any(|path| required == path),
+            "{required} went unread, so the scan looked past what it is about"
+        );
+    }
+    assert!(
+        MINIMUM_SOURCE_FILES <= scanned.len(),
+        "{} files were read, fewer than the {MINIMUM_SOURCE_FILES} the workspace holds",
+        scanned.len()
     );
 }
 

@@ -149,6 +149,9 @@ impl Buffer {
 
     /// Factory function.
     ///
+    /// A [`LINE_SEPARATOR`] inside a line opens a line of its own, so the buffer holds one string
+    /// per logical line whatever it is handed.
+    ///
     /// # Returns
     ///
     /// A newly created buffer holding `lines`, or one holding the empty text if `lines` is empty.
@@ -158,8 +161,17 @@ impl Buffer {
             return Self::new();
         }
 
+        let mut split = Vec::with_capacity(lines.len());
+        for line in lines {
+            if line.contains(LINE_SEPARATOR) {
+                split.extend(line.split(LINE_SEPARATOR).map(str::to_owned));
+            } else {
+                split.push(line);
+            }
+        }
+
         let mut buffer = Self {
-            lines,
+            lines: split,
             line_starts: Vec::new(),
         };
         buffer.reindex_from(0);
@@ -684,6 +696,11 @@ mod tests {
         assert_eq!(Buffer::from_text("ab\ncde\n"), buffer);
         assert_consistent(&buffer, "ab\ncde\n");
         assert_eq!(Buffer::new(), Buffer::from_lines(Vec::new()));
+
+        let separated = Buffer::from_lines(vec!["ab\ncd".to_owned(), "e".to_owned()]);
+
+        assert_eq!(Buffer::from_text("ab\ncd\ne"), separated);
+        assert_consistent(&separated, "ab\ncd\ne");
     }
 
     #[test]
