@@ -5,3 +5,4 @@
 
 pub mod event;
 pub mod gutter;
+pub mod style;
