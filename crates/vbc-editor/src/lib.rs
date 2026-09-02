@@ -4,3 +4,4 @@
 //! rendered through the layout engine.
 
 pub mod event;
+pub mod render;

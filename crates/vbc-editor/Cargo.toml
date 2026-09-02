@@ -12,6 +12,9 @@ categories.workspace = true
 
 [dependencies]
 crossterm = "0.29.0"
+ratatui = "0.30.2"
+vbc-layout = { path = "../vbc-layout" }
 
 [dev-dependencies]
 anyhow = "1.0.104"
+vbc-oracle = { path = "../vbc-oracle" }
