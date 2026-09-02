@@ -7,11 +7,12 @@
 //! not hold, or a vertical offset counted in the wrong space, shows up as a position that does not
 //! round-trip.
 //!
-//! The harness cannot see the two things a scroll owes on its own, because it knows nothing about
-//! a window's height: that the viewport never scrolls past the last row of the text, and that the
-//! cursor is left on a row the window draws. Those are searched for here instead, over the same
-//! shapes of text and across sequences of commands rather than single ones, since a viewport is
-//! only ever as sound as the state the scroll before it left behind.
+//! The screen handed to the harness is the whole text rather than the rows of the window, because
+//! the cursor the harness generates is not the cursor a scroll carries and a window draws only one
+//! of them. What that leaves the harness unable to see is searched for here instead: that the
+//! viewport never scrolls past the last row of the text, and that the cursor is left on a row the
+//! window draws. Both are searched across sequences of commands rather than single ones, since a
+//! viewport is only ever as sound as the state the scroll before it left behind.
 
 use std::cell::RefCell;
 use std::num::NonZeroUsize;
@@ -21,7 +22,7 @@ use vbc_layout::anchor::{
     char_idx_at_visual_offset, visual_offset_from_anchor, VisualOffset, Wrapping,
 };
 use vbc_layout::invariants::{
-    DisplayPosition, Document, Layout, LogicalPosition, Row, Screen, Viewport as Area,
+    DisplayPosition, Document, Layout, LogicalPosition, Row, Screen, View, Viewport as Area,
 };
 use vbc_layout::line::{self, Options};
 use vbc_layout::viewport::{Command, Scrolled, Viewport, Window};
@@ -37,9 +38,6 @@ const SEEDS: u64 = 4;
 
 /// The rows a mapping is allowed to walk, which every generated case fits inside.
 const MAX_ROWS: usize = 1024;
-
-/// The window every search scrolls inside, short enough that a generated text reaches past it.
-const HEIGHT: usize = 3;
 
 /// The rows the searched windows keep beside the cursor.
 const SCROLLOFF: usize = 1;
@@ -107,10 +105,8 @@ impl AfterScrolling {
     /// # Panics
     ///
     /// Panics if a scroll failed, which none of a generated case's does.
-    fn viewport(&self, document: &Document, area: Area) -> Viewport {
-        let window =
-            Window::new(NonZeroUsize::new(HEIGHT).expect("the searched height is not zero"))
-                .with_scrolloff(SCROLLOFF);
+    fn viewport(&self, document: &Document, area: &Area) -> Viewport {
+        let window = Window::new(area.height).with_scrolloff(SCROLLOFF);
         let mut state = Scrolled {
             viewport: Viewport::new(),
             cursor: LogicalPosition {
@@ -123,7 +119,7 @@ impl AfterScrolling {
                 .viewport
                 .scroll(
                     document.lines(),
-                    &wrapping(area),
+                    &area.wrapping,
                     window,
                     state.cursor,
                     command,
@@ -142,16 +138,16 @@ impl AfterScrolling {
     /// # Panics
     ///
     /// Panics if the viewport's top row is not drawn, which a scrolled one always is.
-    fn top(&self, document: &Document, area: Area) -> (LogicalPosition, usize) {
+    fn top(&self, document: &Document, area: &Area) -> (LogicalPosition, usize) {
         if let Some((cached, drawn, position, row)) = self.scrolled.borrow().as_ref() {
-            if cached == document && *drawn == area {
+            if cached == document && drawn == area {
                 return (*position, *row);
             }
         }
 
         let viewport = self.viewport(document, area);
         let position = viewport
-            .top_position(document.lines(), &wrapping(area))
+            .top_position(document.lines(), &area.wrapping)
             .expect("a scrolled viewport is drawn");
         let above: usize = document.lines()[..viewport.anchor()]
             .iter()
@@ -159,40 +155,59 @@ impl AfterScrolling {
             .sum();
         let row = above + viewport.vertical_offset();
         self.scrolled
-            .replace(Some((document.clone(), area, position, row)));
+            .replace(Some((document.clone(), area.clone(), position, row)));
 
         (position, row)
     }
 }
 
 impl Layout for AfterScrolling {
-    fn lay_out(&self, document: &Document, area: Area) -> Screen {
-        Screen {
-            rows: document
-                .lines()
-                .iter()
-                .enumerate()
-                .flat_map(|(line, text)| {
-                    rows_of(text, area).into_iter().map(move |row| Row {
+    fn lay_out(&self, view: View<'_>) -> Screen {
+        let mut rows: Vec<Row> = view
+            .document
+            .lines()
+            .iter()
+            .enumerate()
+            .flat_map(|(line, text)| {
+                rows_of(text, view.viewport)
+                    .into_iter()
+                    .map(move |row| Row {
                         line,
                         start: row.start(),
                         text: row.text().to_owned(),
+                        cells: row.cells().to_owned(),
+                        columns: row.columns().to_vec(),
                     })
-                })
-                .collect(),
+            })
+            .collect();
+        if drawn_full(&rows, view.viewport) {
+            let end = view.document.end();
+            rows.push(Row {
+                line: end.line,
+                start: end.grapheme,
+                text: String::new(),
+                cells: String::new(),
+                columns: vec![0],
+            });
         }
+
+        Screen { rows }
     }
 
     fn display_position(
         &self,
-        document: &Document,
-        area: Area,
+        view: View<'_>,
         position: LogicalPosition,
     ) -> Option<DisplayPosition> {
-        let (top, origin) = self.top(document, area);
-        let offset =
-            visual_offset_from_anchor(document.lines(), top, position, &wrapping(area), MAX_ROWS)
-                .ok()?;
+        let (top, origin) = self.top(view.document, view.viewport);
+        let offset = visual_offset_from_anchor(
+            view.document.lines(),
+            top,
+            position,
+            &view.viewport.wrapping,
+            MAX_ROWS,
+        )
+        .ok()?;
         let row = signed(origin) + offset.rows;
 
         Some(DisplayPosition {
@@ -203,17 +218,17 @@ impl Layout for AfterScrolling {
 
     fn logical_position(
         &self,
-        document: &Document,
-        area: Area,
+        view: View<'_>,
         position: DisplayPosition,
     ) -> Option<LogicalPosition> {
-        let (top, origin) = self.top(document, area);
+        let (top, origin) = self.top(view.document, view.viewport);
         let offset = VisualOffset {
             rows: signed(position.row) - signed(origin),
             column: position.column,
         };
         let landing =
-            char_idx_at_visual_offset(document.lines(), top, offset, &wrapping(area)).ok()?;
+            char_idx_at_visual_offset(view.document.lines(), top, offset, &view.viewport.wrapping)
+                .ok()?;
 
         (offset == landing.offset).then_some(landing.position)
     }
@@ -351,13 +366,6 @@ fn scroll_input() -> impl Strategy<Value = ScrollInput> {
 
 /// # Returns
 ///
-/// The way an area's text is drawn, which is the way the invariants measure it.
-fn wrapping(area: Area) -> Wrapping {
-    wrapping_of(area.width)
-}
-
-/// # Returns
-///
 /// The way text is drawn in `width` columns, under vim's own defaults.
 fn wrapping_of(width: NonZeroUsize) -> Wrapping {
     Wrapping::new(width, Metrics::default(), Options::new())
@@ -366,8 +374,23 @@ fn wrapping_of(width: NonZeroUsize) -> Wrapping {
 /// # Returns
 ///
 /// The rows rendering `line` in `area`.
-fn rows_of(line: &str, area: Area) -> Vec<line::DisplayRow> {
-    line::lay_out(line, area.width, Metrics::default(), &Options::new())
+fn rows_of(line: &str, area: &Area) -> Vec<line::DisplayRow> {
+    line::lay_out(
+        line,
+        area.wrapping.width(),
+        area.wrapping.metrics(),
+        area.wrapping.options(),
+    )
+}
+
+/// # Returns
+///
+/// Whether the text ends on a row with no cell left for the cursor resting past it, which is drawn
+/// on the row below.
+fn drawn_full(rows: &[Row], area: &Area) -> bool {
+    rows.last()
+        .and_then(|row| row.columns.last())
+        .is_some_and(|&width| area.width() <= width)
 }
 
 /// # Returns

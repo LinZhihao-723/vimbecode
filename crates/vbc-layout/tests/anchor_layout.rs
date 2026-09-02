@@ -9,14 +9,11 @@
 //! below it, so that the harness searches walks in both directions rather than only the forward
 //! walk an anchor at the top of the text would ever take.
 
-use vbc_layout::anchor::{
-    char_idx_at_visual_offset, visual_offset_from_anchor, VisualOffset, Wrapping,
-};
+use vbc_layout::anchor::{char_idx_at_visual_offset, visual_offset_from_anchor, VisualOffset};
 use vbc_layout::invariants::{
-    DisplayPosition, Document, Layout, LogicalPosition, Row, Screen, Viewport,
+    DisplayPosition, Document, Layout, LogicalPosition, Row, Screen, View, Viewport,
 };
-use vbc_layout::line::{self, Options};
-use vbc_layout::width::Metrics;
+use vbc_layout::line;
 
 #[path = "fuzz/harness.rs"]
 mod harness;
@@ -62,50 +59,64 @@ impl Anchored {
 
     /// # Returns
     ///
-    /// The screen row the anchor of `document` is drawn on.
-    fn origin(&self, document: &Document, viewport: Viewport) -> usize {
-        let anchor = self.anchor(document);
+    /// The screen row the anchor of the view's document is drawn on.
+    fn origin(&self, view: View<'_>) -> usize {
+        let anchor = self.anchor(view.document);
 
-        document.lines()[..anchor.line]
+        view.document.lines()[..anchor.line]
             .iter()
-            .map(|text| rows_of(text, viewport).len())
+            .map(|text| rows_of(text, view.viewport).len())
             .sum()
     }
 }
 
 impl Layout for Anchored {
-    fn lay_out(&self, document: &Document, viewport: Viewport) -> Screen {
-        Screen {
-            rows: document
-                .lines()
-                .iter()
-                .enumerate()
-                .flat_map(|(line, text)| {
-                    rows_of(text, viewport).into_iter().map(move |row| Row {
+    fn lay_out(&self, view: View<'_>) -> Screen {
+        let mut rows: Vec<Row> = view
+            .document
+            .lines()
+            .iter()
+            .enumerate()
+            .flat_map(|(line, text)| {
+                rows_of(text, view.viewport)
+                    .into_iter()
+                    .map(move |row| Row {
                         line,
                         start: row.start(),
                         text: row.text().to_owned(),
+                        cells: row.cells().to_owned(),
+                        columns: row.columns().to_vec(),
                     })
-                })
-                .collect(),
+            })
+            .collect();
+        if ends_on_a_full_row(&rows, view.viewport) {
+            let end = view.document.end();
+            rows.push(Row {
+                line: end.line,
+                start: end.grapheme,
+                text: String::new(),
+                cells: String::new(),
+                columns: vec![0],
+            });
         }
+
+        Screen { rows }
     }
 
     fn display_position(
         &self,
-        document: &Document,
-        viewport: Viewport,
+        view: View<'_>,
         position: LogicalPosition,
     ) -> Option<DisplayPosition> {
         let offset = visual_offset_from_anchor(
-            document.lines(),
-            self.anchor(document),
+            view.document.lines(),
+            self.anchor(view.document),
             position,
-            &wrapping(viewport),
+            &view.viewport.wrapping,
             MAX_ROWS,
         )
         .ok()?;
-        let row = signed(self.origin(document, viewport)) + offset.rows;
+        let row = signed(self.origin(view)) + offset.rows;
 
         Some(DisplayPosition {
             row: usize::try_from(row).ok()?,
@@ -115,19 +126,18 @@ impl Layout for Anchored {
 
     fn logical_position(
         &self,
-        document: &Document,
-        viewport: Viewport,
+        view: View<'_>,
         position: DisplayPosition,
     ) -> Option<LogicalPosition> {
         let offset = VisualOffset {
-            rows: signed(position.row) - signed(self.origin(document, viewport)),
+            rows: signed(position.row) - signed(self.origin(view)),
             column: position.column,
         };
         let landing = char_idx_at_visual_offset(
-            document.lines(),
-            self.anchor(document),
+            view.document.lines(),
+            self.anchor(view.document),
             offset,
-            &wrapping(viewport),
+            &view.viewport.wrapping,
         )
         .ok()?;
 
@@ -155,16 +165,24 @@ fn a_mapping_anchored_below_the_text_satisfies_every_invariant() {
 
 /// # Returns
 ///
-/// The way a viewport's text is drawn, which is the way the invariants measure it.
-fn wrapping(viewport: Viewport) -> Wrapping {
-    Wrapping::new(viewport.width, Metrics::default(), Options::new())
+/// The rows rendering `line` in `viewport`.
+fn rows_of(line: &str, viewport: &Viewport) -> Vec<line::DisplayRow> {
+    line::lay_out(
+        line,
+        viewport.wrapping.width(),
+        viewport.wrapping.metrics(),
+        viewport.wrapping.options(),
+    )
 }
 
 /// # Returns
 ///
-/// The rows rendering `line` in `viewport`.
-fn rows_of(line: &str, viewport: Viewport) -> Vec<line::DisplayRow> {
-    line::lay_out(line, viewport.width, Metrics::default(), &Options::new())
+/// Whether the text ends on a row with no cell left for the cursor resting past it, which is drawn
+/// on the row below.
+fn ends_on_a_full_row(rows: &[Row], viewport: &Viewport) -> bool {
+    rows.last()
+        .and_then(|row| row.columns.last())
+        .is_some_and(|&width| viewport.width() <= width)
 }
 
 /// # Returns
