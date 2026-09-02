@@ -24,7 +24,16 @@ use vbc_oracle::state::EditorState;
 /// The number of cases whose cursor cell this mapping reproduces, which is the sample the
 /// cross-check is worth. A case added to the corpus lands in the sample or in one of the lists
 /// below, and either way this number moves.
-const CURSORS_ANCHORED: usize = 55;
+const CURSORS_ANCHORED: usize = 63;
+
+/// The number of cases whose text holds a logical line drawn on more than one row with another
+/// line under it, which is the shape that makes the rows a walk crosses differ from the lines it
+/// crosses.
+const WRAPPED_LINE_ABOVE_A_LATER_LINE: usize = 11;
+
+/// The number of cases whose cursor vim draws below a wrapped line, so that the walk from the top
+/// of the window has to count that line's rows rather than the line itself.
+const CURSORS_BELOW_A_WRAPPED_LINE: usize = 8;
 
 /// The cases whose window scrolls sideways rather than wrapping, which an anchor at the top left
 /// of the window does not describe.
@@ -57,7 +66,7 @@ const CURSOR_DIVERGENCES: [(&str, &str); 4] = [
 ];
 
 /// The number of cases whose every position this mapping draws where vim drew it.
-const SCREENS_ANCHORED: usize = 54;
+const SCREENS_ANCHORED: usize = 62;
 
 /// The cases whose recorded screen holds something other than the graphemes this crate lays out,
 /// with the reason.
@@ -151,6 +160,81 @@ fn every_grapheme_is_drawn_in_the_cell_vim_drew_it_in() {
 
     assert_eq!(ids(&SCREEN_DIVERGENCES), diverged);
     assert_eq!(SCREENS_ANCHORED, anchored.len());
+}
+
+#[test]
+fn the_corpus_draws_cursors_below_wrapped_lines() {
+    let corpus = Corpus::load_dir(&corpus::default_dir()).expect("the corpus loads");
+    let baseline = Baseline::read(&baseline::default_path()).expect("the baseline is readable");
+
+    let mut above = BTreeSet::new();
+    let mut below = BTreeSet::new();
+    for case in corpus.cases() {
+        if !case.options.wrap {
+            continue;
+        }
+
+        let state = state_of(&baseline, case);
+        let lines: Vec<String> = lines_of(&state.buffer).map(str::to_owned).collect();
+        let wrapping = wrapping_of(case);
+        if (0..lines.len() - 1).any(|line| 1 < rows_drawn(&lines, line, &wrapping)) {
+            above.insert(case.id.as_str());
+        }
+        if !crossed_lines(state, &lines, &wrapping).is_empty() {
+            below.insert(case.id.as_str());
+        }
+    }
+
+    assert_eq!(WRAPPED_LINE_ABOVE_A_LATER_LINE, above.len());
+    assert_eq!(CURSORS_BELOW_A_WRAPPED_LINE, below.len());
+}
+
+/// Walks to the same cursors over a text whose every line between the top of the window and the
+/// cursor is drawn on one row, which is what the mapping would report if it counted the lines it
+/// crosses rather than the rows they are drawn on.
+///
+/// Every case that crosses a wrapped line is asserted to land somewhere other than the cell vim
+/// drew, so that a mapping making that mistake is caught here rather than only by the property
+/// tests.
+#[test]
+fn counting_a_crossed_line_as_one_row_leaves_the_cell_vim_drew() {
+    let corpus = Corpus::load_dir(&corpus::default_dir()).expect("the corpus loads");
+    let baseline = Baseline::read(&baseline::default_path()).expect("the baseline is readable");
+
+    let mut caught = BTreeSet::new();
+    for case in corpus.cases() {
+        if !case.options.wrap {
+            continue;
+        }
+
+        let state = state_of(&baseline, case);
+        let lines: Vec<String> = lines_of(&state.buffer).map(str::to_owned).collect();
+        let crossed = crossed_lines(state, &lines, &wrapping_of(case));
+        if crossed.is_empty() {
+            continue;
+        }
+
+        assert_eq!(
+            Some(recorded(state)),
+            drawn_at(case, state),
+            "case `{}` crosses a wrapped line but is not one vim agrees with to begin with",
+            case.id
+        );
+        let mut flattened = lines.clone();
+        for line in crossed {
+            flattened[line].clear();
+        }
+        assert_ne!(
+            Some(recorded(state)),
+            drawn_in(case, state, &flattened),
+            "case `{}` draws its cursor where vim drew it even when a line it crosses is worth \
+             one row",
+            case.id
+        );
+        caught.insert(case.id.as_str());
+    }
+
+    assert_eq!(CURSORS_BELOW_A_WRAPPED_LINE, caught.len());
 }
 
 /// Maps every position of a case's buffer and looks up the cell vim drew it in.
@@ -259,6 +343,22 @@ fn recorded(state: &EditorState) -> (isize, usize) {
 /// Panics if the cursor is drawn outside the window.
 fn drawn_at(case: &Case, state: &EditorState) -> Option<(isize, usize)> {
     let lines: Vec<String> = lines_of(&state.buffer).map(str::to_owned).collect();
+
+    drawn_in(case, state, &lines)
+}
+
+/// Maps a case's cursor from an anchor at the top left of its window over a text handed in, which
+/// is the case's own except where a test gives the walk something else to cross.
+///
+/// # Returns
+///
+/// * The cell the mapping draws the cursor in, counted from the top left of the window.
+/// * `None` if vim left the cursor inside a grapheme cluster.
+///
+/// # Panics
+///
+/// Panics if the cursor is drawn outside the window.
+fn drawn_in(case: &Case, state: &EditorState, lines: &[String]) -> Option<(isize, usize)> {
     let line = usize::try_from(state.cursor.line).expect("a cursor line fits in a `usize`");
     let offset = usize::try_from(state.cursor.column).expect("a cursor column fits in a `usize`");
     let cursor = LogicalPosition {
@@ -270,7 +370,7 @@ fn drawn_at(case: &Case, state: &EditorState) -> Option<(isize, usize)> {
         grapheme: 0,
     };
     let VisualOffset { rows, column } = visual_offset_from_anchor(
-        &lines,
+        lines,
         anchor,
         cursor,
         &wrapping_of(case),
@@ -284,6 +384,42 @@ fn drawn_at(case: &Case, state: &EditorState) -> Option<(isize, usize)> {
     });
 
     Some((rows, column))
+}
+
+/// # Returns
+///
+/// The number of display rows the line at `line` is drawn on, which is what a walk from its first
+/// grapheme to the first grapheme of the line under it crosses.
+///
+/// # Panics
+///
+/// Panics if the text holds no line under `line`.
+fn rows_drawn(lines: &[String], line: usize, wrapping: &Wrapping) -> usize {
+    let offset = visual_offset_from_anchor(
+        lines,
+        LogicalPosition { line, grapheme: 0 },
+        LogicalPosition {
+            line: line + 1,
+            grapheme: 0,
+        },
+        wrapping,
+        usize::MAX,
+    )
+    .expect("a line under another one is drawn under it");
+
+    usize::try_from(offset.rows).expect("a line is drawn on at least one row")
+}
+
+/// # Returns
+///
+/// The lines a walk from the top of the window down to the cursor crosses whole and draws on more
+/// than one row, which are the lines whose rows the walk cannot count as one each.
+fn crossed_lines(state: &EditorState, lines: &[String], wrapping: &Wrapping) -> Vec<usize> {
+    let cursor = usize::try_from(state.cursor.line).expect("a cursor line fits in a `usize`");
+
+    (1..cursor)
+        .filter(|&line| 1 < rows_drawn(lines, line, wrapping))
+        .collect()
 }
 
 /// # Returns

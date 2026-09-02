@@ -6,9 +6,321 @@
       "minor": 1,
       "patch": 697
     },
-    "corpus_hash": "040fe7dda432ca7f7fc7b209b7a26540bec03dee43778802943416367588ac43"
+    "corpus_hash": "5654aa8e721477785ad1e686840dab1374a09728ff09334f816bd5e79effc888"
   },
   "cases": {
+    "anchor-walk-w20-last-line": {
+      "buffer": "    the first line is indented and long enough to wrap across several rows\n    the second line is indented too and also wraps before it ends\nthird line\n    the fourth line is indented as well and wraps before the paragraph ends\nfifth line\n",
+      "cursor": {
+        "line": 4,
+        "column": 0
+      },
+      "display_position": {
+        "row": 13,
+        "column": 0
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "    the first line i",
+        "s indented and long",
+        "enough to wrap acros",
+        "s several rows",
+        "    the second line",
+        "is indented too and",
+        "also wraps before it",
+        " ends",
+        "third line",
+        "    the fourth line",
+        "is indented as well",
+        "and wraps before the",
+        " paragraph ends",
+        "fifth line",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
+    "anchor-walk-w20-middle-line": {
+      "buffer": "    the first line is indented and long enough to wrap across several rows\n    the second line is indented too and also wraps before it ends\nthird line\n    the fourth line is indented as well and wraps before the paragraph ends\nfifth line\n",
+      "cursor": {
+        "line": 2,
+        "column": 0
+      },
+      "display_position": {
+        "row": 8,
+        "column": 0
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "    the first line i",
+        "s indented and long",
+        "enough to wrap acros",
+        "s several rows",
+        "    the second line",
+        "is indented too and",
+        "also wraps before it",
+        " ends",
+        "third line",
+        "    the fourth line",
+        "is indented as well",
+        "and wraps before the",
+        " paragraph ends",
+        "fifth line",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
+    "anchor-walk-w24-breakindent": {
+      "buffer": "    the first line is indented and long enough to wrap across several rows\n    the second line is indented too and also wraps before it ends\nthird line\n    the fourth line is indented as well and wraps before the paragraph ends\nfifth line\n",
+      "cursor": {
+        "line": 4,
+        "column": 0
+      },
+      "display_position": {
+        "row": 13,
+        "column": 0
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "    the first line is in",
+        "    dented and long enou",
+        "    gh to wrap across se",
+        "    veral rows",
+        "    the second line is i",
+        "    ndented too and also",
+        "     wraps before it end",
+        "    s",
+        "third line",
+        "    the fourth line is i",
+        "    ndented as well and",
+        "    wraps before the par",
+        "    agraph ends",
+        "fifth line",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
+    "anchor-walk-w24-breakindent-showbreak": {
+      "buffer": "    the first line is indented and long enough to wrap across several rows\n    the second line is indented too and also wraps before it ends\nthird line\n    the fourth line is indented as well and wraps before the paragraph ends\nfifth line\n",
+      "cursor": {
+        "line": 4,
+        "column": 0
+      },
+      "display_position": {
+        "row": 13,
+        "column": 0
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "    the first line is in",
+        "    > dented and long en",
+        "    > ough to wrap acros",
+        "    > s several rows",
+        "    the second line is i",
+        "    > ndented too and al",
+        "    > so wraps before it",
+        "    >  ends",
+        "third line",
+        "    the fourth line is i",
+        "    > ndented as well an",
+        "    > d wraps before the",
+        "    >  paragraph ends",
+        "fifth line",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
+    "anchor-walk-w24-last-line": {
+      "buffer": "    the first line is indented and long enough to wrap across several rows\n    the second line is indented too and also wraps before it ends\nthird line\n    the fourth line is indented as well and wraps before the paragraph ends\nfifth line\n",
+      "cursor": {
+        "line": 4,
+        "column": 0
+      },
+      "display_position": {
+        "row": 12,
+        "column": 0
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "    the first line is in",
+        "dented and long enough t",
+        "o wrap across several ro",
+        "ws",
+        "    the second line is i",
+        "ndented too and also wra",
+        "ps before it ends",
+        "third line",
+        "    the fourth line is i",
+        "ndented as well and wrap",
+        "s before the paragraph e",
+        "nds",
+        "fifth line",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
+    "anchor-walk-w24-showbreak": {
+      "buffer": "    the first line is indented and long enough to wrap across several rows\n    the second line is indented too and also wraps before it ends\nthird line\n    the fourth line is indented as well and wraps before the paragraph ends\nfifth line\n",
+      "cursor": {
+        "line": 4,
+        "column": 0
+      },
+      "display_position": {
+        "row": 12,
+        "column": 0
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "    the first line is in",
+        "> dented and long enough",
+        ">  to wrap across severa",
+        "> l rows",
+        "    the second line is i",
+        "> ndented too and also w",
+        "> raps before it ends",
+        "third line",
+        "    the fourth line is i",
+        "> ndented as well and wr",
+        "> aps before the paragra",
+        "> ph ends",
+        "fifth line",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
+    "anchor-walk-w40-breakindent-showbreak": {
+      "buffer": "    the first line is indented and long enough to wrap across several rows\n    the second line is indented too and also wraps before it ends\nthird line\n    the fourth line is indented as well and wraps before the paragraph ends\nfifth line\n",
+      "cursor": {
+        "line": 3,
+        "column": 39
+      },
+      "display_position": {
+        "row": 6,
+        "column": 39
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "    the first line is indented and long",
+        "    +++ enough to wrap across several ro",
+        "    +++ ws",
+        "    the second line is indented too and",
+        "    +++ also wraps before it ends",
+        "third line",
+        "    the fourth line is indented as well",
+        "    +++ and wraps before the paragraph e",
+        "    +++ nds",
+        "fifth line",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
+    "anchor-walk-w40-last-line": {
+      "buffer": "    the first line is indented and long enough to wrap across several rows\n    the second line is indented too and also wraps before it ends\nthird line\n    the fourth line is indented as well and wraps before the paragraph ends\nfifth line\n",
+      "cursor": {
+        "line": 4,
+        "column": 9
+      },
+      "display_position": {
+        "row": 7,
+        "column": 9
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "    the first line is indented and long",
+        "enough to wrap across several rows",
+        "    the second line is indented too and",
+        "also wraps before it ends",
+        "third line",
+        "    the fourth line is indented as well",
+        "and wraps before the paragraph ends",
+        "fifth line",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
     "ascii-code-change-inside-parens": {
       "buffer": "fn main() {\n    let total = compute(x);\n    println!(\"{total}\");\n}\n",
       "cursor": {

@@ -1,0 +1,121 @@
+# A paragraph whose lines wrap above the line the cursor ends on, so that the walk from the top of
+# the window to the cursor has to cross a logical line worth more than one display row. The same
+# paragraph is laid out at three widths and crossed with 'breakindent' and 'showbreak'; the
+# decorated variants start at twenty-four columns, since vim keeps at least twenty cells of text
+# next to a repeated indent.
+
+[[case]]
+id = "anchor-walk-w20-last-line"
+description = "The cursor on the last line of a paragraph, three wrapped lines above it."
+buffer = """
+    the first line is indented and long enough to wrap across several rows
+    the second line is indented too and also wraps before it ends
+third line
+    the fourth line is indented as well and wraps before the paragraph ends
+fifth line
+"""
+keys = "G"
+viewport_width = 20
+tags = ["ascii", "wrap"]
+
+[[case]]
+id = "anchor-walk-w20-middle-line"
+description = "The cursor on the short line in the middle of the paragraph's wrapped lines."
+buffer = """
+    the first line is indented and long enough to wrap across several rows
+    the second line is indented too and also wraps before it ends
+third line
+    the fourth line is indented as well and wraps before the paragraph ends
+fifth line
+"""
+keys = "3G"
+viewport_width = 20
+tags = ["ascii", "wrap"]
+
+[[case]]
+id = "anchor-walk-w24-last-line"
+description = "The same paragraph at twenty-four columns with no continuation decoration."
+buffer = """
+    the first line is indented and long enough to wrap across several rows
+    the second line is indented too and also wraps before it ends
+third line
+    the fourth line is indented as well and wraps before the paragraph ends
+fifth line
+"""
+keys = "G"
+viewport_width = 24
+tags = ["ascii", "wrap"]
+
+[[case]]
+id = "anchor-walk-w24-breakindent"
+description = "The same paragraph at twenty-four columns with the indent repeated on continuations."
+buffer = """
+    the first line is indented and long enough to wrap across several rows
+    the second line is indented too and also wraps before it ends
+third line
+    the fourth line is indented as well and wraps before the paragraph ends
+fifth line
+"""
+keys = "G"
+viewport_width = 24
+tags = ["ascii", "wrap", "breakindent"]
+options = { breakindent = true }
+
+[[case]]
+id = "anchor-walk-w24-showbreak"
+description = "The same paragraph at twenty-four columns with a continuation marker."
+buffer = """
+    the first line is indented and long enough to wrap across several rows
+    the second line is indented too and also wraps before it ends
+third line
+    the fourth line is indented as well and wraps before the paragraph ends
+fifth line
+"""
+keys = "G"
+viewport_width = 24
+tags = ["ascii", "wrap", "showbreak"]
+options = { showbreak = "> " }
+
+[[case]]
+id = "anchor-walk-w24-breakindent-showbreak"
+description = "The same paragraph at twenty-four columns with both the indent and the marker."
+buffer = """
+    the first line is indented and long enough to wrap across several rows
+    the second line is indented too and also wraps before it ends
+third line
+    the fourth line is indented as well and wraps before the paragraph ends
+fifth line
+"""
+keys = "G"
+viewport_width = 24
+tags = ["ascii", "wrap", "breakindent", "showbreak"]
+options = { breakindent = true, showbreak = "> " }
+
+[[case]]
+id = "anchor-walk-w40-last-line"
+description = "The same paragraph at forty columns, with the cursor at the end of the last line."
+buffer = """
+    the first line is indented and long enough to wrap across several rows
+    the second line is indented too and also wraps before it ends
+third line
+    the fourth line is indented as well and wraps before the paragraph ends
+fifth line
+"""
+keys = "G$"
+viewport_width = 40
+tags = ["ascii", "wrap"]
+
+[[case]]
+id = "anchor-walk-w40-breakindent-showbreak"
+description = "The cursor at the end of a wrapped line's first row, a wrapped line above it."
+buffer = """
+    the first line is indented and long enough to wrap across several rows
+    the second line is indented too and also wraps before it ends
+third line
+    the fourth line is indented as well and wraps before the paragraph ends
+fifth line
+"""
+keys = "4Gg$"
+viewport_width = 40
+tags = ["ascii", "wrap", "breakindent", "showbreak"]
+options = { breakindent = true, showbreak = "+++ " }

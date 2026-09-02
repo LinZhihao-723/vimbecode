@@ -662,13 +662,13 @@ mod tests {
     };
 
     /// The number of cases the repository's corpus holds.
-    const TOTAL_CASE_COUNT: usize = 67;
+    const TOTAL_CASE_COUNT: usize = 75;
 
     /// The number of cases carrying each tag, which is also what the pull request reports.
     const TAG_BREAKDOWN: [(Tag, usize); 14] = [
         (Tag::Ambiwidth, 2),
-        (Tag::Ascii, 17),
-        (Tag::Breakindent, 4),
+        (Tag::Ascii, 25),
+        (Tag::Breakindent, 7),
         (Tag::Cjk, 14),
         (Tag::Code, 14),
         (Tag::Combining, 10),
@@ -676,9 +676,9 @@ mod tests {
         (Tag::Flag, 3),
         (Tag::Nfd, 9),
         (Tag::Nowrap, 2),
-        (Tag::Showbreak, 4),
+        (Tag::Showbreak, 7),
         (Tag::Tab, 5),
-        (Tag::Wrap, 19),
+        (Tag::Wrap, 27),
         (Tag::WordMotion, 30),
     ];
 
