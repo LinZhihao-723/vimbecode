@@ -14,8 +14,13 @@ use std::num::NonZeroUsize;
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
-/// The number of columns a control character occupies, tabs excepted: none, since a control
-/// character addresses the terminal rather than filling a cell of it. NUL is one of them.
+/// The number of columns a control character occupies, tabs excepted, NUL among them: none.
+///
+/// This is a policy rather than a measurement of vim, which spells an unprintable character as a
+/// two-cell escape -- `^A` for `\u{1}`, `<200d>` for a zero-width joiner -- and so draws it wider
+/// than either width table would. No corpus case holds a control character, so nothing anchors
+/// this to vim; a layout that has to reproduce vim's escapes will have to decide the question
+/// again.
 pub const CONTROL_WIDTH: usize = 0;
 
 /// The number of columns between tab stops when a caller states none, which is vim's own
