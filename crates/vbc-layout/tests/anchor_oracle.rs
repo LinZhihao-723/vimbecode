@@ -210,10 +210,16 @@ fn counting_a_crossed_line_as_one_row_leaves_the_cell_vim_drew() {
         let state = state_of(&baseline, case);
         let lines: Vec<String> = lines_of(&state.buffer).map(str::to_owned).collect();
         let crossed = crossed_lines(state, &lines, &wrapping_of(case));
-        if crossed.is_empty() || drawn_at(case, state) != Some(recorded(state)) {
+        if crossed.is_empty() {
             continue;
         }
 
+        assert_eq!(
+            Some(recorded(state)),
+            drawn_at(case, state),
+            "case `{}` crosses a wrapped line but is not one vim agrees with to begin with",
+            case.id
+        );
         let mut flattened = lines.clone();
         for line in crossed {
             flattened[line].clear();

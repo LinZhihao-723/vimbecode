@@ -6,12 +6,12 @@
 
 [[case]]
 id = "anchor-walk-w20-last-line"
-description = "The cursor on the last line of a paragraph, two wrapped lines above it."
+description = "The cursor on the last line of a paragraph, three wrapped lines above it."
 buffer = """
-first line
-    the second line is indented and long enough to wrap across several rows
+    the first line is indented and long enough to wrap across several rows
+    the second line is indented too and also wraps before it ends
 third line
-    the fourth line is indented too and also wraps before it ends
+    the fourth line is indented as well and wraps before the paragraph ends
 fifth line
 """
 keys = "G"
@@ -20,12 +20,12 @@ tags = ["ascii", "wrap"]
 
 [[case]]
 id = "anchor-walk-w20-middle-line"
-description = "The cursor on the short line between the paragraph's two wrapped lines."
+description = "The cursor on the short line in the middle of the paragraph's wrapped lines."
 buffer = """
-first line
-    the second line is indented and long enough to wrap across several rows
+    the first line is indented and long enough to wrap across several rows
+    the second line is indented too and also wraps before it ends
 third line
-    the fourth line is indented too and also wraps before it ends
+    the fourth line is indented as well and wraps before the paragraph ends
 fifth line
 """
 keys = "3G"
@@ -36,10 +36,10 @@ tags = ["ascii", "wrap"]
 id = "anchor-walk-w24-last-line"
 description = "The same paragraph at twenty-four columns with no continuation decoration."
 buffer = """
-first line
-    the second line is indented and long enough to wrap across several rows
+    the first line is indented and long enough to wrap across several rows
+    the second line is indented too and also wraps before it ends
 third line
-    the fourth line is indented too and also wraps before it ends
+    the fourth line is indented as well and wraps before the paragraph ends
 fifth line
 """
 keys = "G"
@@ -50,10 +50,10 @@ tags = ["ascii", "wrap"]
 id = "anchor-walk-w24-breakindent"
 description = "The same paragraph at twenty-four columns with the indent repeated on continuations."
 buffer = """
-first line
-    the second line is indented and long enough to wrap across several rows
+    the first line is indented and long enough to wrap across several rows
+    the second line is indented too and also wraps before it ends
 third line
-    the fourth line is indented too and also wraps before it ends
+    the fourth line is indented as well and wraps before the paragraph ends
 fifth line
 """
 keys = "G"
@@ -65,10 +65,10 @@ options = { breakindent = true }
 id = "anchor-walk-w24-showbreak"
 description = "The same paragraph at twenty-four columns with a continuation marker."
 buffer = """
-first line
-    the second line is indented and long enough to wrap across several rows
+    the first line is indented and long enough to wrap across several rows
+    the second line is indented too and also wraps before it ends
 third line
-    the fourth line is indented too and also wraps before it ends
+    the fourth line is indented as well and wraps before the paragraph ends
 fifth line
 """
 keys = "G"
@@ -80,10 +80,10 @@ options = { showbreak = "> " }
 id = "anchor-walk-w24-breakindent-showbreak"
 description = "The same paragraph at twenty-four columns with both the indent and the marker."
 buffer = """
-first line
-    the second line is indented and long enough to wrap across several rows
+    the first line is indented and long enough to wrap across several rows
+    the second line is indented too and also wraps before it ends
 third line
-    the fourth line is indented too and also wraps before it ends
+    the fourth line is indented as well and wraps before the paragraph ends
 fifth line
 """
 keys = "G"
@@ -95,10 +95,10 @@ options = { breakindent = true, showbreak = "> " }
 id = "anchor-walk-w40-last-line"
 description = "The same paragraph at forty columns, with the cursor at the end of the last line."
 buffer = """
-first line
-    the second line is indented and long enough to wrap across several rows
+    the first line is indented and long enough to wrap across several rows
+    the second line is indented too and also wraps before it ends
 third line
-    the fourth line is indented too and also wraps before it ends
+    the fourth line is indented as well and wraps before the paragraph ends
 fifth line
 """
 keys = "G$"
@@ -107,12 +107,12 @@ tags = ["ascii", "wrap"]
 
 [[case]]
 id = "anchor-walk-w40-breakindent-showbreak"
-description = "The cursor at the end of a wrapped line's last row, a wrapped line above it."
+description = "The cursor at the end of a wrapped line's first row, a wrapped line above it."
 buffer = """
-first line
-    the second line is indented and long enough to wrap across several rows
+    the first line is indented and long enough to wrap across several rows
+    the second line is indented too and also wraps before it ends
 third line
-    the fourth line is indented too and also wraps before it ends
+    the fourth line is indented as well and wraps before the paragraph ends
 fifth line
 """
 keys = "4Gg$"

@@ -21,11 +21,11 @@ use vbc_oracle::state::EditorState;
 /// The number of cases whose cursor column the widths here account for, which is the sample the
 /// cross-check is worth. A case added to the corpus lands in the sample or in one of the lists
 /// below, and either way this number moves.
-const CURSOR_COLUMNS_ANCHORED: usize = 45;
+const CURSOR_COLUMNS_ANCHORED: usize = 53;
 
 /// The number of cases whose first screen row the widths here account for, which is the sample
 /// that cross-check is worth.
-const FIRST_ROWS_ANCHORED: usize = 53;
+const FIRST_ROWS_ANCHORED: usize = 61;
 
 /// The cases whose cursor vim draws at another column than the width of the text before it, with
 /// the reason.
