@@ -193,7 +193,8 @@ fn misdrawn(case: &Case, state: &EditorState) -> Vec<String> {
             let expected = if "\t" == drawn { " " } else { drawn };
             if cell.unwrap_or(" ") != expected {
                 misdrawn.push(format!(
-                    "{position} is drawn at {offset}, where vim drew {cell:?} rather than                      {expected:?}"
+                    "{position} is drawn at {offset}, where vim drew {cell:?} rather than \
+                     {expected:?}"
                 ));
             }
         }

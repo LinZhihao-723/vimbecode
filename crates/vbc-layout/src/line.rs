@@ -234,6 +234,10 @@ impl DisplayRow {
     /// # Returns
     ///
     /// The number of columns the row occupies, its decoration included.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the row carries no columns, which no laid-out row does.
     #[must_use]
     pub fn width(&self) -> usize {
         *self

@@ -12,6 +12,13 @@
 //! drawn in the cell after that line's last. Where the line's last row has no such cell left, the
 //! position is drawn at the start of the row below, which is the next logical line's own first
 //! row and is where vim draws the same cursor.
+//!
+//! An anchor is measured from the row that holds its own grapheme, which is its line's last row
+//! for a position past the end of that line even where that position is itself drawn on the row
+//! below. Both directions read the anchor's row that way, so they compose, but an anchor resting
+//! past the end of a full row is reported one row above the cell it is drawn in: a caller that
+//! anchors on the cursor rather than on the top of its viewport gets offsets measured from the
+//! cursor's line rather than from the cursor's cell.
 
 use std::error::Error as StdError;
 use std::fmt::{Display, Formatter, Result as FmtResult};
@@ -541,6 +548,22 @@ mod tests {
         assert_eq!(
             at(0, 6),
             landed_at(&lines, at(0, 0), offset(1, 1), &wrapping).position
+        );
+    }
+
+    #[test]
+    fn an_anchor_is_measured_from_the_row_that_holds_its_grapheme() {
+        let lines = text(&["abcde", "fg"]);
+        let wrapping = wrapping(5);
+        let anchor = at(0, 5);
+
+        assert_eq!(offset(1, 0), drawn_at(&lines, anchor, anchor, &wrapping));
+        assert_eq!(
+            Landing {
+                position: at(0, 0),
+                offset: offset(0, 0)
+            },
+            landed_at(&lines, anchor, offset(0, 0), &wrapping)
         );
     }
 
