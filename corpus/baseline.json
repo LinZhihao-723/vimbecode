@@ -2,13 +2,325 @@
   "header": {
     "schema_version": 2,
     "vim_version": {
-      "major": 9,
-      "minor": 1,
-      "patch": 697
+      "major": 8,
+      "minor": 2,
+      "patch": 5072
     },
-    "corpus_hash": "040fe7dda432ca7f7fc7b209b7a26540bec03dee43778802943416367588ac43"
+    "corpus_hash": "2b43e4ac9d74f92be47d287cfb40bbccbb6d7ddd3914f8b625bb3df2a4bd6868"
   },
   "cases": {
+    "anchor-walk-w20-last-line": {
+      "buffer": "first line\n    the second line is indented and long enough to wrap across several rows\nthird line\n    the fourth line is indented too and also wraps before it ends\nfifth line\n",
+      "cursor": {
+        "line": 4,
+        "column": 0
+      },
+      "display_position": {
+        "row": 10,
+        "column": 0
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "first line",
+        "    the second line",
+        "is indented and long",
+        " enough to wrap acro",
+        "ss several rows",
+        "third line",
+        "    the fourth line",
+        "is indented too and",
+        "also wraps before it",
+        " ends",
+        "fifth line",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
+    "anchor-walk-w20-middle-line": {
+      "buffer": "first line\n    the second line is indented and long enough to wrap across several rows\nthird line\n    the fourth line is indented too and also wraps before it ends\nfifth line\n",
+      "cursor": {
+        "line": 2,
+        "column": 0
+      },
+      "display_position": {
+        "row": 5,
+        "column": 0
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "first line",
+        "    the second line",
+        "is indented and long",
+        " enough to wrap acro",
+        "ss several rows",
+        "third line",
+        "    the fourth line",
+        "is indented too and",
+        "also wraps before it",
+        " ends",
+        "fifth line",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
+    "anchor-walk-w24-breakindent": {
+      "buffer": "first line\n    the second line is indented and long enough to wrap across several rows\nthird line\n    the fourth line is indented too and also wraps before it ends\nfifth line\n",
+      "cursor": {
+        "line": 4,
+        "column": 0
+      },
+      "display_position": {
+        "row": 10,
+        "column": 0
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "first line",
+        "    the second line is i",
+        "    ndented and long eno",
+        "    ugh to wrap across s",
+        "    everal rows",
+        "third line",
+        "    the fourth line is i",
+        "    ndented too and also",
+        "     wraps before it end",
+        "    s",
+        "fifth line",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
+    "anchor-walk-w24-breakindent-showbreak": {
+      "buffer": "first line\n    the second line is indented and long enough to wrap across several rows\nthird line\n    the fourth line is indented too and also wraps before it ends\nfifth line\n",
+      "cursor": {
+        "line": 4,
+        "column": 0
+      },
+      "display_position": {
+        "row": 10,
+        "column": 0
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "first line",
+        "    the second line is i",
+        "    > ndented and long e",
+        "    > nough to wrap acro",
+        "    > ss several rows",
+        "third line",
+        "    the fourth line is i",
+        "    > ndented too and al",
+        "    > so wraps before it",
+        "    >  ends",
+        "fifth line",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
+    "anchor-walk-w24-last-line": {
+      "buffer": "first line\n    the second line is indented and long enough to wrap across several rows\nthird line\n    the fourth line is indented too and also wraps before it ends\nfifth line\n",
+      "cursor": {
+        "line": 4,
+        "column": 0
+      },
+      "display_position": {
+        "row": 9,
+        "column": 0
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "first line",
+        "    the second line is i",
+        "ndented and long enough",
+        "to wrap across several r",
+        "ows",
+        "third line",
+        "    the fourth line is i",
+        "ndented too and also wra",
+        "ps before it ends",
+        "fifth line",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
+    "anchor-walk-w24-showbreak": {
+      "buffer": "first line\n    the second line is indented and long enough to wrap across several rows\nthird line\n    the fourth line is indented too and also wraps before it ends\nfifth line\n",
+      "cursor": {
+        "line": 4,
+        "column": 0
+      },
+      "display_position": {
+        "row": 9,
+        "column": 0
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "first line",
+        "    the second line is i",
+        "> ndented and long enoug",
+        "> h to wrap across sever",
+        "> al rows",
+        "third line",
+        "    the fourth line is i",
+        "> ndented too and also w",
+        "> raps before it ends",
+        "fifth line",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
+    "anchor-walk-w40-breakindent-showbreak": {
+      "buffer": "first line\n    the second line is indented and long enough to wrap across several rows\nthird line\n    the fourth line is indented too and also wraps before it ends\nfifth line\n",
+      "cursor": {
+        "line": 3,
+        "column": 39
+      },
+      "display_position": {
+        "row": 5,
+        "column": 39
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "first line",
+        "    the second line is indented and long",
+        "    +++  enough to wrap across several r",
+        "    +++ ows",
+        "third line",
+        "    the fourth line is indented too and",
+        "    +++ also wraps before it ends",
+        "fifth line",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
+    "anchor-walk-w40-last-line": {
+      "buffer": "first line\n    the second line is indented and long enough to wrap across several rows\nthird line\n    the fourth line is indented too and also wraps before it ends\nfifth line\n",
+      "cursor": {
+        "line": 4,
+        "column": 9
+      },
+      "display_position": {
+        "row": 6,
+        "column": 9
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "first line",
+        "    the second line is indented and long",
+        " enough to wrap across several rows",
+        "third line",
+        "    the fourth line is indented too and",
+        "also wraps before it ends",
+        "fifth line",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
     "ascii-code-change-inside-parens": {
       "buffer": "fn main() {\n    let total = compute(x);\n    println!(\"{total}\");\n}\n",
       "cursor": {
