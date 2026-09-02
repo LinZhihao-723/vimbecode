@@ -2,9 +2,9 @@
   "header": {
     "schema_version": 2,
     "vim_version": {
-      "major": 8,
-      "minor": 2,
-      "patch": 5072
+      "major": 9,
+      "minor": 1,
+      "patch": 697
     },
     "corpus_hash": "5654aa8e721477785ad1e686840dab1374a09728ff09334f816bd5e79effc888"
   },
