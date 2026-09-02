@@ -6,12 +6,23 @@
 //! vim's rules rather than rules of its own -- where a row breaks, how far a continuation row is
 //! indented, and where the marker announcing one goes.
 //!
-//! Two of vim's rules are worth stating before the code states them. A line is measured against
+//! Four of vim's rules are worth stating before the code states them. A line is measured against
 //! the columns already drawn rather than against the columns of its own row, so a tab reaches the
 //! tab stop it would reach on an unwrapped screen and a continuation row's decoration pushes the
-//! text after it along. And an indent is repeated onto a continuation row only while at least
-//! [`Options::break_indent_min`] columns remain beside it, which is why `'breakindent'` does
-//! nothing at all in a viewport as narrow as its own threshold.
+//! text after it along. A tab that runs off the end of a row is drawn across the boundary rather
+//! than moved whole, so what it owes the next row is measured from where it began and is not
+//! shortened by that row's decoration. An indent is repeated onto a continuation row only while
+//! at least [`Options::break_indent_min`] columns remain beside it, which is why `'breakindent'`
+//! does nothing at all in a viewport as narrow as its own threshold. And the leading run of
+//! `'breakat'` characters of a line is not a place a word-wrapped row may end, so an indented
+//! first word is split rather than pushed off the row it starts on.
+//!
+//! `'linebreak'` together with tabs is the one combination this module does not reproduce: vim
+//! measures a word from the column the break character in front of it starts at, so a tab
+//! separating two words does not count against the word behind it, and a row therefore holds more
+//! than the rules here give it. The test
+//! `word_wrapping_beside_a_tab_is_not_measured_the_way_vim_measures_it` pins what this module
+//! draws instead.
 //!
 //! Where a decoration would leave no room for the text it decorates, vim draws the same row
 //! forever. This module drops the decoration from such a row instead, so that a layout always
@@ -105,26 +116,41 @@ impl Options {
         self
     }
 
+    /// # Returns
+    ///
+    /// Whether a continuation row repeats the line's indent.
     #[must_use]
     pub fn break_indent(&self) -> bool {
         self.break_indent
     }
 
+    /// # Returns
+    ///
+    /// The columns kept for the text beside a repeated indent.
     #[must_use]
     pub fn break_indent_min(&self) -> usize {
         self.break_indent_min
     }
 
+    /// # Returns
+    ///
+    /// The marker put in front of a continuation row, empty for none.
     #[must_use]
     pub fn show_break(&self) -> &str {
         &self.show_break
     }
 
+    /// # Returns
+    ///
+    /// Whether a row ends on a break character rather than wherever it runs out of columns.
     #[must_use]
     pub fn line_break(&self) -> bool {
         self.line_break
     }
 
+    /// # Returns
+    ///
+    /// The characters a word-wrapped row may end on.
     #[must_use]
     pub fn break_at(&self) -> &str {
         &self.break_at
@@ -210,8 +236,10 @@ impl DisplayRow {
 /// A row never holds more than `width` columns and always shows at least one grapheme, so the rows
 /// partition the line and there are always finitely many of them. The one exception is a grapheme
 /// too wide for a whole row, which is placed alone on a row wider than `width` because no other
-/// placement would ever advance: vim spills such a tab over as many rows as it takes, which rows
-/// that partition a line by grapheme cannot express.
+/// placement would ever advance: vim spills a tab that wide over as many rows as it takes, which
+/// rows that partition a line by grapheme cannot express. A tab that merely runs off the end of
+/// the row it starts on is not an exception -- it is carried to the next row and measured there
+/// from where it began.
 ///
 /// An empty line lays out into one empty row, so that every logical line is rendered by at least
 /// one row.
@@ -241,21 +269,32 @@ pub fn lay_out(
 
     let decoration = continuation_decoration(line, width, metrics, options);
     let decoration_width = metrics.text_width(&decoration, 0);
-    let marker_width = metrics.text_width(&options.show_break, 0);
+    let marker_skipped = if options.line_break {
+        0
+    } else {
+        metrics.text_width(&options.show_break, 0)
+    };
+
+    let first_word = clusters
+        .iter()
+        .position(|&(_, grapheme)| !is_break_at(grapheme, &options.break_at))
+        .unwrap_or(clusters.len());
 
     let mut rows: Vec<DisplayRow> = Vec::new();
     let mut start = 0;
     while start < clusters.len() {
         let drawn = rows.len() * width;
-        let decorated = !rows.is_empty()
-            && decoration_leaves_room(
-                decoration_width,
-                marker_width,
-                clusters[start].1,
-                drawn,
-                width,
-                metrics,
-            );
+        let first = clusters[start].1;
+        let carried = carried_tab_columns(rows.last(), first, drawn, width, metrics);
+        let beside_decoration = carried.unwrap_or_else(|| {
+            grapheme_columns(first, drawn + decoration_width, marker_skipped, metrics)
+        });
+        let decorated = !rows.is_empty() && decoration_width + beside_decoration <= width;
+        let first_width = if decorated {
+            beside_decoration
+        } else {
+            carried.unwrap_or_else(|| grapheme_columns(first, drawn, 0, metrics))
+        };
         let prefix = if decorated {
             decoration.clone()
         } else {
@@ -267,6 +306,7 @@ pub fn lay_out(
         while index < clusters.len() {
             let grapheme = clusters[index].1;
             if start < index
+                && first_word < index
                 && options.line_break
                 && is_break_at(clusters[index - 1].1, &options.break_at)
                 && !is_break_at(grapheme, &options.break_at)
@@ -281,12 +321,11 @@ pub fn lay_out(
                 break;
             }
 
-            let marker = if index == start && decorated {
-                marker_width
+            let grapheme_width = if index == start {
+                first_width
             } else {
-                0
+                metrics.grapheme_width(grapheme, drawn + column)
             };
-            let grapheme_width = grapheme_columns(grapheme, drawn + column, marker, metrics);
             if width < column + grapheme_width && start < index {
                 break;
             }
@@ -321,15 +360,21 @@ pub fn lay_out(
 ///
 /// A tab drawn as the first grapheme after a continuation marker is measured from the column the
 /// marker itself started at, which is how vim draws one: the marker does not push the tab on to a
-/// later tab stop. `marker_width` is zero for every other grapheme, which is measured from where
-/// it is drawn.
+/// later tab stop. `marker_skipped` is that marker's width, and is zero both for every other
+/// grapheme, which is measured from where it is drawn, and under `'linebreak'`, where vim does let
+/// the marker push the tab along.
 ///
 /// # Returns
 ///
 /// The number of columns `grapheme` occupies.
-fn grapheme_columns(grapheme: &str, column: usize, marker_width: usize, metrics: Metrics) -> usize {
+fn grapheme_columns(
+    grapheme: &str,
+    column: usize,
+    marker_skipped: usize,
+    metrics: Metrics,
+) -> usize {
     if "\t" == grapheme {
-        return metrics.tab_width(column.saturating_sub(marker_width));
+        return metrics.tab_width(column.saturating_sub(marker_skipped));
     }
 
     metrics.grapheme_width(grapheme, column)
@@ -378,24 +423,33 @@ fn indent_width(line: &str, metrics: Metrics) -> usize {
     column
 }
 
+/// Measures what is left of a tab that ran off the end of the row before this one.
+///
+/// vim draws such a tab across the row boundary rather than moving it whole, so the columns it
+/// still owes are the columns between the row this one follows and the tab stop the tab reaches.
+/// A row's decoration is drawn in front of them and does not shorten them.
+///
 /// # Returns
 ///
-/// Whether a decoration `decoration_width` columns wide leaves a row of `width` columns room for
-/// `first`, the first grapheme the row shows.
-fn decoration_leaves_room(
-    decoration_width: usize,
-    marker_width: usize,
+/// The columns the tab owes this row, or `None` if `first` is not a tab carried from the row
+/// before it.
+fn carried_tab_columns(
+    previous: Option<&DisplayRow>,
     first: &str,
     drawn: usize,
     width: usize,
     metrics: Metrics,
-) -> bool {
-    if width < decoration_width {
-        return false;
+) -> Option<usize> {
+    if "\t" != first {
+        return None;
     }
-    let first_width = grapheme_columns(first, drawn + decoration_width, marker_width, metrics);
-
-    decoration_width + first_width <= width
+    let previous = previous?;
+    if width <= previous.width {
+        return None;
+    }
+    let started = drawn - width + previous.width;
+    let reached = started + metrics.tab_width(started);
+    (drawn < reached).then(|| reached - drawn)
 }
 
 /// Measures the word a word-wrapped row would have to keep whole.
@@ -937,6 +991,144 @@ mod tests {
         assert_eq!("\t", spilling[0].text());
         assert_eq!(20, spilling[0].width());
         assert_eq!("X", spilling[1].text());
+    }
+
+    #[test]
+    fn word_wrapping_does_not_end_a_row_on_the_leading_indent() {
+        // vim splits the first word of an indented line rather than pushing it off the row its
+        // indent starts on, though a run of the same break characters anywhere else does end a
+        // row. Every expected row is what vim draws.
+        let options = Options::new().with_line_break(true);
+
+        assert_eq!(
+            rows(
+                &format!("        {} end", "b".repeat(15)),
+                22,
+                Metrics::default(),
+                &options
+            ),
+            ["        bbbbbbbbbbbbbb", "b end"]
+        );
+        assert_eq!(
+            rows(
+                &format!("    {} end", "b".repeat(20)),
+                22,
+                Metrics::default(),
+                &options
+            ),
+            ["    bbbbbbbbbbbbbbbbbb", "bb end"]
+        );
+        assert_eq!(
+            rows(
+                &format!("aa        {} end", "b".repeat(15)),
+                22,
+                Metrics::default(),
+                &options
+            ),
+            ["aa        ", "bbbbbbbbbbbbbbb end"]
+        );
+        assert_eq!(
+            rows(
+                &format!("        {} end", "b".repeat(15)),
+                22,
+                Metrics::default(),
+                &options
+                    .clone()
+                    .with_break_indent(true)
+                    .with_show_break("> ".to_owned()),
+            ),
+            ["        bbbbbbbbbbbbbb", "  > b end"]
+        );
+    }
+
+    #[test]
+    fn a_tab_that_runs_off_a_row_is_drawn_across_the_boundary() {
+        // A tab too wide for the columns left on its row is not moved whole to the next one: vim
+        // draws it up to the boundary and owes the rest to the row below, where a repeated indent
+        // and a marker are drawn in front of what is owed rather than shortening it. Every
+        // expected row is what vim draws.
+        assert_eq!(
+            rows(
+                &format!("{}\tX", "a".repeat(17)),
+                20,
+                metrics(8),
+                &Options::new()
+            ),
+            ["aaaaaaaaaaaaaaaaa", "    X"]
+        );
+
+        let indented = Options::new().with_break_indent(true);
+        assert_eq!(
+            rows(
+                &format!("    {}\tX", "a".repeat(18)),
+                24,
+                metrics(16),
+                &indented
+            ),
+            ["    aaaaaaaaaaaaaaaaaa", "            X"]
+        );
+        assert_eq!(
+            rows(
+                &format!("    {}\tX", "a".repeat(18)),
+                24,
+                metrics(16),
+                &indented.clone().with_show_break(">>".to_owned()),
+            ),
+            ["    aaaaaaaaaaaaaaaaaa", "    >>        X"]
+        );
+
+        // A tab that starts on the continuation row rather than being carried onto it is measured
+        // from the columns already drawn, as before.
+        assert_eq!(
+            rows(
+                &format!("    {}\tX", "a".repeat(20)),
+                24,
+                metrics(8),
+                &indented
+            ),
+            ["    aaaaaaaaaaaaaaaaaaaa", "        X"]
+        );
+    }
+
+    #[test]
+    fn a_marker_pushes_a_tab_opening_a_row_along_under_word_wrapping() {
+        // Under `linebreak` vim stops measuring such a tab from where the marker started and lets
+        // the marker push it on to a later tab stop, which is the opposite of what it does
+        // without. Every expected row is what vim draws.
+        let options = Options::new()
+            .with_line_break(true)
+            .with_show_break(">>".to_owned());
+
+        assert_eq!(
+            rows(&format!("{}\tX", "a".repeat(20)), 20, metrics(8), &options),
+            ["aaaaaaaaaaaaaaaaaaaa", ">>  X"]
+        );
+        assert_eq!(
+            rows(
+                &format!("    {}\tX", "a".repeat(21)),
+                25,
+                metrics(8),
+                &options.clone().with_break_indent(true),
+            ),
+            ["    aaaaaaaaaaaaaaaaaaaaa", "    >> X"]
+        );
+    }
+
+    #[test]
+    fn word_wrapping_beside_a_tab_is_not_measured_the_way_vim_measures_it() {
+        // vim draws this line as `bc ±    α` followed by the blanks the last tab owes, because it
+        // measures `α` from the column the tab in front of it starts at rather than from the
+        // column the tab ends at. These are the rows this module draws instead, and they are the
+        // shape of every difference left between the two under `linebreak` with tabs.
+        assert_eq!(
+            rows(
+                "bc ±\tα\t",
+                12,
+                metrics(8),
+                &Options::new().with_line_break(true)
+            ),
+            ["bc ±    ", "α   "]
+        );
     }
 
     #[test]
