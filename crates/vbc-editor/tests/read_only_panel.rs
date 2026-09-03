@@ -42,15 +42,29 @@
 //! required to be byte-identical after each of them too.
 //!
 //! A list of keystrokes written down by hand is a list something can be missing from, so the list
-//! is not the whole of what is checked. Every one- and two-key sequence a terminal reports as
-//! printable characters, and every three-key sequence of the keys a longer mutating keystroke
-//! begins with, is typed at a panel with the policy taken out and at one with it in place: a
-//! sequence the first writes with, or reaches insert mode with, the second is required to refuse
-//! and to leave the transcript byte-identical. That holds a key the list forgot, and a key a later
-//! table binds, to the same promise as the ones the list names. The sweep runs the other way too:
-//! every pair of the keys a reader reaches for is required to be neither refused nor answered any
-//! differently from a bare [`Engine`], so a policy that bought its promise by refusing too much
-//! would be caught by the same machinery that catches one refusing too little.
+//! is not the whole of what is checked. Every one- and two-key sequence, and every three-key
+//! sequence of the keys a longer mutating keystroke begins with, is typed at a panel with the
+//! policy taken out and at one with it in place: a sequence the first writes with, or reaches
+//! insert mode with, the second is required to refuse and to leave the transcript byte-identical.
+//! That holds a key the list forgot, and a key a later table binds, to the same promise as the
+//! ones the list names.
+//!
+//! The keys those sequences are spelled with are read off the table rather than written down
+//! here, because a sweep over the keys a terminal reports as printable characters is a sweep that
+//! cannot type `<C-V>`, and `<C-V>` starts a selection every operator writes over. So the sweep's
+//! alphabet is every printable key together with every key [`Bindings::vim`] names, and a key the
+//! table grows that nothing here spells fails a case of its own rather than being passed over.
+//!
+//! Leaving the transcript byte-identical is required of every case the sweeps type, including the
+//! ones the engine answers with an error, because a keystroke this editor cannot yet measure is
+//! still a keystroke the panel promises writes nothing. Only the other half -- that a keystroke
+//! which writes is one the panel says something about -- waits on the panel with the policy taken
+//! out being able to show that it writes at all.
+//!
+//! The sweep runs the other way too: every pair of the keys a reader reaches for is required to be
+//! neither refused nor answered any differently from a bare [`Engine`], so a policy that bought
+//! its promise by refusing too much would be caught by the same machinery that catches one
+//! refusing too little.
 //!
 //! Winding the keys back to where the engine stands after a refusal gets its own case, because the
 //! transcript alone cannot show the difference: a panel wound back to a mode the engine is not in
@@ -64,6 +78,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use modalkit::env::vim::VimMode;
 use vbc_editor::chat::policy::{Panel, Policy, REFUSAL};
 use vbc_editor::engine::{typed, Engine, Held, Position};
+use vbc_editor::keys::{Bindings, Edge};
 use vbc_editor::screen::Geometry;
 
 /// One keystroke typed at a panel, named by what it is meant to do to the transcript.
@@ -494,6 +509,11 @@ const STARTERS: &str = "\"123dcy<>=gvVrzq@";
 /// The keys a three-key sweep continues a sequence with.
 const FOLLOWERS: &str = "\"2<>dcywgvViIaAoOpPuUxX~$0jkl";
 
+/// The keys no terminal reports as a printable character that a three-key sweep starts and
+/// continues a sequence with. `<C-R>` is not among them because redo takes no target, so what it
+/// writes it writes on its own and the one- and two-key sweep already types it.
+const NAMED_SEQUENCE_KEYS: [&str; 2] = ["<C-V>", "<Esc>"];
+
 /// Every key a terminal reports as one printable character.
 const PRINTABLE: &str = " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcde\
 fghijklmnopqrstuvwxyz{|}~";
@@ -503,6 +523,17 @@ fghijklmnopqrstuvwxyz{|}~";
 /// with nothing to take back all leave the transcript as it stands without being keys a reader
 /// came for.
 const READABLE: &str = "hjklwWbBeE0^$-+_G%HMLgvV\"123fFtT;,yY";
+
+/// The keys a reader reaches for that no terminal reports as a printable character.
+const NAMED_READABLE: [&str; 3] = ["<Enter>", "<Esc>", "<C-V>"];
+
+/// One key of a sweep: what a terminal reports when it is typed, and the spelling a vim manual
+/// names it by, which is what a sweep's failure is reported in.
+#[derive(Clone, Debug)]
+struct Typed {
+    spelling: String,
+    event: KeyEvent,
+}
 
 /// Everything an engine is the authority on, which is what a panel and an engine are compared in.
 #[derive(Debug, Eq, PartialEq)]
@@ -803,14 +834,33 @@ fn undo_takes_a_mutating_keystroke_back_once_the_policy_is_taken_out() -> Result
 }
 
 #[test]
+fn every_key_the_table_names_is_one_a_sweep_can_type() {
+    let mut untyped = Vec::new();
+    for binding in Bindings::vim().entries() {
+        for edge in &binding.keys {
+            let Edge::Key(key) = edge else {
+                continue;
+            };
+            let spelling = key.to_string();
+            if event_of(&spelling).is_none() {
+                untyped.push(spelling);
+            }
+        }
+    }
+
+    assert_eq!(Vec::<String>::new(), untyped);
+}
+
+#[test]
 fn no_one_or_two_key_sequence_that_writes_goes_unrefused() {
+    let alphabet = alphabet();
     let mut escaped = Vec::new();
-    for first in PRINTABLE.chars() {
-        if let Some(escape) = escape(&format!("{first}")) {
+    for first in &alphabet {
+        if let Some(escape) = escape(std::slice::from_ref(first)) {
             escaped.push(escape);
         }
-        for second in PRINTABLE.chars() {
-            if let Some(escape) = escape(&format!("{first}{second}")) {
+        for second in &alphabet {
+            if let Some(escape) = escape(&[first.clone(), second.clone()]) {
                 escaped.push(escape);
             }
         }
@@ -821,11 +871,13 @@ fn no_one_or_two_key_sequence_that_writes_goes_unrefused() {
 
 #[test]
 fn no_three_key_sequence_of_an_operator_and_its_target_that_writes_goes_unrefused() {
+    let starters = sweep_keys(STARTERS, &NAMED_SEQUENCE_KEYS);
+    let followers = sweep_keys(FOLLOWERS, &NAMED_SEQUENCE_KEYS);
     let mut escaped = Vec::new();
-    for first in STARTERS.chars() {
-        for second in FOLLOWERS.chars() {
-            for third in FOLLOWERS.chars() {
-                if let Some(escape) = escape(&format!("{first}{second}{third}")) {
+    for first in &starters {
+        for second in &followers {
+            for third in &followers {
+                if let Some(escape) = escape(&[first.clone(), second.clone(), third.clone()]) {
                     escaped.push(escape);
                 }
             }
@@ -853,13 +905,14 @@ fn a_refusal_winds_the_panel_back_to_where_the_engine_stands() -> Result<()> {
 
 #[test]
 fn no_pair_of_the_keys_a_reader_reaches_for_is_refused_or_answered_differently() {
+    let readable = sweep_keys(READABLE, &NAMED_READABLE);
     let mut wrong = Vec::new();
-    for first in READABLE.chars() {
-        if let Some(reason) = over_refusal(&format!("{first}")) {
+    for first in &readable {
+        if let Some(reason) = over_refusal(std::slice::from_ref(first)) {
             wrong.push(reason);
         }
-        for second in READABLE.chars() {
-            if let Some(reason) = over_refusal(&format!("{first}{second}")) {
+        for second in &readable {
+            if let Some(reason) = over_refusal(&[first.clone(), second.clone()]) {
                 wrong.push(reason);
             }
         }
@@ -899,36 +952,44 @@ fn keys(keys: &str) -> Vec<KeyEvent> {
 
 /// # Returns
 ///
-/// What `case` did that a read-only panel promises nothing does, and [`None`] where it either
-/// wrote nothing with the policy taken out or was refused with the policy in place. A case the
-/// engine answers with an error is one this editor does not measure yet rather than one that
-/// writes, and is passed over.
-fn escape(case: &str) -> Option<String> {
+/// What `case` did that a read-only panel promises nothing does, and [`None`] where it did none of
+/// it.
+///
+/// Leaving the transcript byte-identical and standing in a mode a reader can read from are
+/// required of every case, whatever the engine made of it, because a keystroke the engine answers
+/// with an error is still a keystroke the panel promises writes nothing. Only the other half --
+/// that a keystroke which writes is one the panel says something about -- waits on the panel with
+/// the policy taken out being able to show that it writes at all.
+fn escape(case: &[Typed]) -> Option<String> {
+    let spelling = spelled(case);
+    let mut locked = panel(Policy::ReadOnly);
+    let mut said = false;
+    for key in case {
+        let ran = locked.press(key.event);
+        if TRANSCRIPT != locked.text() {
+            return Some(format!("`{spelling}` changed the transcript"));
+        }
+        said |= locked.refusal().is_some();
+        if ran.is_err() {
+            break;
+        }
+    }
+    if VimMode::Insert == locked.mode() {
+        return Some(format!(
+            "`{spelling}` left the panel where every key would write"
+        ));
+    }
+    if said {
+        return None;
+    }
+
     let mut free = panel(Policy::Unrestricted);
-    free.press_all(keys(case)).ok()?;
+    free.press_all(case.iter().map(|key| key.event)).ok()?;
     if TRANSCRIPT == free.text() && VimMode::Insert != free.mode() {
         return None;
     }
 
-    let mut locked = panel(Policy::ReadOnly);
-    let mut said = false;
-    for key in keys(case) {
-        locked.press(key).ok()?;
-        if TRANSCRIPT != locked.text() {
-            return Some(format!("`{case}` changed the transcript"));
-        }
-        said |= locked.refusal().is_some();
-    }
-    if VimMode::Insert == locked.mode() {
-        return Some(format!(
-            "`{case}` left the panel where every key would write"
-        ));
-    }
-    if !said {
-        return Some(format!("`{case}` was dropped without a word"));
-    }
-
-    None
+    Some(format!("`{spelling}` was dropped without a word"))
 }
 
 /// # Returns
@@ -936,18 +997,127 @@ fn escape(case: &str) -> Option<String> {
 /// What a read-only panel took away from `case`, and [`None`] where it neither refused it nor
 /// answered it any differently from an editor laid out in the same window. A case the engine
 /// answers with an error is one this editor does not measure yet, and is passed over.
-fn over_refusal(case: &str) -> Option<String> {
+fn over_refusal(case: &[Typed]) -> Option<String> {
+    let spelling = spelled(case);
     let mut locked = panel(Policy::ReadOnly);
-    locked.press_all(keys(case)).ok()?;
+    locked.press_all(case.iter().map(|key| key.event)).ok()?;
     if let Some(refusal) = locked.refusal() {
-        return Some(format!("`{case}` was refused with `{refusal}`"));
+        return Some(format!("`{spelling}` was refused with `{refusal}`"));
     }
     let mut engine = Engine::laid_out_in(TRANSCRIPT, window());
-    engine.press_all(keys(case)).ok()?;
+    engine.press_all(case.iter().map(|key| key.event)).ok()?;
     let read = Reading::of_panel(&mut locked);
     if Reading::of_engine(&mut engine) != read {
-        return Some(format!("`{case}` answered differently from the editor"));
+        return Some(format!("`{spelling}` answered differently from the editor"));
     }
 
     None
+}
+
+/// # Returns
+///
+/// The keys a sweep of every one- and two-key sequence types, which are every key a terminal
+/// reports as a printable character together with every key the table names, so that the sweep is
+/// over the keys this editor binds rather than over the ones a list here remembered.
+///
+/// # Panics
+///
+/// Panics if the table names a key nothing here spells, which is a key the sweep would otherwise
+/// pass over in silence.
+fn alphabet() -> Vec<Typed> {
+    let mut alphabet: Vec<Typed> = PRINTABLE.chars().map(printable).collect();
+    for binding in Bindings::vim().entries() {
+        for edge in &binding.keys {
+            let Edge::Key(key) = edge else {
+                continue;
+            };
+            let spelling = key.to_string();
+            let event = event_of(&spelling).unwrap_or_else(|| {
+                panic!("`{spelling}` is a key the table names and nothing here types")
+            });
+            if alphabet.iter().any(|typed| event == typed.event) {
+                continue;
+            }
+            alphabet.push(Typed { spelling, event });
+        }
+    }
+
+    alphabet
+}
+
+/// # Returns
+///
+/// The keys a sweep runs over: every character of `characters`, and every key `spellings` names.
+///
+/// # Panics
+///
+/// Panics if `spellings` names a key nothing here spells.
+fn sweep_keys(characters: &str, spellings: &[&str]) -> Vec<Typed> {
+    characters
+        .chars()
+        .map(printable)
+        .chain(spellings.iter().map(|spelling| {
+            Typed {
+                spelling: (*spelling).to_owned(),
+                event: named(spelling)
+                    .unwrap_or_else(|| panic!("`{spelling}` is a key nothing here types")),
+            }
+        }))
+        .collect()
+}
+
+/// # Returns
+///
+/// The key a terminal reports when `character` is typed with no modifier held.
+fn printable(character: char) -> Typed {
+    Typed {
+        spelling: character.to_string(),
+        event: typed(character),
+    }
+}
+
+/// # Returns
+///
+/// The key event a terminal reports for the key a vim manual spells `spelling`, and [`None`] where
+/// nothing here spells it.
+fn event_of(spelling: &str) -> Option<KeyEvent> {
+    let mut characters = spelling.chars();
+    let character = characters.next()?;
+    if characters.next().is_none() {
+        return Some(typed(character));
+    }
+
+    named(spelling)
+}
+
+/// # Returns
+///
+/// The key event a terminal reports for the key a vim manual spells `spelling` with a name in
+/// angle brackets, and [`None`] where nothing here spells it.
+fn named(spelling: &str) -> Option<KeyEvent> {
+    let held = match spelling {
+        "<lt>" => return Some(typed('<')),
+        "<Esc>" => return Some(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)),
+        "<Enter>" => return Some(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
+        "<Tab>" => return Some(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)),
+        "<BS>" => return Some(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE)),
+        spelling => spelling.strip_prefix("<C-")?.strip_suffix('>')?,
+    };
+    let mut characters = held.chars();
+    let character = characters.next()?;
+    if characters.next().is_some() {
+        return None;
+    }
+
+    Some(KeyEvent::new(
+        KeyCode::Char(character.to_ascii_lowercase()),
+        KeyModifiers::CONTROL,
+    ))
+}
+
+/// # Returns
+///
+/// `case` spelled the way a vim manual spells a sequence of keystrokes.
+fn spelled(case: &[Typed]) -> String {
+    case.iter().map(|key| key.spelling.as_str()).collect()
 }
