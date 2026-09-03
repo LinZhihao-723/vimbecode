@@ -143,6 +143,10 @@ impl Engine {
 
     /// Types a sequence of keys at the engine, one key at a time.
     ///
+    /// # Type Parameters
+    ///
+    /// * `KeysType` - The keys to type, in the order they are typed.
+    ///
     /// # Errors
     ///
     /// Returns an error if:
