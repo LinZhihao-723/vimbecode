@@ -13,8 +13,9 @@ of Anthropic, referenced here solely to describe interoperability.
 
 This product includes software developed by the modalkit project
 (https://github.com/ulyssa/modalkit), Copyright Ulyssa, licensed under the
-Apache License, Version 2.0. The vim keybindings, editing actions and registers
-of the vimbecode editor are modalkit's, reached through the modalkit,
-editor-types, editor-types-parser, editor-types-macros and keybindings crates.
-The published packages of those crates carry no copy of their license, so one is
-kept at third_party/modalkit/LICENSE.
+Apache License, Version 2.0. The editing actions, registers, marks and text
+objects of the vimbecode editor are modalkit's, reached through the modalkit,
+editor-types, editor-types-parser, editor-types-macros and keybindings crates,
+and the editor's own keybinding table names those actions and was derived from
+modalkit's. The published packages of those crates carry no copy of their
+license, so one is kept at third_party/modalkit/LICENSE.
