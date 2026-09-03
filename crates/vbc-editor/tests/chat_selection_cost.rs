@@ -24,8 +24,7 @@ use std::cell::Cell;
 use std::hint::black_box;
 use std::num::NonZeroUsize;
 use std::ops::Range;
-use std::time::Duration;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use vbc_editor::chat::block::{Block, Kind, Rendered, Role, RowWindow};
 use vbc_editor::chat::selection::{Mode, Motion, Selection, Source};
@@ -52,7 +51,8 @@ const RUNS: usize = 9;
 
 /// The factor by which painting a window of the selection over the long block may cost more than
 /// painting the same window of the selection over the short one. A highlight that walks what it
-/// covers costs about a thousand times as much, so only one bounded by its window passes.
+/// covers costs a hundred and fifty times as much in time and eight hundred in memory, so only one
+/// bounded by its window passes.
 const MARGIN: u32 = 4;
 
 /// The columns a blockwise selection is taken at, which every line of the fixture is drawn past
