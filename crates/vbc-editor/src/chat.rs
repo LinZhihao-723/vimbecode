@@ -22,11 +22,17 @@
 //! wrote, and an edit is to whatever file was edited, so neither the rendering of a block nor the
 //! diffing of one may cost what the block holds: rendering costs the window it is asked for and
 //! diffing costs bounded memory, both measured rather than argued.
+//!
+//! What a transcript is read with is the editor's own machinery, and what it is not read with is
+//! the editor's permission to write. A record of an exchange that already happened has no edits to
+//! make to it, so the keystrokes that would make one are refused rather than run, which is what
+//! [`policy`] is for.
 
 pub mod ansi;
 pub mod block;
 pub mod diff;
 pub mod fold;
 pub mod object;
+pub mod policy;
 pub mod selection;
 pub mod transcript;
