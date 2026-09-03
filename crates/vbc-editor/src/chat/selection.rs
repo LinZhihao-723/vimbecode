@@ -634,6 +634,11 @@ mod tests {
     /// The rows the headline invariant asks a paragraph of the fixture to be drawn in at least.
     const WRAPPED: usize = 10;
 
+    /// The rows a paragraph of the fixture is in fact drawn in at [`WIDTH`] columns, which the
+    /// fixture is checked to be drawn in so that the rows a selection is painted into are an exact
+    /// number rather than a floor a highlight painting the whole block would also clear.
+    const ROWS: usize = 13;
+
     /// The logical lines `V4j` covers.
     const SELECTED: usize = 5;
 
@@ -667,15 +672,25 @@ mod tests {
     /// Lines of ASCII and of CJK, whose bytes, graphemes and columns all disagree.
     const WIDE: &str = "abcdefghij\n\u{4e2d}\u{6587}\u{4e2d}\u{6587}\u{4e2d}ghij\nklmnopqrst";
 
+    /// A line of nothing but wide graphemes, so that an end of a selection carried onto it is
+    /// drawn in two columns rather than in one.
+    const WIDE_ONLY: &str = "\u{4e2d}\u{6587}\u{4e2d}";
+
     #[test]
     fn a_linewise_selection_four_lines_down_takes_five_logical_lines_however_they_wrap() {
         let text = transcript(8);
         let source = over(&text);
-        for index in 0..SELECTED {
+        const {
             assert!(
-                WRAPPED <= rows_of(&paragraph(index)).len(),
-                "paragraph {index} is drawn in {} rows, so the fixture does not wrap",
-                rows_of(&paragraph(index)).len()
+                WRAPPED <= ROWS,
+                "a paragraph of the fixture is not drawn in ten rows or more"
+            );
+        }
+        for index in 0..SELECTED {
+            assert_eq!(
+                ROWS,
+                rows_of(&paragraph(index)).len(),
+                "paragraph {index} is not drawn in {ROWS} rows, so the fixture does not wrap"
             );
         }
 
@@ -690,10 +705,12 @@ mod tests {
         assert_eq!(SELECTED, selection.segments(source).len());
 
         let painted = selection.highlight(source, &drawn(&text, Options::new(), WIDTH));
-        assert!(
-            SELECTED * WRAPPED <= painted.len(),
-            "five logical lines were painted in {} rows, which is not what the fixture draws",
-            painted.len()
+        assert_eq!(
+            SELECTED * ROWS,
+            painted.len(),
+            "{SELECTED} logical lines were painted in {} rows rather than in {}",
+            painted.len(),
+            SELECTED * ROWS
         );
     }
 
@@ -833,12 +850,41 @@ mod tests {
             ],
             slices(WIDE, &segments)
         );
+        let wide = WIDE
+            .find('\u{4e2d}')
+            .expect("the fixture holds a line of wide graphemes");
         assert_ne!(
-            4..8,
+            wide + 4..wide + 8,
             segments[1],
             "the block was taken at the bytes of the line rather than at its columns"
         );
         assert_eq!(3, selection.lines(source));
+    }
+
+    #[test]
+    fn a_blockwise_selection_reaches_the_far_side_of_a_wide_grapheme_it_ends_on() {
+        let text = format!("abcdefghij\n{WIDE_ONLY}");
+        let source = over(&text);
+        let wide = text
+            .find('\u{6587}')
+            .expect("the fixture holds a line of wide graphemes");
+
+        let mut downward = Selection::new(Mode::Blockwise, source, 0);
+        downward.extend(source, Motion::Down(1));
+        downward.extend(source, Motion::Right(1));
+        assert_eq!(
+            vec!["abcd".to_owned(), "\u{4e2d}\u{6587}".to_owned()],
+            slices(&text, &downward.segments(source)),
+            "the block stopped inside the wide grapheme its moving end is drawn in"
+        );
+
+        let mut upward = Selection::new(Mode::Blockwise, source, wide);
+        upward.extend(source, Motion::Up(1));
+        assert_eq!(
+            vec!["cd".to_owned(), "\u{6587}".to_owned()],
+            slices(&text, &upward.segments(source)),
+            "the block stopped inside the wide grapheme it was started in"
+        );
     }
 
     #[test]
@@ -880,11 +926,22 @@ mod tests {
             let painted = selection.highlight(source, &rendered);
             let first = painted.first().expect("the selection paints a row");
             let last = painted.last().expect("the selection paints a row");
-            assert!(
-                SELECTED * WRAPPED <= last.row() - first.row() + 1,
-                "{mode:?} covered five logical lines drawn in {} rows, which is not what the \
-                 fixture draws",
-                last.row() - first.row() + 1
+            let rows = last.row() - first.row() + 1;
+            // Only a linewise selection takes the whole of the last line it covers; the other two
+            // stop at the column the moving end was carried to, which is the first row of it.
+            let wanted = match mode {
+                Mode::Linewise => SELECTED * ROWS,
+                _ => (SELECTED - 1) * ROWS + 1,
+            };
+            assert_eq!(
+                0,
+                first.row(),
+                "{mode:?} did not start at the top of the block"
+            );
+            assert_eq!(
+                wanted, rows,
+                "{mode:?} covered {SELECTED} logical lines painted into {rows} rows rather than \
+                 into {wanted}"
             );
         }
     }
