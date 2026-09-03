@@ -167,13 +167,23 @@ const DECORATED_WALKS: [&str; 5] = [
 /// The decorated cases vim answers somewhere this seam does not, each with the reason, so that a
 /// case which starts or stops agreeing fails this file rather than quietly leaving the sample.
 ///
-/// All of them are the same disagreement, and it is about which column is being halved rather than
-/// about where the rows are. vim halves the window and compares it against `curswant` taken modulo
-/// that width, and `curswant` is a virtual column of the logical line that counts no decoration;
-/// the seam halves the row's text and compares it against the screen column the cursor is drawn
-/// in, which counts every decoration cell above it. Where a row splits a tab, the two columns fall
-/// on opposite sides of their own halfway marks, and one engine steps back off the tab while the
-/// other stays on it.
+/// The disagreement is about which column is being halved rather than about where the rows are:
+/// the layout is confirmed innocent, with 327 decorated rows compared cell for cell against the
+/// screen vim draws — tabs split across a wrap boundary included — and no differences. Every case
+/// below is a row that splits a tab, where one engine steps back off it and the other stays on it.
+///
+/// **The mechanism is not established.** One model was proposed and then falsified: that
+/// `'showbreak'` is absent from `win_col_off2()`, so vim's arithmetic reduces to the undecorated
+/// virtual column and decoration cannot move its answer. Running vim against vim — same text,
+/// width and keys, `showbreak=""` against `showbreak="> "` — contradicts it in **74 of 300 cases**,
+/// by up to three characters, which that model forbids outright.
+///
+/// What is established is narrower. Measuring the halfway mark against the row's own text rather
+/// than against the window is the better of the two rules: it takes the divergence count from 55
+/// to 32 over a 1200-case sweep, leaves every undecorated case untouched, and fixes 26 while
+/// introducing 3. Why the rest remain is unknown and tracked as an issue; nothing here has been
+/// tuned to cancel them, and this list is asserted by set equality so a case that starts or stops
+/// agreeing fails the build.
 const DECORATED_DIVERGENCES: [(&str, &str); 7] = [
     (
         "straddled w15 showbreak gg0lllllllllgj",
