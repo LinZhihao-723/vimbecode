@@ -73,8 +73,13 @@ pub enum Kind {
     /// Claude's reasoning, which a reader may fold away.
     Thinking,
 
-    /// The lines an edit changed, computed from the text either side of it.
-    Diff,
+    /// The lines an edit changed, computed from the text either side of it, named by the file the
+    /// edit was to.
+    Diff {
+        /// The path of the file the edit was to, which is what a patch written from the block
+        /// names.
+        path: String,
+    },
 }
 
 /// The display rows of a block a caller is asking to be drawn: the row of the block to start at,
@@ -168,12 +173,12 @@ impl Block {
     ///
     /// # Returns
     ///
-    /// A [`Kind::Diff`] block of the lines between the text `old` an edit replaced and the text
-    /// `new` it wrote.
+    /// A [`Kind::Diff`] block of the lines between the text `old` an edit to `path` replaced and
+    /// the text `new` it wrote.
     #[must_use]
-    pub fn diff(old: &str, new: &str) -> Self {
+    pub fn diff(path: String, old: &str, new: &str) -> Self {
         Self {
-            kind: Kind::Diff,
+            kind: Kind::Diff { path },
             body: diff::compute(old, new),
         }
     }
@@ -500,7 +505,11 @@ mod tests {
 
     #[test]
     fn a_diff_round_trips_and_marks_the_lines_it_changed() {
-        let block = Block::diff("fn main() {}\n", "fn main() {\n    todo!();\n}\n");
+        let block = Block::diff(
+            "src/main.rs".to_owned(),
+            "fn main() {}\n",
+            "fn main() {\n    todo!();\n}\n",
+        );
         let rendered = block.render(whole(&block), &wrapping(UNWRAPPED));
 
         assert_eq!(
@@ -752,7 +761,11 @@ mod tests {
             ),
             Block::from_ansi(Kind::ToolResult, COLOURED),
             Block::new(Kind::Thinking, "the block model comes first".to_owned()),
-            Block::diff("fn main() {}\n", "fn main() {\n    todo!();\n}\n"),
+            Block::diff(
+                "src/main.rs".to_owned(),
+                "fn main() {}\n",
+                "fn main() {\n    todo!();\n}\n",
+            ),
             Block::new(Kind::Message(Role::User), String::new()),
             Block::new(
                 Kind::Message(Role::User),
