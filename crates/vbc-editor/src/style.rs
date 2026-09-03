@@ -62,11 +62,15 @@ impl Span {
 /// A block of text together with the spans styling it.
 ///
 /// The spans a block reports are the spans it draws: each is widened to the cluster boundaries
-/// around it when the block is built, and one that covers no cluster is dropped.
+/// around it when the block is built, and one that covers no cluster is dropped. The disjoint runs
+/// those spans paint the source in are resolved when the block is built as well, so styling a row
+/// costs that row and a search of the runs rather than costing every span of the block once for
+/// every row drawn.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct Block {
     source: String,
     spans: Vec<Span>,
+    runs: Vec<Run>,
 }
 
 impl Block {
@@ -80,6 +84,7 @@ impl Block {
         Self {
             source,
             spans: Vec::new(),
+            runs: Vec::new(),
         }
     }
 
@@ -91,8 +96,13 @@ impl Block {
     #[must_use]
     pub fn with_spans(source: String, spans: Vec<Span>) -> Self {
         let spans = widen(&source, spans);
+        let runs = resolve(&spans);
 
-        Self { source, spans }
+        Self {
+            source,
+            spans,
+            runs,
+        }
     }
 
     #[must_use]
@@ -140,55 +150,15 @@ impl Block {
     /// laid-out row does.
     #[must_use]
     pub fn style_rows(&self, line_start: usize, rows: &[DisplayRow]) -> Vec<StyledRow> {
-        let runs = self.runs();
+        let runs = &self.runs;
         let mut styled = Vec::with_capacity(rows.len());
         let mut start = line_start;
         for row in rows {
-            styled.push(style_row(row, start, &runs));
+            styled.push(style_row(row, start, runs));
             start += row.text().len();
         }
 
         styled
-    }
-
-    /// # Returns
-    ///
-    /// The disjoint runs the block's spans paint its source in, ascending and with the overlaps
-    /// between spans resolved in favour of the later span.
-    fn runs(&self) -> Vec<Run> {
-        let edges: BTreeSet<usize> = self
-            .spans
-            .iter()
-            .flat_map(|span| [span.range.start, span.range.end])
-            .collect();
-        let edges: Vec<usize> = edges.into_iter().collect();
-
-        let mut runs: Vec<Run> = Vec::new();
-        for pair in edges.windows(2) {
-            let &[start, end] = pair else {
-                continue;
-            };
-            let Some(painted) = self
-                .spans
-                .iter()
-                .rev()
-                .find(|span| span.range.start <= start && end <= span.range.end)
-            else {
-                continue;
-            };
-
-            match runs.last_mut() {
-                Some(run) if run.style == painted.style && run.range.end == start => {
-                    run.range.end = end;
-                }
-                _ => runs.push(Run {
-                    range: start..end,
-                    style: painted.style,
-                }),
-            }
-        }
-
-        runs
     }
 }
 
@@ -288,6 +258,70 @@ impl StyledRow {
 struct Run {
     range: Range<usize>,
     style: Style,
+}
+
+/// # Returns
+///
+/// The disjoint runs `spans` paint a block's source in, ascending and with the overlaps between
+/// spans resolved in favour of the later span.
+fn resolve(spans: &[Span]) -> Vec<Run> {
+    let edges: BTreeSet<usize> = spans
+        .iter()
+        .flat_map(|span| [span.range.start, span.range.end])
+        .collect();
+    let edges: Vec<usize> = edges.into_iter().collect();
+    let mut opening = ordered(spans, |span| span.range.start);
+    let mut closing = ordered(spans, |span| span.range.end);
+
+    let mut painting: BTreeSet<usize> = BTreeSet::new();
+    let mut runs: Vec<Run> = Vec::new();
+    for pair in edges.windows(2) {
+        let &[start, end] = pair else {
+            continue;
+        };
+        while closing.last().is_some_and(|(at, _)| *at <= start) {
+            let (_, span) = closing
+                .pop()
+                .expect("the last of the closing spans is there");
+            painting.remove(&span);
+        }
+        while opening.last().is_some_and(|(at, _)| *at <= start) {
+            let (_, span) = opening
+                .pop()
+                .expect("the last of the opening spans is there");
+            painting.insert(span);
+        }
+        let Some(painted) = painting.last().map(|span| &spans[*span]) else {
+            continue;
+        };
+
+        match runs.last_mut() {
+            Some(run) if run.style == painted.style && run.range.end == start => {
+                run.range.end = end;
+            }
+            _ => runs.push(Run {
+                range: start..end,
+                style: painted.style,
+            }),
+        }
+    }
+
+    runs
+}
+
+/// # Returns
+///
+/// Every span paired with the edge of it `edge` names, ordered so that the next edge to be reached
+/// is the last of them.
+fn ordered(spans: &[Span], edge: impl Fn(&Span) -> usize) -> Vec<(usize, usize)> {
+    let mut edges: Vec<(usize, usize)> = spans
+        .iter()
+        .enumerate()
+        .map(|(index, span)| (edge(span), index))
+        .collect();
+    edges.sort_unstable_by(|one, other| other.cmp(one));
+
+    edges
 }
 
 /// Widens each span to the grapheme cluster boundaries of `source` around it, dropping those left
