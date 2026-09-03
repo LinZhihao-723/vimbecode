@@ -61,6 +61,11 @@
 //! themselves are not in question: every decorated layout here was compared with the screen vim
 //! drew for it, cell for cell, and they are the same rows.
 //!
+//! The counted forms of `g$` are the one family left out of the decorated comparison, and are left
+//! out in writing: they count the screen lines below the cursor's own rather than the rows a walk
+//! steps, which is the fixed-column arithmetic named below, and the two vims this file has been
+//! measured against answer them differently on a decorated CJK row.
+//!
 //! The corpus is compared too. Every case of it that asks for a screen motion is replayed against
 //! vim in the window and under the display options the case declares, which is the sample this
 //! seam was actually built against: the two cases vim answers somewhere else are named here with
@@ -281,13 +286,25 @@ const RAGGED_WALK: [&str; 6] = [
     "llllllllllgjgjgjgjgj",
 ];
 
-/// The counted motions, including counts larger than the text has rows for. A count no text here
-/// has the rows for is clamped by vim rather than refused, and the cursor is left on the row the
-/// walk ran out on; the same count under an operator is a different answer and belongs to
-/// `operator_display_motions.rs`.
-const COUNTED: [&str; 10] = [
-    "3gj", "5gj", "12gj", "999gj", "G4gk", "G12gk", "999gk", "2g$", "3g$", "2gjg0",
+/// The motions counted in the screen lines a walk steps, including counts larger than the text has
+/// rows for. A count no text here has the rows for is clamped by vim rather than refused, and the
+/// cursor is left on the row the walk ran out on; the same count under an operator is a different
+/// answer and belongs to `operator_display_motions.rs`.
+const COUNTED: [&str; 8] = [
+    "3gj", "5gj", "12gj", "999gj", "G4gk", "G12gk", "999gk", "2gjg0",
 ];
+
+/// The counted forms of `g$`, which count the screen lines below the cursor's own rather than the
+/// rows a walk steps, and which are compared undecorated only.
+///
+/// That is the corner this file already leaves out of the chain of ends: where a row is cut short
+/// because the double-width character coming next did not fit in the cell it had left, vim reaches
+/// the row below it by a fixed number of columns rather than by walking, and lands past the row it
+/// meant to. `2g$` and `3g$` on the CJK text in a decorated fifteen-column window are that corner,
+/// and the two vims this file has been measured against do not agree with each other there: 8.2
+/// lands where the seam lands and 9.1.697 lands elsewhere. Comparing them decorated would pin this
+/// file to whichever vim happened to run it, so they are left out in writing.
+const COUNTED_ENDS: [&str; 2] = ["2g$", "3g$"];
 
 /// The keys that put a bare `j` or `k` in the middle of a chain a `$` left wanting the end of a
 /// row, which is the one cursor move vim leaves `curswant` alone across and which the chain
@@ -457,7 +474,7 @@ fn a_walk_down_a_ragged_buffer_tracks_the_column_vim_tracks() -> anyhow::Result<
 fn a_counted_display_motion_lands_where_vim_lands() -> anyhow::Result<()> {
     let vim = VimDriver::new()?;
 
-    for keys in COUNTED {
+    for keys in COUNTED.into_iter().chain(COUNTED_ENDS) {
         agrees_with_vim(&vim, keys, &COLUMNS, PLAIN)?;
     }
 
