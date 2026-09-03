@@ -7,7 +7,9 @@
 //! to over a pipe that stays open for the life of the session, and this module holds the language
 //! that pipe carries.
 //!
-//! Nothing here spawns or supervises that helper. What it defines is the wire: the frames the two
-//! sides exchange, and the answers a request can come back with.
+//! Two things make that up: the wire, which is the frames the two sides exchange and the answers a
+//! request can come back with, and the helper's life, which is the process those frames travel
+//! between and the rules about starting it, keeping it and letting it go.
 
+pub mod helper;
 pub mod protocol;
