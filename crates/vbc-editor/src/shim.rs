@@ -121,14 +121,10 @@ impl Shim {
         &self.intercepted
     }
 
-    /// Takes a screen motion, measuring where the cursor stands through the layout engine.
-    ///
-    /// # Parameters
-    ///
-    /// * `motion` - The motion the action asked for.
-    /// * `count` - How many times it asked for it.
-    /// * `at` - Where the cursor stands in the text.
-    /// * `line` - The text of the logical line the cursor stands on, without its line ending.
+    /// Takes the screen motion `motion`, asked for `count` times with the cursor standing at `at`
+    /// on a logical line whose text is `line`, and records where the layout engine draws that
+    /// cursor. Only that one line is laid out, so what the measurement costs is the cursor's line
+    /// rather than the text around it. The line is the text alone, without its line ending.
     pub fn intercept(
         &mut self,
         motion: ScreenMotion,
