@@ -14,7 +14,9 @@
 //! same motions are therefore replayed against CJK, where every character is two cells wide, and
 //! against a text indented with tabs, where one character is eight; and each is laid out in more
 //! than one window, because a motion answered by dividing by the wrong width is right in the
-//! window whose width happens to divide evenly.
+//! window whose width happens to divide evenly. A fourth text is tabs all the way along, so that a
+//! row ends part-way through one: a column carried onto such a row lands in the middle of a
+//! grapheme, which vim steps back off rather than being carried a row further along.
 //!
 //! A comparison is worth what it would catch, so every motion is replayed through an engine built
 //! without the shim -- the engine modalkit answers a screen motion in by itself -- and that engine
@@ -86,8 +88,22 @@ const TABBED: &str = concat!(
     "plain\n",
 );
 
+/// A text of tabs all the way along, in which a row of every window below ends part-way through
+/// one. That is the grapheme a column carried down a screen line can land in the middle of, and
+/// vim steps back off one rather than being carried a row further along than it asked for.
+const STRADDLED: &str = concat!(
+    "a\tb\tc\td\te\tf\tg\th\ti\tj\tk\tl\n",
+    "0123456789012345678901234567890123456789\n",
+    "m\tn\to\tp\tq\tr\ts\tt\tu\n",
+);
+
 /// The texts every motion is replayed against, each named for what makes it worth replaying.
-const TEXTS: [(&str, &str); 3] = [("ascii", WRAPPED), ("cjk", WIDE), ("tab", TABBED)];
+const TEXTS: [(&str, &str); 4] = [
+    ("ascii", WRAPPED),
+    ("cjk", WIDE),
+    ("tab", TABBED),
+    ("straddled", STRADDLED),
+];
 
 /// The windows the texts are laid out in. A motion answered by dividing a character column by a
 /// window's width is right wherever that width divides the text evenly, so one of these is an odd

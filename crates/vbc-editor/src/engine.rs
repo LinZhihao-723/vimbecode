@@ -19,6 +19,17 @@
 //! a screen line is a screen line only relative to some window, and a motion counted in them has
 //! nowhere to land without one.
 //!
+//! What the shim answers with is a place in the logical text, and turning that into an edit is the
+//! engine's. A cursor is written straight to it. An operator cannot be: it spans a range rather
+//! than naming a place, and dropping it would leave the text byte for byte as it was. So the place
+//! is written into a mark and the very same action is re-issued with only its target replaced,
+//! which keeps the operator the keys asked for the operator that runs. The rules deciding what an
+//! operator takes between two places are still vim's rather than this workspace's, but they are
+//! not modalkit's -- an exclusive motion ending in the first column of a line covers to the end of
+//! the line above, and covers whole lines where the cursor stood in an indent -- so they are
+//! applied here, by choosing where the mark goes and whether the target jumps to a character or to
+//! a line.
+//!
 //! An action the seam does not run is reported rather than dropped. An engine that quietly ignores
 //! what it was asked to do is an engine whose tests pass against a keystroke that did nothing, so
 //! there is no arm here that swallows an action. A motion the shim classifies as out of scope is
@@ -26,7 +37,10 @@
 //! put the cursor, and an editor that does that quietly is harder to trust than one that says so.
 //! Whether a shim is installed makes no difference to that -- the classification is the editor's
 //! decision about what it answers rather than the shim's about what it measures -- so the engine
-//! the seam is compared against refuses exactly what the engine with the seam refuses.
+//! the seam is compared against refuses exactly what the engine with the seam refuses. The one
+//! action that runs as less than it was typed is the operator whose motion ran out of text, which
+//! vim abandons too, and the shim reports the walk that could not travel rather than leaving the
+//! abandonment to be inferred.
 
 use std::borrow::Cow;
 use std::collections::BTreeMap;
@@ -36,7 +50,9 @@ use std::num::NonZeroUsize;
 
 use crossterm::event::{KeyCode, KeyModifiers};
 use editor_types::context::Resolve;
-use editor_types::prelude::{Register as Slot, TargetShape, ViewportContext};
+use editor_types::prelude::{
+    EditTarget, Mark, Register as Slot, Specifier, TargetShape, ViewportContext,
+};
 use editor_types::EditAction;
 use modalkit::actions::{Action, Editable, EditorAction};
 use modalkit::editing::application::EmptyInfo;
@@ -54,7 +70,7 @@ use vbc_layout::width::graphemes;
 
 use crate::event::{Event, KeyEvent};
 use crate::screen::Geometry;
-use crate::shim::{classified, Classification, Shim, Text};
+use crate::shim::{classified, Classification, Landing, Shim, Text};
 
 /// The registers a run reads back, in the notation a register is addressed by in vim: the unnamed
 /// register, the small-delete register, the yank register, the nine delete registers and the
@@ -74,6 +90,11 @@ const DEFAULT_COLUMNS: usize = 80;
 /// The screen lines a screen motion is measured in where an engine was not told what window it is
 /// being typed at.
 const DEFAULT_ROWS: usize = 24;
+
+/// The mark a screen motion's answer reaches modalkit through. A mark is the only place an edit
+/// target names a position from, and this one is named by a character no keystroke can ask for, so
+/// re-issuing an action against it disturbs none of the marks a text is edited with.
+const SCRATCH: Mark = Mark::BufferNamed('\u{0}');
 
 /// Where the cursor rests, counted the way the differential harness counts it: a zero-based line,
 /// and a zero-based byte offset within that line.
@@ -336,8 +357,8 @@ impl Engine {
     /// This is the seam: a bare motion counted in cells is the shim's to answer and is written
     /// straight onto the cursor, a motion counted in cells that nothing here measures is refused,
     /// and everything else reaches the text as it stands. An operator applied to an intercepted
-    /// motion spans a range rather than naming a place, which is not something a cursor can be
-    /// moved to, so it is measured by the shim and then left to modalkit.
+    /// motion spans a range rather than naming a place, so the shim's answer is written into a
+    /// mark and the very same operator is re-issued against it.
     ///
     /// # Errors
     ///
@@ -346,7 +367,7 @@ impl Engine {
     /// * [`Error::OutOfScope`] if the motion lands where display geometry says and nothing here
     ///   measures it.
     /// * [`Error::Unclassified`] if the motion is one the shim's audit does not name.
-    /// * [`Error::Unrunnable`] if the action could not be run against the text.
+    /// * Forwards [`Engine::apply`]'s return values on failure.
     fn edit(&mut self, editor: &EditorAction, context: &EditContext) -> Result<(), Error> {
         match classified(editor) {
             Some((Classification::OutOfScope { keys }, _)) => {
@@ -362,17 +383,122 @@ impl Engine {
             _ => {}
         }
 
-        if let Some(at) = self.answered(editor, context) {
-            let column = char_offset(
-                &self.text.get().line(at.line).unwrap_or_default(),
-                at.grapheme,
-            );
-            self.text
-                .set_leader(self.group, Cursor::new(at.line, column));
+        let Some(landing) = self.answered(editor, context) else {
+            return self.apply(editor, context);
+        };
+        let EditorAction::Edit(operator, _) = editor else {
+            return self.apply(editor, context);
+        };
+        let operator = context.resolve(operator);
+        if EditAction::Motion == operator {
+            let at = self.placed(landing.at);
+            self.text.set_leader(self.group, at);
 
             return Ok(());
         }
+        let retargeted = self.retargeted(operator, landing);
 
+        self.apply(&retargeted, context)
+    }
+
+    /// Puts the scratch mark where a screen motion's answer says the motion goes, and the cursor
+    /// at the near end of what an operator applied over it takes.
+    ///
+    /// The rules deciding what an operator takes between two places are vim's rather than
+    /// modalkit's: `g$`, and any motion behind a `$`, takes the grapheme it stops on where the
+    /// others stop in front of theirs; an exclusive motion ending in the first column of a line
+    /// takes to the end of the line above instead; and a delete reaching from an indent to the end
+    /// of a later line takes whole lines. A motion that ran out of text leaves the operator undone
+    /// and carries the cursor alone, as vim does.
+    ///
+    /// # Returns
+    ///
+    /// The action running `operator` over the answer, which is the operator asked for over a
+    /// target modalkit reads off the mark rather than measures.
+    fn retargeted(&mut self, operator: EditAction, landing: Landing) -> EditorAction {
+        let cursor = self.text.get_leader(self.group);
+        let to = self.placed(landing.at);
+        if !landing.complete {
+            return self.against(EditAction::Motion, to, false);
+        }
+
+        let (near, mut far) = if to < cursor {
+            (to, cursor)
+        } else {
+            (cursor, to)
+        };
+        if landing.inclusive {
+            far = self.past(far);
+        } else if 0 == far.x && near.y < far.y {
+            let above = far.y - 1;
+            if in_indent(&self.line(near.y), near.x) {
+                self.text.set_leader(self.group, near);
+
+                return self.against(operator, Cursor::new(above, 0), true);
+            }
+            far = Cursor::new(above, self.line(above).chars().count());
+        }
+        let linewise = EditAction::Delete == operator
+            && near.y < far.y
+            && blank_from(&self.line(far.y), far.x)
+            && in_indent(&self.line(near.y), near.x);
+        self.text.set_leader(self.group, near);
+
+        self.against(operator, far, linewise)
+    }
+
+    /// # Returns
+    ///
+    /// The cursor one grapheme past `cursor`, which is where an operator taking the grapheme the
+    /// cursor stands on has to be carried to for a target that stops in front of its mark.
+    fn past(&self, cursor: Cursor) -> Cursor {
+        let line = self.line(cursor.y);
+        let grapheme = grapheme_offset(&line, cursor.x);
+
+        Cursor::new(cursor.y, char_offset(&line, grapheme + 1))
+    }
+
+    /// Puts the scratch mark at `mark`.
+    ///
+    /// # Returns
+    ///
+    /// The action running `operator` from the cursor to that mark, over whole lines where
+    /// `linewise` says so and over the characters between them where it does not.
+    fn against(&mut self, operator: EditAction, mark: Cursor, linewise: bool) -> EditorAction {
+        self.store.cursors.set_mark(self.text.id(), SCRATCH, mark);
+        let target = if linewise {
+            EditTarget::LineJump(Specifier::Exact(SCRATCH))
+        } else {
+            EditTarget::CharJump(Specifier::Exact(SCRATCH))
+        };
+
+        EditorAction::Edit(Specifier::Exact(operator), target)
+    }
+
+    /// # Returns
+    ///
+    /// The cursor standing where `at` does, counted the way modalkit counts a column: in the
+    /// characters of the line rather than in its graphemes.
+    fn placed(&self, at: LogicalPosition) -> Cursor {
+        Cursor::new(at.line, char_offset(&self.line(at.line), at.grapheme))
+    }
+
+    /// # Returns
+    ///
+    /// The text of the logical line at `line` without its line ending, which is empty past the
+    /// last line of the text.
+    fn line(&self, line: usize) -> String {
+        self.text.get().line(line).unwrap_or_default().into_owned()
+    }
+
+    /// Runs one of the actions that edit the text against the text as it stands.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`Error::Unrunnable`] if the action could not be run against the text.
+    fn apply(&mut self, editor: &EditorAction, context: &EditContext) -> Result<(), Error> {
         self.text
             .editor_command(
                 editor,
@@ -390,13 +516,9 @@ impl Engine {
     ///
     /// # Returns
     ///
-    /// Where the action leaves the cursor, and [`None`] for an action the shim does not answer,
-    /// which is every action of an engine built without one.
-    fn answered(
-        &mut self,
-        editor: &EditorAction,
-        context: &EditContext,
-    ) -> Option<LogicalPosition> {
+    /// Where the action goes, and [`None`] for an action the shim does not answer, which is every
+    /// action of an engine built without one.
+    fn answered(&mut self, editor: &EditorAction, context: &EditContext) -> Option<Landing> {
         let shim = self.shim.as_mut()?;
         let Some((Classification::Intercepted(motion), count)) = classified(editor) else {
             shim.note(editor);
@@ -409,14 +531,12 @@ impl Engine {
             line: cursor.y,
             grapheme: grapheme_offset(&text.line(cursor.y).unwrap_or_default(), cursor.x),
         };
-        let target = shim.intercept(motion, context.resolve(&count), at, text);
+        let landing = shim.intercept(motion, context.resolve(&count), at, text);
         if !bare(editor, context) {
             shim.note(editor);
-
-            return None;
         }
 
-        target
+        landing
     }
 
     /// # Returns
@@ -562,6 +682,29 @@ fn char_offset(line: &str, grapheme: usize) -> usize {
         .take(grapheme)
         .map(|cluster| cluster.chars().count())
         .sum()
+}
+
+/// # Returns
+///
+/// Whether `line` holds nothing but blanks from its character `column` onwards, which is where vim
+/// turns a delete spanning more than one line into one over whole lines.
+fn blank_from(line: &str, column: usize) -> bool {
+    line.chars()
+        .skip(column)
+        .all(|held| matches!(held, ' ' | '\t'))
+}
+
+/// # Returns
+///
+/// Whether the character `column` of `line` falls in the line's indent, which is where vim asks an
+/// operator's start to stand for a motion ending in the first column of a line to cover whole
+/// lines rather than characters.
+fn in_indent(line: &str, column: usize) -> bool {
+    column
+        <= line
+            .chars()
+            .take_while(|held| matches!(held, ' ' | '\t'))
+            .count()
 }
 
 /// # Returns
