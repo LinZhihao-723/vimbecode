@@ -425,6 +425,77 @@ fn folding_never_alters_the_source_it_folds() {
     }
 }
 
+#[test]
+fn the_walk_and_the_render_agree_at_every_width_over_every_fold_left_open() {
+    /// The widths the panel is read at, from one that wraps every block to one that wraps none.
+    const WIDTHS: [usize; 4] = [4, 7, NARROW, COLUMNS];
+
+    let (transcript, tags) = conversation(RUNNING);
+    let heads: Vec<usize> = nesting(&Folds::of(&transcript, &tags))
+        .into_iter()
+        .map(|(head, _depth)| head)
+        .collect();
+    assert_eq!(
+        vec![SUBAGENT_CALL, NESTED_CALL, NESTED_RESULT, THOUGHT],
+        heads
+    );
+
+    let mut checked = 0;
+    for width in WIDTHS {
+        let wrapping = wrapping(width);
+        for left_open in 0..(1_usize << heads.len()) {
+            let folds = opened(&transcript, &tags, &heads, left_open);
+            let view = View::of(&folds, &transcript);
+
+            let mut walked = vec![Position::new(0, 0)];
+            while let Some(next) =
+                view.down(*walked.last().expect("the walk began somewhere"), &wrapping)
+            {
+                walked.push(next);
+                assert!(walked.len() < 1_000, "the walk down did not end");
+            }
+
+            let mut back = vec![*walked.last().expect("the walk ended somewhere")];
+            while let Some(above) = view.up(
+                *back.last().expect("the walk back began somewhere"),
+                &wrapping,
+            ) {
+                back.push(above);
+                assert!(back.len() < 1_000, "the walk up did not end");
+            }
+            back.reverse();
+            assert_eq!(
+                walked, back,
+                "at {width} columns with {left_open:#06b} left open, the walk down and the walk \
+                 back up disagree"
+            );
+
+            let counted: usize = (0..view.entries().len())
+                .map(|entry| view.rows(entry, &wrapping))
+                .sum();
+            let drawn = view.render(Position::new(0, 0), SCREEN, &wrapping);
+            assert_eq!(
+                vec![walked.len(), walked.len()],
+                vec![counted, drawn.len()],
+                "at {width} columns with {left_open:#06b} left open, the walk, the rows counted \
+                 and the rows drawn disagree"
+            );
+
+            for (row, at) in walked.iter().enumerate() {
+                assert_eq!(
+                    texts(&drawn[row..=row]),
+                    texts(&view.render(*at, 1, &wrapping)),
+                    "at {width} columns with {left_open:#06b} left open, row {row} drew \
+                     differently when it was asked for on its own"
+                );
+            }
+
+            checked += 1;
+        }
+    }
+    assert_eq!(WIDTHS.len() << heads.len(), checked);
+}
+
 /// # Returns
 ///
 /// The fixture: a question, a call to a subagent, what the subagent said, the call the subagent
@@ -488,6 +559,24 @@ fn described(view: &View<'_>) -> Vec<String> {
             Entry::Body(block) => format!("body {block}"),
         })
         .collect()
+}
+
+/// # Returns
+///
+/// The folds of `transcript` with the fold headed by each block of `heads` whose bit is set in
+/// `left_open` opened, and every other fold closed. A `zo` reaches a depth only once the fold
+/// around it is open, so the pass is repeated until it settles.
+fn opened(transcript: &Transcript, tags: &[Tag], heads: &[usize], left_open: usize) -> Folds {
+    let mut folds = Folds::of(transcript, tags);
+    for _ in 0..heads.len() {
+        for (bit, head) in heads.iter().enumerate() {
+            if 0 != left_open & (1 << bit) {
+                folds.apply(Command::Open, *head);
+            }
+        }
+    }
+
+    folds
 }
 
 /// # Returns
