@@ -14,7 +14,9 @@
 //! refused, and nothing is inserted. Nothing means nothing -- not an answer an earlier read found,
 //! and not the abandoned read's own answer turning up afterwards. A read that comes back at three
 //! seconds comes back to a buffer the user has been editing for a second and a half, so it is
-//! dropped where it lands.
+//! dropped where it lands, and it is the moment it came back that says so rather than the moment a
+//! frame got round to looking: a loop that draws nothing while it waits on a key is held to the
+//! same deadline as one drawing every eight milliseconds.
 //!
 //! Nothing here retries. A refusal costs over a second to obtain and .NET's clipboard API hides a
 //! second of retrying of its own inside that, so a loop around it multiplies rather than rescues:
@@ -258,7 +260,8 @@ impl Reader {
 
     /// Takes in whatever the worker has answered, which is nothing at all while a read is still
     /// out. An answer to a read the editor has stopped waiting on is thrown away here rather than
-    /// pasted.
+    /// pasted, and so is one that took longer than [`HARD_DEADLINE`] to arrive, whichever frame
+    /// happens to be the one that finds it.
     fn collect(&mut self) {
         while let Ok(answer) = self.answers.try_recv() {
             let Some(current) = self
@@ -268,6 +271,10 @@ impl Reader {
             else {
                 continue;
             };
+            if HARD_DEADLINE <= answer.landed.saturating_duration_since(current.started) {
+                current.abandoned = true;
+                continue;
+            }
             current.outcome = Some(answer.outcome);
         }
     }
@@ -304,11 +311,13 @@ enum Command {
 }
 
 /// What the worker thread hands back, named after the read it answers so that an answer nobody is
-/// waiting for any more can be told from an answer to the read they are.
+/// waiting for any more can be told from an answer to the read they are, and stamped with the
+/// moment it came so that how late it is does not depend on when a frame next looks.
 #[derive(Debug)]
 struct Answer {
     id: u64,
     outcome: Outcome,
+    landed: Instant,
 }
 
 /// Builds the source and then serves reads from it, one at a time, until there is nobody left to
@@ -333,7 +342,14 @@ fn serve<SourceType, FactoryType>(
             Ok(source) => answer(source.read_clipboard()),
             Err(error) => Outcome::Unavailable(Reason::Refused(error.to_string())),
         };
-        if replies.send(Answer { id, outcome }).is_err() {
+        if replies
+            .send(Answer {
+                id,
+                outcome,
+                landed: Instant::now(),
+            })
+            .is_err()
+        {
             return;
         }
     }

@@ -1,8 +1,9 @@
 //! Checks the five things the asynchronous clipboard policy is for: that a clipboard which takes
 //! five seconds costs the render loop nothing and pastes nothing, that a clipboard which refuses is
 //! asked once rather than in a loop, that two pastes overlapping each other cost one read between
-//! them, that a read which lands after it was given up on stays out of the buffer, and that a
-//! failure never falls back on what an earlier read found.
+//! them, that a read which lands after it was given up on stays out of the buffer whether the
+//! frames kept coming or stopped, and that a failure never falls back on what an earlier read
+//! found.
 //!
 //! Every one of these is about time, so time is what they assert on. The stand-in clipboard is told
 //! how long to take and what to answer, and it counts the calls made to it, so the retry assertions
@@ -295,6 +296,29 @@ fn a_read_landing_after_the_hard_deadline_stays_out_of_the_buffer() -> Result<()
 
     frames.buffer.push_str(EDIT);
     frames.draw_until(&mut reader, request, Instant::now() + LATE_READ);
+
+    assert_eq!(
+        frames.answers,
+        vec![Outcome::Unavailable(Reason::Abandoned)]
+    );
+    assert_eq!(frames.buffer, format!("{TYPED}{EDIT}"));
+    assert_eq!(stub.calls(), 1);
+
+    Ok(())
+}
+
+#[test]
+fn a_read_landing_while_no_frame_is_drawn_stays_out_of_the_buffer() -> Result<()> {
+    let stub = holding_text(LATE_READ);
+    let mut reader = reader_of(&stub);
+    let request = reader.request();
+
+    let mut frames = Frames::over(TYPED);
+    frames.draw(&mut reader, request);
+    thread::sleep(LATE_READ + FRAME_BOUND);
+
+    frames.buffer.push_str(EDIT);
+    frames.draw_until(&mut reader, request, Instant::now() + PATIENCE);
 
     assert_eq!(
         frames.answers,
