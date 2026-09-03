@@ -26,5 +26,6 @@
 pub mod ansi;
 pub mod block;
 pub mod diff;
+pub mod fold;
 pub mod object;
 pub mod transcript;
