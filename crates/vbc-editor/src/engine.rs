@@ -387,13 +387,13 @@ impl Engine {
             grapheme: grapheme_offset(&text.line(cursor.y).unwrap_or_default(), cursor.x),
         };
         let target = shim.intercept(motion, context.resolve(&count), at, text);
-        let EditorAction::Edit(operation, _) = editor else {
-            return None;
-        };
+        if !bare(editor, context) {
+            shim.note(editor);
 
-        (EditAction::Motion == context.resolve(operation))
-            .then_some(target)
-            .flatten()
+            return None;
+        }
+
+        target
     }
 
     /// # Returns
@@ -494,6 +494,18 @@ fn grapheme_offset(line: &str, characters: usize) -> usize {
     }
 
     offset
+}
+
+/// # Returns
+///
+/// Whether `action` is a motion with no operator applied to it, which is the only shape of action
+/// whose answer is a place a cursor can be moved to. An operator applied to the same motion spans
+/// a range instead, and is modalkit's to run.
+fn bare(action: &EditorAction, context: &EditContext) -> bool {
+    match action {
+        EditorAction::Edit(operation, _) => EditAction::Motion == context.resolve(operation),
+        _ => false,
+    }
 }
 
 /// # Returns

@@ -269,7 +269,7 @@ impl Shim {
         steps: usize,
         text: &TextType,
     ) -> (usize, Vec<DisplayRow>, usize) {
-        let last = text.line_count() - 1;
+        let last = text.line_count().saturating_sub(1);
         let mut line = line;
         let mut rows = rows;
         let mut row = row;
