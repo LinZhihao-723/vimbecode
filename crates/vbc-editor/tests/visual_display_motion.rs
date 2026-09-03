@@ -24,10 +24,6 @@
 //! * Blockwise visual mode. `C-v` is typed nowhere in this file, so nothing here says whether a
 //!   blockwise selection extends over a display motion. It is not tested, and this file makes no
 //!   claim about it.
-//! * A line whose graphemes are wider than one cell. The shim measures a screen motion but does
-//!   not yet answer one, so a motion over such a line is still modalkit's own guess at where a
-//!   row ends. That divergence is asserted below rather than left to be discovered, and the
-//!   assertion is what fails when the shim starts answering.
 
 mod outcome;
 
@@ -251,15 +247,17 @@ fn a_backward_selection_takes_the_row_above_as_vim_does() -> anyhow::Result<()> 
 }
 
 #[test]
-fn a_selection_over_a_line_of_wide_characters_is_not_yet_measured_in_cells() -> anyhow::Result<()> {
+fn a_selection_over_a_line_of_wide_characters_is_measured_in_cells() -> anyhow::Result<()> {
     let vim = VimDriver::new()?;
 
-    assert_ne!(
-        vim_outcome(&vim, WIDE, "vgjy")?,
-        replayed(WIDE, "vgjy")?,
-        "a display motion over a wide line agrees with vim, so the shim answers it now and this \
-         file should hold it to vim rather than to the divergence"
-    );
+    for keys in ["vgjy", "vgjd", "vg$y", "lllvgjd", "vgjgjy"] {
+        assert_eq!(
+            vim_outcome(&vim, WIDE, keys)?,
+            replayed(WIDE, keys)?,
+            "`{keys}` extended a selection over a line of wide characters somewhere other than \
+             where vim extended it"
+        );
+    }
 
     Ok(())
 }

@@ -2,15 +2,21 @@
 //! worth having only if both are true: that what it is for reaches it, and that everything else
 //! reaches the text exactly as it did before it existed.
 //!
-//! The control group is the whole corpus. Every case is replayed twice -- once through an engine
-//! with the shim installed and once through an engine built without one -- and the two are
-//! required to end byte for byte in the same state, or to fail in the same way with the same state
-//! behind them. A case whose keys ask for a motion the display-motion audit puts out of scope
-//! fails in both, since what the engine refuses is decided by that audit rather than by whether a
-//! shim is installed, and the state a refusal stopped in is compared as an ending state is, so the
-//! keys typed before it are held to the seam like any others. A seam that disturbed the logical
-//! path would show up here as a case whose text, cursor, mode or registers moved, and there is
-//! nothing about a case counted in characters that this file exempts.
+//! The control group is every corpus case that asks for no screen motion. Each is replayed twice
+//! -- once through an engine with the shim installed and once through an engine built without one
+//! -- and the two are required to end byte for byte in the same state, or to fail in the same way
+//! with the same state behind them. A case whose keys ask for a motion the display-motion audit
+//! puts out of scope fails in both, since what the engine refuses is decided by that audit rather
+//! than by whether a shim is installed, and the state a refusal stopped in is compared as an
+//! ending state is. A seam that disturbed the logical path would show up here as a case whose
+//! text, cursor, mode or registers moved, and there is nothing about a case counted in characters
+//! that this file exempts.
+//!
+//! The cases that do ask for a screen motion are the other half of the same statement. The seam
+//! answers those, so they are required to end somewhere the unshimmed engine does not, and the
+//! ones that do are named: a case that stopped moving is a case the seam stopped answering, and
+//! that is a fact about this workspace worth failing over. Where they end is not this file's
+//! question -- `operator_display_motions` puts it to vim.
 //!
 //! That the seam is reached is asserted rather than inferred. A seam nothing ever enters would
 //! pass every comparison in this file and be worth nothing at all, so the screen motions the
@@ -23,7 +29,8 @@
 //! cursor, one that changes the mode and one that fills a register are each required to be
 //! reported. And what the shim measures is checked where the answer separates the two engines: on
 //! a line of CJK the cell the cursor is drawn in and the character it sits at are different
-//! numbers, and the shim is required to be holding the first.
+//! numbers, the shim is required to be holding the first, and the cursor is required to have
+//! landed where the first says rather than where the second does.
 //!
 //! The measurement is then held to the layout it was handed rather than to a number it could have
 //! reached by any route: the same cursor is measured in two windows, under both `'ambiwidth'`
@@ -142,6 +149,24 @@ const SCREENWISE: [(&str, &[ScreenMotion]); 16] = [
     ),
 ];
 
+/// The corpus cases the seam answers differently from the engine that could not answer them,
+/// which is what the seam is worth. A case counted in cells whose two engines happen to agree is
+/// not one of them: modalkit divides a character column by the width of the window, which is the
+/// right answer on a row of characters one cell wide, so what is left here are the cases whose
+/// rows a decoration or a wide grapheme moved. Nor is a case the engine refuses before it reaches
+/// the screen motion, which both engines refuse alike.
+const ANSWERED: [&str; 9] = [
+    "anchor-walk-w40-breakindent-showbreak",
+    "cjk-ambiwidth-double",
+    "cjk-ambiwidth-single",
+    "cjk-wide-cell-straddles-edge",
+    "emoji-zwj-family-wrap-edge",
+    "wrap-w24-breakindent",
+    "wrap-w24-breakindent-showbreak",
+    "wrap-w24-showbreak",
+    "wrap-w40-breakindent-showbreak",
+];
+
 /// A line whose every character is drawn two cells wide, on which the column a cursor is drawn in
 /// and the character it sits at are different numbers.
 const WIDE: &str = "你好世界一二三四五六\n";
@@ -220,23 +245,21 @@ struct Outcome {
 type Ending = Result<Outcome, (Error, Outcome)>;
 
 #[test]
-fn the_whole_corpus_ends_where_it_ended_before_the_seam_existed() {
+fn the_corpus_the_seam_is_not_for_ends_where_it_ended_before_the_seam_existed() {
     let corpus = Corpus::load_dir(&corpus::default_dir()).expect("the corpus loads");
     let screenwise: BTreeSet<&str> = SCREENWISE.iter().map(|(id, _)| *id).collect();
 
     let mut control = BTreeSet::new();
     for case in corpus.cases() {
-        let group = if screenwise.contains(case.id.as_str()) {
-            "screen motion"
-        } else {
-            control.insert(case.id.as_str());
-            "control"
-        };
+        if screenwise.contains(case.id.as_str()) {
+            continue;
+        }
+        control.insert(case.id.as_str());
 
         assert_eq!(
             replay(case, false).0,
             replay(case, true).0,
-            "the {group} case `{}` ends somewhere else with the shim installed",
+            "the control case `{}` ends somewhere else with the shim installed",
             case.id
         );
     }
@@ -249,6 +272,24 @@ fn the_whole_corpus_ends_where_it_ended_before_the_seam_existed() {
     assert!(
         !control.is_empty(),
         "the control group is empty, so the comparison above compared nothing"
+    );
+}
+
+#[test]
+fn every_case_the_seam_answered_is_one_the_corpus_counts_in_cells() {
+    let corpus = Corpus::load_dir(&corpus::default_dir()).expect("the corpus loads");
+    let expected: BTreeSet<&str> = ANSWERED.into_iter().collect();
+
+    let mut answered = BTreeSet::new();
+    for case in corpus.cases() {
+        if replay(case, false).0 != replay(case, true).0 {
+            answered.insert(case.id.as_str());
+        }
+    }
+
+    assert_eq!(
+        expected, answered,
+        "the cases the seam answered are not the ones it is named as answering"
     );
 }
 
@@ -351,7 +392,11 @@ fn the_shim_holds_the_cell_the_cursor_is_drawn_in_rather_than_the_character_it_s
         6, taken[0].from.column,
         "the shim measured the cursor in characters rather than in cells"
     );
-    assert_eq!(3, engine.cursor().column / "你".len());
+    assert_eq!(
+        8,
+        engine.cursor().column / "你".len(),
+        "the cursor was carried down a row by a column of characters rather than by one of cells"
+    );
 }
 
 #[test]
