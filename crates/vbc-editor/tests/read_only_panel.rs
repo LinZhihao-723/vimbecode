@@ -1016,9 +1016,9 @@ fn over_refusal(case: &[Typed]) -> Option<String> {
 
 /// # Returns
 ///
-/// The keys a sweep of every one- and two-key sequence types, which are every key a terminal
-/// reports as a printable character together with every key the table names, so that the sweep is
-/// over the keys this editor binds rather than over the ones a list here remembered.
+/// The keys the one- and two-key sweep types, which are every key a terminal reports as a
+/// printable character together with every key the table names, so that the sweep is over the keys
+/// this editor binds rather than over the ones a list here remembered.
 ///
 /// # Panics
 ///
