@@ -304,8 +304,8 @@ impl Engine {
     ///
     /// Returns an error if:
     ///
-    /// * [`Error::Unrunnable`] if the action could not be run against the text.
     /// * [`Error::Unsupported`] if the action is not one this seam drives.
+    /// * Forwards [`Engine::edit`]'s return values on failure.
     fn run(&mut self, action: &Action, context: &EditContext) -> Result<(), Error> {
         match action {
             Action::NoOp => Ok(()),
