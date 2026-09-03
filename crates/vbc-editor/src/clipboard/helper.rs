@@ -534,13 +534,12 @@ impl Helper {
     /// * Forwards [`Request::write_to`]'s return values on failure.
     /// * Forwards [`Response::read_from`]'s return values on failure.
     fn exchange(&mut self, request: &Request) -> Result<Response, Error> {
-        let running = self
-            .running
-            .as_mut()
-            .ok_or(Error::Broken(protocol::Error::Io {
+        let running = self.running.as_mut().ok_or_else(|| {
+            Error::Broken(protocol::Error::Io {
                 kind: ErrorKind::BrokenPipe,
                 message: "no helper is running".to_owned(),
-            }))?;
+            })
+        })?;
 
         request.write_to(&mut running.input)?;
         let response = Response::read_from(&mut running.output)?;
