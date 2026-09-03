@@ -500,8 +500,22 @@ fn a_shift_over_a_display_motion_carries_whole_logical_lines() -> anyhow::Result
             ACROSS.id,
             spelling.id
         );
-        assert_eq!(held.text, engine_outcome(&WITHIN, spelling).text);
-        assert_eq!(crossed.text, engine_outcome(&ACROSS, spelling).text);
+        assert_eq!(
+            held.text,
+            engine_outcome(&WITHIN, spelling).text,
+            "`{}` under {} shifted something other than the whole logical line its motion stayed \
+             inside",
+            WITHIN.id,
+            spelling.id
+        );
+        assert_eq!(
+            crossed.text,
+            engine_outcome(&ACROSS, spelling).text,
+            "`{}` under {} shifted something other than the whole logical lines its motion \
+             crossed",
+            ACROSS.id,
+            spelling.id
+        );
     }
 
     Ok(())
