@@ -186,6 +186,10 @@ impl Request {
 
     /// Reads one request from a stream.
     ///
+    /// # Type Parameters
+    ///
+    /// * `ReaderType` - The stream the request is read from.
+    ///
     /// # Returns
     ///
     /// The request that was read, on success.
@@ -201,6 +205,10 @@ impl Request {
     }
 
     /// Writes this request to a stream and flushes it.
+    ///
+    /// # Type Parameters
+    ///
+    /// * `WriterType` - The stream the request is written to.
     ///
     /// # Errors
     ///
@@ -277,6 +285,10 @@ impl Response {
 
     /// Reads one response from a stream.
     ///
+    /// # Type Parameters
+    ///
+    /// * `ReaderType` - The stream the response is read from.
+    ///
     /// # Returns
     ///
     /// The response that was read, on success.
@@ -292,6 +304,10 @@ impl Response {
     }
 
     /// Writes this response to a stream and flushes it.
+    ///
+    /// # Type Parameters
+    ///
+    /// * `WriterType` - The stream the response is written to.
     ///
     /// # Errors
     ///
@@ -317,6 +333,10 @@ impl Response {
 }
 
 /// Reads one frame from a stream, in as few reads as the stream will give it up in.
+///
+/// # Type Parameters
+///
+/// * `ReaderType` - The stream the frame is read from.
 ///
 /// # Returns
 ///
@@ -345,6 +365,10 @@ pub fn read_frame<ReaderType: Read>(reader: &mut ReaderType) -> Result<Vec<u8>, 
 }
 
 /// Writes one frame to a stream and flushes it.
+///
+/// # Type Parameters
+///
+/// * `WriterType` - The stream the frame is written to.
 ///
 /// # Errors
 ///
@@ -382,6 +406,10 @@ fn tagged(tag: u8, body: &[u8]) -> Vec<u8> {
 }
 
 /// Fills a buffer from a stream.
+///
+/// # Type Parameters
+///
+/// * `ReaderType` - The stream the buffer is filled from.
 ///
 /// # Errors
 ///
