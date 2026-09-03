@@ -176,7 +176,10 @@ const SPELLED: Case = Case {
 /// rather than run over a guess, because an editor that answers them by editing nothing -- or, in
 /// the blockwise case, by editing the wrong columns -- is one whose tests pass against a keystroke
 /// that did something else entirely.
-const REFUSED: [&str; 4] = ["==", ">w", ">}", "ll<C-v>j>"];
+///
+/// `>}` was among them until the editor took its keys off modalkit's table, and is held by
+/// [`a_shift_over_a_paragraph_is_not_a_command_the_seam_is_offered_at_all`] instead.
+const REFUSED: [&str; 3] = ["==", ">w", "ll<C-v>j>"];
 
 /// The blockwise shift the seam refuses, and the linewise one it runs. vim answers the two
 /// differently, which is the whole reason the blockwise one cannot be run as though it named the
@@ -694,6 +697,21 @@ fn an_indenting_command_whose_lines_the_seam_cannot_work_out_is_refused() {
             "`{keys}` was refused after editing part of the text"
         );
     }
+}
+
+#[test]
+fn a_shift_over_a_paragraph_is_not_a_command_the_seam_is_offered_at_all() {
+    let mut engine = Engine::new(PROSE);
+    engine
+        .press_all(typed_keys("}"))
+        .expect("the keys run against the engine");
+
+    assert_eq!(
+        0,
+        engine.cursor().line,
+        "`}}` is bound now and carries the cursor, so `>}}` reaches this seam as an indenting \
+         command again and belongs back among the ones it refuses"
+    );
 }
 
 #[test]

@@ -1,11 +1,13 @@
 //! The vim engine the editor's commands come from, and the seam keystrokes reach it through.
 //!
 //! vimbecode does not write its own motions, text objects, operators, registers, marks or counts:
-//! modalkit's vim keybindings turn keystrokes into actions and modalkit's text runs them, which is
-//! thousands of lines of vim semantics this workspace does not have to be right about. What lives
-//! here is only the seam: the events an application loop already delivers are handed to the
-//! keybinding machine, the actions it yields are run, and what they left behind is read back in
-//! the terms the differential harness compares engines in.
+//! modalkit's editing actions name every one of them and modalkit's text runs them, which is
+//! thousands of lines of vim semantics this workspace does not have to be right about. Which keys
+//! ask for which of those actions is the editor's own, and lives in [`keys`](crate::keys), because
+//! modalkit's table cannot spell an operator and a display motion that begin with the same
+//! character. What lives here is only the seam: the events an application loop already delivers are
+//! handed to the keybinding machine, the actions it yields are run, and what they left behind is
+//! read back in the terms the differential harness compares engines in.
 //!
 //! The engine is the authority on the text, the cursor, the mode and the registers, and on nothing
 //! else. Where a line is drawn on a screen and how wide a grapheme is are the layout engine's
@@ -74,15 +76,13 @@ use modalkit::editing::context::EditContext;
 use modalkit::editing::cursor::{Cursor, CursorGroup, CursorState};
 use modalkit::editing::rope::EditRope;
 use modalkit::editing::store::Store;
-use modalkit::env::vim::keybindings::{default_vim_keys, VimMachine};
 use modalkit::env::vim::VimMode;
-use modalkit::key::TerminalKey;
-use modalkit::keybindings::BindingMachine;
 use vbc_layout::position::LogicalPosition;
 use vbc_layout::width::graphemes;
 
 use crate::event::{Event, KeyEvent};
 use crate::indent::{indent_of, resting_column, Shift};
+use crate::keys::{Bindings, Keys};
 use crate::screen::Geometry;
 use crate::shim::{classified, Classification, Landing, Shim, Text};
 
@@ -160,7 +160,7 @@ pub struct Held {
 /// Keys go in one at a time and every action a key produces is run before the next key is read, so
 /// an engine is never holding a half-run keystroke when its state is read back.
 pub struct Engine {
-    keys: VimMachine<TerminalKey>,
+    keys: Keys,
     text: EditBuffer<EmptyInfo>,
     store: Store<EmptyInfo>,
     group: CursorGroupId,
@@ -221,6 +221,17 @@ impl Engine {
     #[must_use]
     pub fn indenting_by(mut self, shift: Shift) -> Self {
         self.shift = shift;
+
+        self
+    }
+
+    /// # Returns
+    ///
+    /// The same engine reading its keystrokes through `bindings` rather than through the table
+    /// [`Bindings::vim`] holds, so that a caller can rebind a key before typing at it.
+    #[must_use]
+    pub fn bound_by(mut self, bindings: Bindings) -> Self {
+        self.keys = Keys::new(bindings);
 
         self
     }
@@ -839,7 +850,7 @@ impl Engine {
         };
 
         Self {
-            keys: default_vim_keys(),
+            keys: Keys::vim(),
             text: edited,
             store: Store::default(),
             group,
