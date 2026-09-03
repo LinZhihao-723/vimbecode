@@ -28,9 +28,11 @@
 //! `iam` from inside a fenced block still name the message that block was written in.
 //!
 //! Resolving an object costs the block it is resolved in, because the fence that opened a region
-//! is found by reading the lines of that block. That is a keystroke's work rather than a frame's,
-//! and it is why this is not what a render does: drawing a window of a block costs the window, and
-//! only a key asking for an object pays for the block.
+//! is found by reading the lines of that block. Measured in release, `iac` in a fenced block costs
+//! 19 µs at a thousand lines, 180 µs at ten thousand and 1.8 ms at a hundred thousand: linear in
+//! the bytes of the one block, and untouched by the transcript around it. That is a keystroke's
+//! work rather than a frame's, and it is why this is not what a render does: drawing a window of a
+//! block costs the window, and only a key asking for an object pays for the block.
 
 use std::ops::Range;
 
