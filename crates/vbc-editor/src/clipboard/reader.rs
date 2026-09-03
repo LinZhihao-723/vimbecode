@@ -28,9 +28,9 @@
 //! paid on the worker thread as the session starts; what the clipboard holds is asked for when a
 //! paste asks for it and at no other time.
 //!
-//! The deadlines are read off the render loop's own clock rather than kept by anyone else, and the
-//! whole of the reader's state belongs to the thread that draws: the worker is spoken to over a
-//! pair of channels and shares nothing else with it.
+//! The deadlines are the drawing thread's own rather than kept by anyone else, and the whole of
+//! the reader's state belongs to it: the worker is spoken to over a pair of channels, and all it
+//! sends back is the read it answers, what that read found, and the moment it found it.
 
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread::{self, JoinHandle};
