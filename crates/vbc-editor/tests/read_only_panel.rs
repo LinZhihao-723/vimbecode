@@ -484,6 +484,17 @@ const READINGS: [Keystroke; 52] = [
     },
 ];
 
+/// The keys a three-key sweep starts a sequence with, which are the operators, the counts and the
+/// register and prefix keys every longer mutating keystroke begins with.
+const STARTERS: &str = "\"123dcy<>=gvVrzq@";
+
+/// The keys a three-key sweep continues a sequence with.
+const FOLLOWERS: &str = "\"2<>dcywgvViIaAoOpPuUxX~$0jkl";
+
+/// Every key a terminal reports as one printable character.
+const PRINTABLE: &str = " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcde\
+fghijklmnopqrstuvwxyz{|}~";
+
 /// Everything an engine is the authority on, which is what a panel and an engine are compared in.
 #[derive(Debug, Eq, PartialEq)]
 struct Reading {
@@ -782,46 +793,6 @@ fn undo_takes_a_mutating_keystroke_back_once_the_policy_is_taken_out() -> Result
     Ok(())
 }
 
-/// # Returns
-///
-/// A newly created panel showing [`TRANSCRIPT`] under `policy`, laid out in a window narrow
-/// enough for its lines to wrap.
-fn panel(policy: Policy) -> Panel {
-    Panel::laid_out_in(TRANSCRIPT, window()).governed_by(policy)
-}
-
-/// # Returns
-///
-/// The window every case is laid out in.
-///
-/// # Panics
-///
-/// Panics if [`COLUMNS`] or [`ROWS`] is zero, which neither is.
-fn window() -> Geometry {
-    Geometry::new(
-        NonZeroUsize::new(COLUMNS).expect("the window is not zero columns wide"),
-        NonZeroUsize::new(ROWS).expect("the window is not zero rows tall"),
-    )
-}
-
-/// # Returns
-///
-/// The key events a terminal reports when `keys` is typed at it, one per character.
-fn keys(keys: &str) -> Vec<KeyEvent> {
-    keys.chars().map(typed).collect()
-}
-
-/// The keys a three-key sweep starts a sequence with, which are the operators, the counts and the
-/// register and prefix keys every longer mutating keystroke begins with.
-const STARTERS: &str = "\"123dcy<>=gvVrzq@";
-
-/// The keys a three-key sweep continues a sequence with.
-const FOLLOWERS: &str = "\"2<>dcywgvViIaAoOpPuUxX~$0jkl";
-
-/// Every key a terminal reports as one printable character.
-const PRINTABLE: &str = " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcde\
-fghijklmnopqrstuvwxyz{|}~";
-
 #[test]
 fn no_one_or_two_key_sequence_that_writes_goes_unrefused() {
     let mut escaped = Vec::new();
@@ -869,6 +840,35 @@ fn a_refusal_winds_the_panel_back_to_where_the_engine_stands() -> Result<()> {
     );
 
     Ok(())
+}
+
+/// # Returns
+///
+/// A newly created panel showing [`TRANSCRIPT`] under `policy`, laid out in a window narrow
+/// enough for its lines to wrap.
+fn panel(policy: Policy) -> Panel {
+    Panel::laid_out_in(TRANSCRIPT, window()).governed_by(policy)
+}
+
+/// # Returns
+///
+/// The window every case is laid out in.
+///
+/// # Panics
+///
+/// Panics if [`COLUMNS`] or [`ROWS`] is zero, which neither is.
+fn window() -> Geometry {
+    Geometry::new(
+        NonZeroUsize::new(COLUMNS).expect("the window is not zero columns wide"),
+        NonZeroUsize::new(ROWS).expect("the window is not zero rows tall"),
+    )
+}
+
+/// # Returns
+///
+/// The key events a terminal reports when `keys` is typed at it, one per character.
+fn keys(keys: &str) -> Vec<KeyEvent> {
+    keys.chars().map(typed).collect()
 }
 
 /// # Returns
