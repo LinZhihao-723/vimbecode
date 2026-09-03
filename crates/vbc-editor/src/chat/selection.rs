@@ -19,7 +19,10 @@
 //!
 //! What any of this costs is what the selection covers rather than what the block holds: a motion
 //! walks the logical lines it crosses and nothing else, and the text, the counts and the segments
-//! are read off the range covered.
+//! are read off the range covered. The highlight costs less again, because a panel derives one
+//! every frame while a yank happens once: it costs the rows it was handed rather than the
+//! selection over them, so selecting the whole of what `cargo` wrote and scrolling through it
+//! costs a screenful a frame.
 
 use std::ops::Range;
 
@@ -311,6 +314,12 @@ impl Selection {
     /// is selected, which is why wrapping a line differently changes the picture and never the
     /// text.
     ///
+    /// What this costs is the rows it is handed rather than the selection over them: a row is
+    /// answered from the logical line it shows, and a run of rows continuing one line reads that
+    /// line once. A selection of a hundred thousand lines is therefore painted into a screenful
+    /// for what a selection of one costs, which `chat_selection_cost.rs` measures rather than
+    /// argues.
+    ///
     /// # Returns
     ///
     /// The columns to paint, one entry for each row of `rendered` the selection reaches, in the
@@ -322,25 +331,70 @@ impl Selection {
     /// does.
     #[must_use]
     pub fn highlight(&self, source: Source<'_>, rendered: &Rendered) -> Vec<RowHighlight> {
-        let segments = self.segments(source);
+        let text = source.text;
+        let (first, last) = self.ends();
+        let covered = line_start(text, first)..line_start(text, last);
+        let window = (Mode::Blockwise == self.mode).then(|| self.window(source));
+
         let mut highlights = Vec::new();
+        let mut held: Option<(Range<usize>, Range<usize>)> = None;
         for (index, row) in rendered.rows().iter().enumerate() {
             let drawn = row.source();
-            for segment in &segments {
-                let start = drawn.start.max(segment.start);
-                let end = drawn.end.min(segment.end);
-                let bare = drawn.start == drawn.end && segment.start == segment.end;
-                if start < end || (bare && drawn.start == segment.start) {
-                    highlights.push(RowHighlight {
-                        row: index,
-                        source: start..end,
-                        columns: columns_of(row, start - drawn.start..end - drawn.start),
-                    });
-                }
+            let continues = |(line, _): &(Range<usize>, Range<usize>)| {
+                line.start <= drawn.start && drawn.end <= line.end
+            };
+            if !held.as_ref().is_some_and(continues) {
+                let line = line_start(text, drawn.start)..line_end(text, drawn.start);
+                let taken = self.taken(source, line.clone(), window.as_ref());
+                held = Some((line, taken));
+            }
+
+            let (line, taken) = held.as_ref().expect("a drawn row shows a logical line");
+            if line.start < covered.start || covered.end < line.start {
+                continue;
+            }
+
+            let start = drawn.start.max(taken.start);
+            let end = drawn.end.min(taken.end);
+            let bare = drawn.start == drawn.end && taken.start == taken.end;
+            if start < end || (bare && drawn.start == taken.start) {
+                highlights.push(RowHighlight {
+                    row: index,
+                    source: start..end,
+                    columns: columns_of(row, start - drawn.start..end - drawn.start),
+                });
             }
         }
 
         highlights
+    }
+
+    /// # Returns
+    ///
+    /// The byte range of the logical line `line` the selection takes, which is what
+    /// [`Selection::segments`] would name for that line, `window` being the virtual columns a
+    /// blockwise selection takes.
+    ///
+    /// # Panics
+    ///
+    /// Panics if a blockwise selection is asked without the columns it takes, which no caller
+    /// does.
+    fn taken(
+        &self,
+        source: Source<'_>,
+        line: Range<usize>,
+        window: Option<&Range<usize>>,
+    ) -> Range<usize> {
+        let (first, last) = self.ends();
+        match self.mode {
+            Mode::Charwise => first..past(source.text, last),
+            Mode::Linewise => line,
+            Mode::Blockwise => cut(
+                source,
+                line,
+                window.expect("a blockwise selection is asked with the columns it takes"),
+            ),
+        }
     }
 
     /// # Returns
@@ -374,7 +428,8 @@ pub struct RowHighlight {
 impl RowHighlight {
     /// # Returns
     ///
-    /// The index, among the rows the block was drawn in, of the row this paints.
+    /// The index, among the rows the window was drawn in, of the row this paints, which is the row
+    /// of the block itself only where the window began at the top of it.
     #[must_use]
     pub fn row(&self) -> usize {
         self.row
@@ -867,6 +922,42 @@ mod tests {
     }
 
     #[test]
+    fn the_highlight_of_a_scrolled_window_names_the_rows_of_that_window_and_the_same_bytes() {
+        let text = transcript(3);
+        let source = over(&text);
+        let mut selection = Selection::new(Mode::Linewise, source, 0);
+        selection.extend(source, Motion::Down(2));
+
+        let whole = drawn(&text, Options::new(), WIDTH);
+        let scrolled = window(&text, WIDTH, WRAPPED, WRAPPED / 2);
+        assert_eq!(WRAPPED, scrolled.start(), "the window did not scroll");
+        assert_eq!(
+            WRAPPED / 2,
+            scrolled.rows().len(),
+            "the window did not fill"
+        );
+
+        let painted = selection.highlight(source, &whole);
+        let below = selection.highlight(source, &scrolled);
+        assert_eq!(
+            (0..WRAPPED / 2).collect::<Vec<usize>>(),
+            below.iter().map(RowHighlight::row).collect::<Vec<usize>>(),
+            "a scrolled window was painted at the rows of the block rather than at its own"
+        );
+        assert_eq!(
+            painted[WRAPPED..WRAPPED + WRAPPED / 2]
+                .iter()
+                .map(|highlight| (highlight.source().clone(), highlight.columns().clone()))
+                .collect::<Vec<(Range<usize>, Range<usize>)>>(),
+            below
+                .iter()
+                .map(|highlight| (highlight.source().clone(), highlight.columns().clone()))
+                .collect::<Vec<(Range<usize>, Range<usize>)>>(),
+            "scrolling the window changed the bytes or the columns the selection painted"
+        );
+    }
+
+    #[test]
     fn the_highlight_paints_a_continuation_row_from_the_column_its_marker_leaves() {
         let text = paragraph(0);
         let source = over(&text);
@@ -1052,6 +1143,22 @@ mod tests {
     ///
     /// The whole of `text` drawn as one block, in a panel `width` columns wide, under `options`.
     fn drawn(text: &str, options: Options, width: usize) -> Rendered {
+        rendered(text, options, width, RowWindow::new(0, 2 * text.len() + 2))
+    }
+
+    /// # Returns
+    ///
+    /// `rows` rows of `text` drawn as one block from its row `start`, in a panel `width` columns
+    /// wide, under vim's own defaults.
+    fn window(text: &str, width: usize, start: usize, rows: usize) -> Rendered {
+        rendered(text, Options::new(), width, RowWindow::new(start, rows))
+    }
+
+    /// # Returns
+    ///
+    /// The rows of `window` of `text` drawn as one block, in a panel `width` columns wide, under
+    /// `options`.
+    fn rendered(text: &str, options: Options, width: usize, window: RowWindow) -> Rendered {
         let block = Block::new(Kind::Message(Role::Assistant), text.to_owned());
         let wrapping = Wrapping::new(
             NonZeroUsize::new(width).expect("a fixture is drawn in at least one column"),
@@ -1059,7 +1166,7 @@ mod tests {
             options,
         );
 
-        block.render(RowWindow::new(0, 2 * text.len() + 2), &wrapping)
+        block.render(window, &wrapping)
     }
 
     /// # Returns
