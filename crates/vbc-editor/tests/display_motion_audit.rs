@@ -40,12 +40,14 @@
 
 use std::collections::BTreeSet;
 use std::fs;
+use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use anyhow::Context;
 use editor_types::prelude::{MoveDir1D, MovePosition, MoveType, WordStyle};
 use vbc_editor::engine::{typed, Engine, Error};
+use vbc_editor::screen::Geometry;
 use vbc_editor::shim::{classify, Classification, ScreenMotion};
 use vbc_oracle::corpus::{Case, Options};
 use vbc_oracle::state::EditorState;
@@ -224,8 +226,11 @@ fn a_refused_motion_is_refused_under_an_operator_and_without_a_shim() {
     for keys in REFUSED {
         let operated: String = format!("d{keys}");
         for (built, mut engine) in [
-            ("with a shim", Engine::new(PROSE)),
-            ("without a shim", Engine::bypassing_the_shim(PROSE)),
+            ("with a shim", Engine::laid_out_in(PROSE, window())),
+            (
+                "without a shim",
+                Engine::bypassing_the_shim(PROSE, &window()),
+            ),
         ] {
             let refused = engine
                 .press_all(operated.chars().map(typed))
@@ -595,6 +600,20 @@ fn case(buffer: &str, keys: &str) -> Case {
         tags: BTreeSet::new(),
         options: Options::default(),
     }
+}
+
+/// # Returns
+///
+/// The window the audit lays an engine out in, which is the one it measures vim in.
+///
+/// # Panics
+///
+/// Panics if that window is zero columns wide or zero rows tall, which it is not.
+fn window() -> Geometry {
+    Geometry::new(
+        NonZeroUsize::new(usize::from(COLUMNS)).expect("the columns are not zero"),
+        NonZeroUsize::new(usize::from(ROWS)).expect("the rows are not zero"),
+    )
 }
 
 /// # Returns
