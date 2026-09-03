@@ -36,6 +36,20 @@
 //! reaching from a line's indent to the end of a later line takes whole lines, which is a rule vim
 //! applies to a delete and to no other operator.
 //!
+//! Every case is replayed in four windows rather than one: undecorated, with `'showbreak'`, with
+//! `'breakindent'` and with both. An undecorated window cannot tell a column measured against the
+//! whole window from a column measured against the row's own text, because the two are the same
+//! number there, and every rule deciding what an operator takes is read off the column a screen
+//! motion landed in; a comparison made only in such a window passes against a seam that has the
+//! two confused. Two decorated cases disagree with vim and are named as disagreeing, both for a
+//! reason the operator has no part in: they are a row of tabs whose bare motion already lands a
+//! grapheme away from where vim lands it.
+//!
+//! A count larger than the text has rows for is here twice over, because what is in front of it
+//! decides the answer: vim clamps a bare `999gj` to the row the walk ran out on and abandons
+//! `d999gj` with the buffer untouched. The second belongs to the abandoned group, which is
+//! required to have left vim's own text alone before the two states are compared at all.
+//!
 //! The control group is the operators counted in characters -- `dw`, `d$`, `dj` -- typed at the
 //! same texts through the same seam. They are what says the seam left everything it is not for
 //! alone.
@@ -128,8 +142,46 @@ const COLUMNS: u16 = 20;
 /// The screen lines the cases below are laid out in.
 const ROWS: u16 = 10;
 
+/// What a continuation row is decorated with: the name the case is reported under, whether the
+/// line's indent is repeated onto the row, and the marker drawn in front of it.
+type Decoration = (&'static str, bool, &'static str);
+
+/// The decorations every case below is replayed under. A window that draws nothing in front of a
+/// continuation row cannot tell a column measured against the whole window from a column measured
+/// against the row's own text, because the two are the same number there; a decorated one can, and
+/// the rules an operator's range is decided by are read off that column.
+const DECORATIONS: [Decoration; 4] = [
+    ("plain", false, ""),
+    ("showbreak", false, "> "),
+    ("breakindent", true, ""),
+    ("both", true, "+++ "),
+];
+
+/// The cases an operator over a display motion leaves the engine and vim in different states in,
+/// each named by the case and the decoration it is replayed under, with the reason.
+///
+/// Both are the same row of tabs drawn behind a continuation marker and a repeated indent, and
+/// both are the bare motion's disagreement rather than the operator's: `lllgj` and `llllgj` typed
+/// at that text in that window were measured landing on grapheme eight where vim lands on grapheme
+/// nine, with no operator in front of them at all. The operator takes what the motion reached, so
+/// the one grapheme shows up in the text and in the register rather than only in the cursor.
+///
+/// It is the disagreement `display_motion_oracle.rs` names for the bare motions, tracked as issue
+/// #41, and no mechanism for it is established. Nothing here is tuned to cancel it, and the list
+/// is asserted by set equality so a case that starts or stops agreeing fails the build.
+const DECORATED_DIVERGENCES: [(&str, &str); 2] = [
+    (
+        "delete down a screen line from beside a tab both",
+        "the seam steps back off the tab the row split and vim stays on it",
+    ),
+    (
+        "delete down a screen line over tabs both",
+        "the seam steps back off the tab the row split and vim stays on it",
+    ),
+];
+
 /// The operators applied over a motion counted in cells, which is what this file is for.
-const SCREENWISE: [Case; 33] = [
+const SCREENWISE: [Case; 38] = [
     Case {
         id: "delete down a screen line",
         text: PROSE,
@@ -427,6 +479,51 @@ const SCREENWISE: [Case; 33] = [
         motion: "2g$",
         typed: "",
     },
+    Case {
+        id: "yank to the end of a screen line taking the grapheme it lands on",
+        text: PROSE,
+        columns: COLUMNS,
+        walked: "gjlll",
+        operator: "y",
+        motion: "g$",
+        typed: "",
+    },
+    Case {
+        id: "delete down a screen line behind an end of line carried across a line step",
+        text: PROSE,
+        columns: COLUMNS,
+        walked: "$j",
+        operator: "d",
+        motion: "gj",
+        typed: "",
+    },
+    Case {
+        id: "delete up a screen line behind an end of line carried across a line step",
+        text: PROSE,
+        columns: COLUMNS,
+        walked: "jj$k",
+        operator: "d",
+        motion: "gk",
+        typed: "",
+    },
+    Case {
+        id: "yank down a screen line behind an end of line carried across a line step",
+        text: PROSE,
+        columns: COLUMNS,
+        walked: "$j",
+        operator: "y",
+        motion: "gj",
+        typed: "",
+    },
+    Case {
+        id: "delete down a screen line behind an end of line an operator already took",
+        text: PROSE,
+        columns: COLUMNS,
+        walked: "llld$",
+        operator: "d",
+        motion: "gj",
+        typed: "",
+    },
 ];
 
 /// The operators counted in characters, which the seam has no business touching and which are what
@@ -512,7 +609,7 @@ const CHARACTERWISE: [Case; 8] = [
 /// They are held to vim like every other case, and they are the one group left out of the sweep
 /// that drops the operator from the keys, because vim dropped it too and the two are supposed to
 /// agree.
-const ABANDONED: [Case; 5] = [
+const ABANDONED: [Case; 8] = [
     Case {
         id: "delete down more screen lines than the text holds",
         text: PROSE,
@@ -558,6 +655,33 @@ const ABANDONED: [Case; 5] = [
         motion: "9gk",
         typed: "",
     },
+    Case {
+        id: "delete down a count no text has the rows for",
+        text: PROSE,
+        columns: COLUMNS,
+        walked: "",
+        operator: "d",
+        motion: "999gj",
+        typed: "",
+    },
+    Case {
+        id: "yank down a count no text has the rows for",
+        text: INDENTED,
+        columns: COLUMNS,
+        walked: "ll",
+        operator: "y",
+        motion: "999gj",
+        typed: "",
+    },
+    Case {
+        id: "delete up a count no text has the rows for",
+        text: PROSE,
+        columns: COLUMNS,
+        walked: "jj",
+        operator: "d",
+        motion: "999gk",
+        typed: "",
+    },
 ];
 
 /// The corpus cases whose outcome the engine and vim do not share, each for a reason that is not
@@ -585,14 +709,27 @@ const REFUSED: [&str; 4] = [
 fn an_operator_over_a_display_motion_ends_where_vim_ends() -> anyhow::Result<()> {
     let vim = VimDriver::new()?;
 
+    let mut diverged = BTreeSet::new();
+
     for case in &SCREENWISE {
-        assert_eq!(
-            vim_outcome(&vim, case, &case.keys())?,
-            engine_outcome(case, &case.keys()),
-            "`{}` left the engine somewhere other than where vim left it",
-            case.id
-        );
+        for decoration in DECORATIONS {
+            if vim_outcome(&vim, case, &case.keys(), decoration)?
+                != engine_outcome(case, &case.keys(), decoration)
+            {
+                diverged.insert(format!("{} {}", case.id, decoration.0));
+            }
+        }
     }
+
+    assert_eq!(
+        DECORATED_DIVERGENCES
+            .into_iter()
+            .map(|(case, _reason)| case.to_owned())
+            .collect::<BTreeSet<String>>(),
+        diverged,
+        "the cases that leave the engine somewhere other than where vim leaves it are not the \
+         ones named as doing so"
+    );
 
     Ok(())
 }
@@ -602,12 +739,15 @@ fn an_operator_counted_in_characters_ends_where_vim_ends() -> anyhow::Result<()>
     let vim = VimDriver::new()?;
 
     for case in &CHARACTERWISE {
-        assert_eq!(
-            vim_outcome(&vim, case, &case.keys())?,
-            engine_outcome(case, &case.keys()),
-            "`{}` left the engine somewhere other than where vim left it",
-            case.id
-        );
+        for decoration in DECORATIONS {
+            assert_eq!(
+                vim_outcome(&vim, case, &case.keys(), decoration)?,
+                engine_outcome(case, &case.keys(), decoration),
+                "`{}` left the engine somewhere other than where vim left it in a {} window",
+                case.id,
+                decoration.0
+            );
+        }
     }
 
     Ok(())
@@ -618,19 +758,22 @@ fn an_operator_whose_motion_ran_out_of_text_ends_where_vim_ends() -> anyhow::Res
     let vim = VimDriver::new()?;
 
     for case in &ABANDONED {
-        let expected = vim_outcome(&vim, case, &case.keys())?;
+        for decoration in DECORATIONS {
+            let expected = vim_outcome(&vim, case, &case.keys(), decoration)?;
 
-        assert_eq!(
-            case.text, expected.text,
-            "`{}` is meant to leave vim's own text untouched and does not",
-            case.id
-        );
-        assert_eq!(
-            expected,
-            engine_outcome(case, &case.keys()),
-            "`{}` left the engine somewhere other than where vim left it",
-            case.id
-        );
+            assert_eq!(
+                case.text, expected.text,
+                "`{}` is meant to leave vim's own text untouched and does not in a {} window",
+                case.id, decoration.0
+            );
+            assert_eq!(
+                expected,
+                engine_outcome(case, &case.keys(), decoration),
+                "`{}` left the engine somewhere other than where vim left it in a {} window",
+                case.id,
+                decoration.0
+            );
+        }
     }
 
     Ok(())
@@ -642,13 +785,17 @@ fn an_engine_that_answered_the_motion_and_dropped_the_operator_diverges_from_vim
     let vim = VimDriver::new()?;
 
     for case in SCREENWISE.iter().chain(CHARACTERWISE.iter()) {
-        assert_ne!(
-            vim_outcome(&vim, case, &case.keys())?,
-            engine_outcome(case, &case.degraded()),
-            "`{}` agreed with vim with its operator taken out of the keys, so the comparison \
-             would pass against an engine that answered the motion and ran no operator at all",
-            case.id
-        );
+        for decoration in DECORATIONS {
+            assert_ne!(
+                vim_outcome(&vim, case, &case.keys(), decoration)?,
+                engine_outcome(case, &case.degraded(), decoration),
+                "`{}` agreed with vim with its operator taken out of the keys in a {} window, so \
+                 the comparison would pass against an engine that answered the motion and ran no \
+                 operator at all",
+                case.id,
+                decoration.0
+            );
+        }
     }
 
     Ok(())
@@ -660,32 +807,38 @@ fn a_register_holding_the_right_text_under_the_wrong_type_is_reported() -> anyho
     let mut shapes = Vec::new();
 
     for case in SCREENWISE.iter().chain(CHARACTERWISE.iter()) {
-        let expected = vim_outcome(&vim, case, &case.keys())?;
-        assert!(
-            !expected.registers.is_empty(),
-            "`{}` fills no register, so reporting its registers under another type reports the \
-             same state and the comparison below would be comparing one with itself",
-            case.id
-        );
-        for held in expected.registers.values() {
-            shapes.push(held.register_type);
-        }
+        for decoration in DECORATIONS {
+            let expected = vim_outcome(&vim, case, &case.keys(), decoration)?;
+            assert!(
+                !expected.registers.is_empty(),
+                "`{}` fills no register in a {} window, so reporting its registers under another \
+                 type reports the same state and the comparison below would be comparing one with \
+                 itself",
+                case.id,
+                decoration.0
+            );
+            for held in expected.registers.values() {
+                shapes.push(held.register_type);
+            }
 
-        let retyped = Outcome {
-            registers: expected
-                .registers
-                .iter()
-                .map(|(name, held)| (*name, retyped(held)))
-                .collect(),
-            ..expected
-        };
-        assert_ne!(
-            retyped,
-            engine_outcome(case, &case.keys()),
-            "`{}` agreed with a vim whose every register was reported under another type, so the \
-             comparison is holding the register's text and not the shape a put reinserts it with",
-            case.id
-        );
+            let retyped = Outcome {
+                registers: expected
+                    .registers
+                    .iter()
+                    .map(|(name, held)| (*name, retyped(held)))
+                    .collect(),
+                ..expected
+            };
+            assert_ne!(
+                retyped,
+                engine_outcome(case, &case.keys(), decoration),
+                "`{}` agreed with a vim whose every register was reported under another type in a \
+                 {} window, so the comparison is holding the register's text and not the shape a \
+                 put reinserts it with",
+                case.id,
+                decoration.0
+            );
+        }
     }
 
     assert!(
@@ -751,10 +904,16 @@ fn the_corpus_ends_where_vim_ends_wherever_the_two_lay_a_line_out_alike() -> any
 /// # Panics
 ///
 /// Panics if the keys do not run.
-fn engine_outcome(case: &Case, keys: &str) -> Outcome {
+fn engine_outcome(case: &Case, keys: &str, decoration: Decoration) -> Outcome {
+    let (_name, break_indent, show_break) = decoration;
     let columns = NonZeroUsize::new(usize::from(case.columns)).expect("the columns are not zero");
     let rows = NonZeroUsize::new(usize::from(ROWS)).expect("the rows are not zero");
-    let mut engine = Engine::laid_out_in(case.text, Geometry::new(columns, rows));
+    let geometry = Geometry::new(columns, rows).with_options(
+        Options::new()
+            .with_break_indent(break_indent)
+            .with_show_break(show_break.to_owned()),
+    );
+    let mut engine = Engine::laid_out_in(case.text, geometry);
     engine
         .press_all(typed_keys(keys))
         .expect("the keys run against the engine");
@@ -772,7 +931,13 @@ fn engine_outcome(case: &Case, keys: &str) -> Outcome {
 /// Returns an error if:
 ///
 /// * Forwards [`VimDriver::run_case`]'s return values on failure.
-fn vim_outcome(vim: &VimDriver, case: &Case, keys: &str) -> anyhow::Result<Outcome> {
+fn vim_outcome(
+    vim: &VimDriver,
+    case: &Case,
+    keys: &str,
+    decoration: Decoration,
+) -> anyhow::Result<Outcome> {
+    let (_name, break_indent, show_break) = decoration;
     let state = vim.run_case(&CorpusCase {
         id: case.id.to_owned(),
         description: case.id.to_owned(),
@@ -781,7 +946,11 @@ fn vim_outcome(vim: &VimDriver, case: &Case, keys: &str) -> anyhow::Result<Outco
         viewport_width: case.columns,
         viewport_height: ROWS,
         tags: BTreeSet::new(),
-        options: CaseOptions::default(),
+        options: CaseOptions {
+            breakindent: break_indent,
+            showbreak: show_break.to_owned(),
+            ..CaseOptions::default()
+        },
     })?;
 
     Ok(state.into())

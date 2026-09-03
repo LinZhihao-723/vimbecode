@@ -57,6 +57,18 @@
 //! left from rather than to the column the row it landed on cut it back to, and a `g$` in front of
 //! either sticks to the end of every row they pass. Anything else the engine runs forgets that
 //! column, which is what keeps it the memory of a chain rather than a memory that outlives one.
+//! The exception is vim's own exception: a bare `j` or `k` is the one cursor move that leaves
+//! `curswant` alone, so a chain that a `$` left wanting the end of a row reaches the screen motion
+//! behind one still wanting it. Nothing else is carried across one. vim's `curswant` is a virtual
+//! column of a whole logical line, and every other column a chain can be walking down is a display
+//! column of the row it was walking down, which is a different number in the line a vertical
+//! motion lands in; `$` is the one place the two agree, because the end of a row is the same place
+//! in whatever line it is measured against. Carrying a number instead was measured against vim
+//! and moved forty-eight cases off it that were on it.
+//!
+//! A motion this seam measures and then leaves to modalkit forgets that column as anything else
+//! does. `H`, `M` and `L` move the cursor whoever answers them, and vim sets `curswant` from each,
+//! so a chain reaching past one would be walking down a column vim had already forgotten.
 //!
 //! What a motion is answered with is a place together with the two facts an operator applied over
 //! it turns on and a cursor moved by it does not: whether the grapheme landed on is part of what
@@ -237,22 +249,35 @@ impl Shim {
         &self.intercepted
     }
 
-    /// Reads what an action this seam does not answer leaves a chain of screen motions wanting.
+    /// Reads what an action this seam does not answer leaves a chain of screen motions wanting,
+    /// where `bare` says the action is a motion with no operator applied to it.
     ///
     /// vim's own `$` wants the end of every row a screen motion after it lands on, which is the
-    /// one column a chain can be walking down without a screen motion having started it. Anything
-    /// else that moves the cursor wants nothing at all, and the next screen motion is measured
-    /// from wherever the cursor was left.
+    /// one column a chain can be walking down without a screen motion having started it. A bare
+    /// `j` or `k` is the one cursor move vim leaves `curswant` alone across, and a chain wanting
+    /// that end reaches the screen motion behind one still wanting it. Anything else that moves
+    /// the cursor wants nothing at all, and the next screen motion is measured from wherever the
+    /// cursor was left.
+    ///
+    /// What is carried across a vertical motion is that end alone. vim's `curswant` is a virtual
+    /// column of a whole logical line, and everything else a chain can be walking down -- a
+    /// numbered column, or the end a `g$` landed in -- is a display column of the row it was
+    /// walking down, which is a different number in the line a vertical motion lands in. `$` is
+    /// the one place the two agree, because the end of a row is the same place in whatever line it
+    /// is measured against.
     ///
     /// An action that only records where the text has been moves no cursor and so ends no chain.
     /// modalkit files a history checkpoint after every key, and a chain such a checkpoint broke
     /// would be a chain no second motion could ever join.
-    pub fn note(&mut self, action: &EditorAction) {
+    pub fn note(&mut self, action: &EditorAction, bare: bool) {
         if matches!(action, EditorAction::History(_)) {
             return;
         }
+        if bare && Some(Wanted::End { inclusive: true }) == self.wanted && steps_a_line(action) {
+            return;
+        }
 
-        self.wanted = ends_a_line(action).then_some(Wanted::End { inclusive: true });
+        self.wanted = (bare && ends_a_line(action)).then_some(Wanted::End { inclusive: true });
     }
 
     /// Takes the screen motion `motion`, resolved to the count `count`, with the cursor standing
@@ -265,7 +290,8 @@ impl Shim {
     /// # Returns
     ///
     /// Where the motion goes, and [`None`] for a motion this seam does not answer, which the
-    /// caller is then to leave to modalkit.
+    /// caller is then to leave to modalkit. A motion left to modalkit still ends the chain: it
+    /// moves the cursor, and vim sets `curswant` from every cursor move but a bare `j` or `k`.
     pub fn intercept<TextType: Text>(
         &mut self,
         motion: ScreenMotion,
@@ -287,7 +313,9 @@ impl Shim {
 
         let (steps, direction, wanted) = match motion {
             ScreenMotion::ViewportPos(_) | ScreenMotion::LinePos(MovePosition::Middle) => {
-                return None
+                self.wanted = None;
+
+                return None;
             }
             ScreenMotion::FirstWord(direction) => (count, direction, Wanted::FirstWord),
             ScreenMotion::Line(direction) => (
@@ -441,6 +469,17 @@ pub fn classified(action: &EditorAction) -> Option<(Classification, Count)> {
     };
 
     Some((classify(move_type), count.clone()))
+}
+
+/// # Returns
+///
+/// Whether `action` is one of the motions counted in whole logical lines, which is vim's `j` and
+/// `k` and is what it leaves `curswant` alone across.
+fn steps_a_line(action: &EditorAction) -> bool {
+    matches!(
+        action,
+        EditorAction::Edit(_, EditTarget::Motion(MoveType::Line(_), _))
+    )
 }
 
 /// # Returns
@@ -802,10 +841,13 @@ mod tests {
             .intercept(ScreenMotion::Line(MoveDir1D::Next), 3, at, &held)
             .expect("a screen line down is answered")
             .at;
-        shim.note(&edit(EditTarget::Motion(
-            MoveType::Column(MoveDir1D::Next, false),
-            Count::Contextual,
-        )));
+        shim.note(
+            &edit(EditTarget::Motion(
+                MoveType::Column(MoveDir1D::Next, false),
+                Count::Contextual,
+            )),
+            true,
+        );
         let second = shim
             .intercept(ScreenMotion::Line(MoveDir1D::Next), 1, first, &held)
             .expect("a screen line down is answered")
@@ -815,12 +857,161 @@ mod tests {
     }
 
     #[test]
+    fn a_bare_vertical_motion_carries_a_chain_wanting_an_end_across_itself() {
+        let mut shim = Shim::new(geometry());
+        let held = text(&RAGGED);
+        shim.note(&ended_a_line(), true);
+        let first = shim
+            .intercept(
+                ScreenMotion::Line(MoveDir1D::Next),
+                3,
+                LogicalPosition {
+                    line: 0,
+                    grapheme: 0,
+                },
+                &held,
+            )
+            .expect("a screen line down is answered")
+            .at;
+        shim.note(&stepped_down(), true);
+        let second = shim
+            .intercept(ScreenMotion::Line(MoveDir1D::Next), 1, first, &held)
+            .expect("a screen line down is answered")
+            .at;
+
+        assert_eq!(
+            LogicalPosition {
+                line: 2,
+                grapheme: 9,
+            },
+            second,
+            "a bare `j` between the two ended a chain wanting an end, which vim's own `curswant` \
+             outlives"
+        );
+    }
+
+    #[test]
+    fn a_bare_vertical_motion_ends_a_chain_wanting_a_numbered_column() {
+        let mut shim = Shim::new(geometry());
+        let held = text(&RAGGED);
+        let first = shim
+            .intercept(
+                ScreenMotion::Line(MoveDir1D::Next),
+                3,
+                LogicalPosition {
+                    line: 0,
+                    grapheme: 7,
+                },
+                &held,
+            )
+            .expect("a screen line down is answered")
+            .at;
+        shim.note(&stepped_down(), true);
+        let second = shim
+            .intercept(ScreenMotion::Line(MoveDir1D::Next), 1, first, &held)
+            .expect("a screen line down is answered")
+            .at;
+
+        assert_eq!(4, second.grapheme);
+    }
+
+    #[test]
+    fn an_operator_over_a_vertical_motion_breaks_a_chain_wanting_an_end() {
+        let mut shim = Shim::new(geometry());
+        let held = text(&RAGGED);
+        shim.note(&ended_a_line(), true);
+        let first = shim
+            .intercept(
+                ScreenMotion::Line(MoveDir1D::Next),
+                3,
+                LogicalPosition {
+                    line: 0,
+                    grapheme: 0,
+                },
+                &held,
+            )
+            .expect("a screen line down is answered")
+            .at;
+        shim.note(&stepped_down(), false);
+        let second = shim
+            .intercept(ScreenMotion::Line(MoveDir1D::Next), 1, first, &held)
+            .expect("a screen line down is answered")
+            .at;
+
+        assert_eq!(
+            LogicalPosition {
+                line: 2,
+                grapheme: 4,
+            },
+            second
+        );
+    }
+
+    #[test]
+    fn an_operator_over_an_end_of_line_leaves_the_chain_wanting_nothing() {
+        let mut shim = Shim::new(geometry());
+        shim.note(&ended_a_line(), false);
+        let below = shim
+            .intercept(
+                ScreenMotion::Line(MoveDir1D::Next),
+                3,
+                LogicalPosition {
+                    line: 0,
+                    grapheme: 0,
+                },
+                &text(&RAGGED),
+            )
+            .expect("a screen line down is answered")
+            .at;
+
+        assert_eq!(
+            LogicalPosition {
+                line: 1,
+                grapheme: 0,
+            },
+            below
+        );
+    }
+
+    #[test]
+    fn a_motion_left_to_modalkit_ends_the_chain() {
+        let mut shim = Shim::new(geometry());
+        let held = text(&RAGGED);
+        shim.note(&ended_a_line(), true);
+        let at = LogicalPosition {
+            line: 0,
+            grapheme: 0,
+        };
+
+        assert_eq!(
+            None,
+            shim.intercept(
+                ScreenMotion::ViewportPos(MovePosition::Beginning),
+                1,
+                at,
+                &held
+            )
+        );
+
+        let below = shim
+            .intercept(ScreenMotion::Line(MoveDir1D::Next), 3, at, &held)
+            .expect("a screen line down is answered")
+            .at;
+
+        assert_eq!(
+            LogicalPosition {
+                line: 1,
+                grapheme: 0,
+            },
+            below,
+            "an `H` between the two carried a chain vim's own `curswant` does not outlive"
+        );
+    }
+
+    #[test]
     fn the_end_of_a_line_leaves_the_chain_wanting_the_end_of_a_row() {
         let mut shim = Shim::new(geometry());
-        shim.note(&edit(EditTarget::Motion(
-            MoveType::LinePos(MovePosition::End),
-            Count::Contextual,
-        )));
+        shim.note(&ended_a_line(), true);
         let below = shim
             .intercept(
                 ScreenMotion::Line(MoveDir1D::Next),
@@ -1100,5 +1291,25 @@ mod tests {
     /// The action modalkit produces for a motion over `target` with no operator applied to it.
     fn edit(target: EditTarget) -> EditorAction {
         EditorAction::Edit(Specifier::Contextual, target)
+    }
+
+    /// # Returns
+    ///
+    /// The action modalkit produces for vim's `j`.
+    fn stepped_down() -> EditorAction {
+        edit(EditTarget::Motion(
+            MoveType::Line(MoveDir1D::Next),
+            Count::Contextual,
+        ))
+    }
+
+    /// # Returns
+    ///
+    /// The action modalkit produces for vim's `$`.
+    fn ended_a_line() -> EditorAction {
+        edit(EditTarget::Motion(
+            MoveType::LinePos(MovePosition::End),
+            Count::Contextual,
+        ))
     }
 }

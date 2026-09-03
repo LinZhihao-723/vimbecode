@@ -33,12 +33,25 @@
 //! leaves it wanting the end of every row it lands on, which is a column no screen motion asked
 //! for.
 //!
+//! What a chain wants outlives some of the keys typed in the middle of it and not others. vim's
+//! `curswant` is left alone by a bare `j` or `k` and set by every other cursor move, so a `$` two
+//! motions back is still wanting the end of a row where a column typed in between is not. Both
+//! halves are replayed here, and each case that ends a chain is required to land somewhere the
+//! same chain carried on would not, so that agreeing with vim there says which of the two happened
+//! rather than only that the cursor arrived somewhere plausible. The one chain a `g$` starts is
+//! not among them: it wants a column rather than an end, so the seam ends it at a `j` and vim does
+//! not, and that is pinned as a divergence with the reason rather than answered here. A chain a
+//! numbered column started is pinned beside it for the same reason, on the texts the `j` in front
+//! of it is measured landing where vim lands it, so that the pin reports the column alone.
+//!
 //! Every case above is laid out in a window that draws no decoration in front of a continuation
 //! row, and a window like that cannot tell a column measured against the whole window from a
 //! column measured against the row's own text: the two are the same number only while nothing
 //! stands in front of that text. So the same motions and the same walks are replayed with
 //! `'showbreak'`, with `'breakindent'`, and with both at once, in three windows apiece, which is
-//! where the difference between the two is a column rather than nothing.
+//! where the difference between the two is a column rather than nothing. The walks that track a
+//! column across more than one motion -- the ragged walk, the counted motions and the chains
+//! above -- are replayed there too.
 //!
 //! What those decorated windows still disagree with vim about is a difference of coordinates
 //! rather than of layout, and is named case by case below. vim decides whether to step back off a
@@ -49,6 +62,11 @@
 //! threshold written in screen columns is the threshold vim wrote in virtual ones. The rows
 //! themselves are not in question: every decorated layout here was compared with the screen vim
 //! drew for it, cell for cell, and they are the same rows.
+//!
+//! The counted forms of `g$` are the one family left out of the decorated comparison, and are left
+//! out in writing: they count the screen lines below the cursor's own rather than the rows a walk
+//! steps, which is the fixed-column arithmetic named below, and the two vims this file has been
+//! measured against answer them differently on a decorated CJK row.
 //!
 //! The corpus is compared too. Every case of it that asks for a screen motion is replayed against
 //! vim in the window and under the display options the case declares, which is the sample this
@@ -126,6 +144,9 @@ const TEXTS: [(&str, &str); 4] = [
 /// window's width is right wherever that width divides the text evenly, so one of these is an odd
 /// number of columns, in which a double-width character cannot end a row.
 const COLUMNS: [u16; 3] = [16, 21, 40];
+
+/// The narrowest of those windows, which is the one the divergence pinned below is measured in.
+const NARROWEST: u16 = COLUMNS[0];
 
 /// The windows in which no row is cut short by a double-width character that did not fit, which
 /// are the windows the chain of ends is compared in.
@@ -215,6 +236,32 @@ const DECORATED_DIVERGENCES: [(&str, &str); 7] = [
     ),
 ];
 
+/// The decorated walks down a ragged buffer that disagree with vim, each with the reason, so that
+/// a case which starts or stops agreeing fails this file rather than quietly leaving the sample.
+///
+/// These are the disagreement [`DECORATED_DIVERGENCES`] names, reached by different keys: a row
+/// that splits a tab, where one engine steps back off the grapheme the row split and the other
+/// stays on it, with no established mechanism for which of the two vim picks. Nothing here is
+/// tuned to cancel them and the list is asserted by set equality.
+const DECORATED_RAGGED_WALK_DIVERGENCES: [(&str, &str); 4] = [
+    (
+        "straddled w15 both llllllllllgjgj",
+        "the seam steps back off the tab the row split and vim stays on it",
+    ),
+    (
+        "straddled w15 both llllllllllgjgjgj",
+        "the seam steps back off the tab the row split and vim stays on it",
+    ),
+    (
+        "straddled w15 showbreak llllllllllgjgj",
+        "the seam steps back off the tab the row split and vim stays on it",
+    ),
+    (
+        "straddled w15 showbreak llllllllllgjgjgj",
+        "the seam steps back off the tab the row split and vim stays on it",
+    ),
+];
+
 /// The keys each motion is reached by.
 const MOTIONS: [&str; 5] = ["gj", "gk", "g0", "g^", "g$"];
 
@@ -241,8 +288,88 @@ const RAGGED_WALK: [&str; 6] = [
     "llllllllllgjgjgjgjgj",
 ];
 
-/// The counted motions, including counts larger than the text has rows for.
-const COUNTED: [&str; 8] = ["3gj", "5gj", "12gj", "G4gk", "G12gk", "2g$", "3g$", "2gjg0"];
+/// The motions counted in the screen lines a walk steps, including counts larger than the text has
+/// rows for. A count no text here has the rows for is clamped by vim rather than refused, and the
+/// cursor is left on the row the walk ran out on; the same count under an operator is a different
+/// answer and belongs to `operator_display_motions.rs`.
+const COUNTED: [&str; 8] = [
+    "3gj", "5gj", "12gj", "999gj", "G4gk", "G12gk", "999gk", "2gjg0",
+];
+
+/// The counted forms of `g$`, which count the screen lines below the cursor's own rather than the
+/// rows a walk steps, and which are compared undecorated only.
+///
+/// That is the corner this file already leaves out of the chain of ends: where a row is cut short
+/// because the double-width character coming next did not fit in the cell it had left, vim reaches
+/// the row below it by a fixed number of columns rather than by walking, and lands past the row it
+/// meant to. `2g$` and `3g$` on the CJK text in a decorated fifteen-column window are that corner,
+/// and the two vims this file has been measured against do not agree with each other there: 8.2
+/// lands where the seam lands and 9.1.697 lands elsewhere. Comparing them decorated would pin this
+/// file to whichever vim happened to run it, so they are left out in writing.
+const COUNTED_ENDS: [&str; 2] = ["2g$", "3g$"];
+
+/// The keys that put a bare `j` or `k` in the middle of a chain a `$` left wanting the end of a
+/// row, which is the one cursor move vim leaves `curswant` alone across and which the chain
+/// therefore has to outlive.
+const CARRIED_THROUGH_A_VERTICAL_MOTION: [&str; 6] =
+    ["$jgj", "$jjgj", "$jgjgj", "$jkgj", "$kgj", "j$kgj"];
+
+/// The keys that end a chain at a motion of their own, each paired with the keys the same chain
+/// would have run had nothing ended it. vim sets `curswant` from a motion that names a column and
+/// from the cursor an operator leaves behind, so the two are different places; requiring them to be
+/// is what says a case here turns on the chain having ended rather than on where it was going
+/// anyway.
+///
+/// An `H` is here because a motion the seam measures and then leaves to modalkit is a cursor move
+/// like any other: vim sets `curswant` from it, so the chain has to end there even though nothing
+/// here answered the motion. `M` and `L` are the same shape and are left out, because their own
+/// landings disagree with vim before any chain is involved -- a bare `Mgj` was measured diverging
+/// in 41 of these 80 windows and a bare `Lgj` in 22, where a bare `Hgj` diverges in none -- so a
+/// case built on either would be reporting modalkit's viewport arithmetic rather than the chain.
+///
+/// A motion that fails is left out, because vim leaves `curswant` alone across one and nothing
+/// here can see that a motion modalkit answered did not move: an `l` at the end of a line is a
+/// chain vim carries on and this seam ends, which is a divergence of its own rather than one of
+/// these rules.
+const ENDED_BY_A_MOTION_OF_ITS_OWN: [(&str, &str); 5] = [
+    ("$j0gj", "$jgj"),
+    ("$wgj", "$gj"),
+    ("$Hgj", "$gj"),
+    ("llllllllllgjlgj", "llllllllllgjgj"),
+    ("y$gj", "$gj"),
+];
+
+/// The keys that put a bare `j` between a `g$` and a screen motion, which vim answers somewhere
+/// this seam does not in the narrowest window of every text here, pinned so that the divergence is
+/// reported rather than rediscovered.
+///
+/// A `g$` leaves the chain wanting the column it landed in rather than the end of a row, which is
+/// what makes the motion behind it exclusive and is asserted as such by
+/// `operator_display_motions.rs`. A column is not carried across a vertical motion, so the seam
+/// ends the chain at the `j` and vim does not. Carrying the `g$` end across it as a `$` end is
+/// carried was measured agreeing with vim in more of these windows than it disagrees, and is not
+/// adopted: the rule that would fix it is the rule the exclusive-ness of `g$` says is wrong, and
+/// nothing reconciling the two has been measured.
+const A_SCREEN_LINE_END_BEHIND_A_VERTICAL_MOTION: &str = "g$jgj";
+
+/// The keys that put a bare `j` between two screen motions walking down a numbered column, which
+/// vim answers somewhere this seam does not, pinned so that the divergence is reported rather than
+/// rediscovered, paired with the keys in front of the second motion alone.
+///
+/// Only the end of a row is carried across a vertical motion, so the seam ends this chain at the
+/// `j` and vim does not. Carrying the number too was measured against vim and moved forty-eight
+/// cases off it that were on it, which is why it is not adopted; the reason is written out in
+/// `shim`'s own docs.
+///
+/// The two texts below are the ones the divergence is the chain's alone on. A bare `gjj` was
+/// measured landing where vim lands it on both of them in every window here, so what is left when
+/// `gjgj` disagrees is the column and not the row it was measured from. On the tab-straddled text
+/// the `j` itself already lands elsewhere, which would make a pin there report two things at once.
+const A_NUMBERED_COLUMN_BEHIND_A_VERTICAL_MOTION: (&str, &str) = ("gjjgj", "gjj");
+
+/// The texts the chain above is pinned on, which are the ones the `j` in front of it lands where
+/// vim lands it on.
+const A_NUMBERED_COLUMN_IS_THE_WHOLE_DIVERGENCE_ON: [&str; 2] = ["ascii", "cjk"];
 
 /// The keys that put a chain of screen motions behind an end of line, which leaves the chain
 /// wanting the end of every row it lands on rather than a column of its own.
@@ -319,27 +446,13 @@ fn every_bare_display_motion_on_a_decorated_row_lands_where_vim_lands() -> anyho
 #[test]
 fn a_walk_onto_a_decorated_row_lands_where_vim_lands() -> anyhow::Result<()> {
     let vim = VimDriver::new()?;
-    let mut diverged = BTreeSet::new();
-
-    for keys in DECORATED_WALKS {
-        for decoration in DECORATIONS {
-            for (name, text) in TEXTS {
-                for columns in DECORATED_COLUMNS {
-                    let case = case(text, keys, columns, decoration);
-                    if where_vim_left_it(&vim.run_case(&case)?) != cursor(&case, true) {
-                        diverged.insert(format!("{name} w{columns} {} {keys}", decoration.0));
-                    }
-                }
-            }
-        }
-    }
 
     assert_eq!(
         DECORATED_DIVERGENCES
             .into_iter()
             .map(|(case, _reason)| case.to_owned())
             .collect::<BTreeSet<String>>(),
-        diverged,
+        diverging(&vim, DECORATED_WALKS, &DECORATED_COLUMNS)?,
         "the decorated cases that disagree with vim are not the ones named as disagreeing"
     );
 
@@ -390,9 +503,145 @@ fn a_walk_down_a_ragged_buffer_tracks_the_column_vim_tracks() -> anyhow::Result<
 fn a_counted_display_motion_lands_where_vim_lands() -> anyhow::Result<()> {
     let vim = VimDriver::new()?;
 
-    for keys in COUNTED {
+    for keys in COUNTED.into_iter().chain(COUNTED_ENDS) {
         agrees_with_vim(&vim, keys, &COLUMNS, PLAIN)?;
     }
+
+    Ok(())
+}
+
+#[test]
+fn a_chain_holds_the_column_vim_holds_across_a_motion_it_did_not_answer() -> anyhow::Result<()> {
+    let vim = VimDriver::new()?;
+
+    for keys in CARRIED_THROUGH_A_VERTICAL_MOTION
+        .into_iter()
+        .chain(ENDED_BY_A_MOTION_OF_ITS_OWN.map(|(keys, _carried)| keys))
+    {
+        agrees_with_vim(&vim, keys, &COLUMNS, PLAIN)?;
+    }
+
+    Ok(())
+}
+
+#[test]
+fn a_chain_that_ends_lands_somewhere_the_same_chain_carried_on_does_not() -> anyhow::Result<()> {
+    let vim = VimDriver::new()?;
+
+    for (keys, carried) in ENDED_BY_A_MOTION_OF_ITS_OWN {
+        let mut differed = false;
+        for (_name, text) in TEXTS {
+            for columns in COLUMNS {
+                differed |= where_vim_left_it(&vim.run_case(&case(text, keys, columns, PLAIN))?)
+                    != where_vim_left_it(&vim.run_case(&case(text, carried, columns, PLAIN))?);
+            }
+        }
+
+        assert!(
+            differed,
+            "vim answers `{keys}` where it answers `{carried}`, so agreeing with it there says \
+             nothing about whether the chain ended"
+        );
+    }
+
+    Ok(())
+}
+
+#[test]
+fn a_chain_a_screen_line_end_started_is_a_known_divergence() -> anyhow::Result<()> {
+    let vim = VimDriver::new()?;
+
+    let keys = A_SCREEN_LINE_END_BEHIND_A_VERTICAL_MOTION;
+    for (name, text) in TEXTS {
+        let case = case(text, keys, NARROWEST, PLAIN);
+
+        assert_ne!(
+            where_vim_left_it(&vim.run_case(&case)?),
+            cursor(&case, true),
+            "`{keys}` on the {name} text lands where vim lands it now, so the divergence this \
+             file pins has been closed and the file should say so"
+        );
+    }
+
+    Ok(())
+}
+
+#[test]
+fn a_chain_a_numbered_column_started_is_a_known_divergence() -> anyhow::Result<()> {
+    let vim = VimDriver::new()?;
+
+    let (keys, stepped) = A_NUMBERED_COLUMN_BEHIND_A_VERTICAL_MOTION;
+    for (name, text) in TEXTS {
+        if !A_NUMBERED_COLUMN_IS_THE_WHOLE_DIVERGENCE_ON.contains(&name) {
+            continue;
+        }
+        for columns in COLUMNS {
+            let stopped = case(text, stepped, columns, PLAIN);
+
+            assert_eq!(
+                where_vim_left_it(&vim.run_case(&stopped)?),
+                cursor(&stopped, true),
+                "`{stepped}` on the {name} text no longer lands where vim lands it, so the \
+                 divergence below is no longer the chain's alone"
+            );
+
+            let case = case(text, keys, columns, PLAIN);
+
+            assert_ne!(
+                where_vim_left_it(&vim.run_case(&case)?),
+                cursor(&case, true),
+                "`{keys}` on the {name} text lands where vim lands it now, so the divergence this \
+                 file pins has been closed and the file should say so"
+            );
+        }
+    }
+
+    Ok(())
+}
+
+#[test]
+fn a_walk_down_a_ragged_buffer_on_a_decorated_row_tracks_the_column_vim_tracks(
+) -> anyhow::Result<()> {
+    let vim = VimDriver::new()?;
+
+    assert_eq!(
+        DECORATED_RAGGED_WALK_DIVERGENCES
+            .into_iter()
+            .map(|(case, _reason)| case.to_owned())
+            .collect::<BTreeSet<String>>(),
+        diverging(&vim, RAGGED_WALK, &DECORATED_COLUMNS)?,
+        "the decorated walks down a ragged buffer that disagree with vim are not the ones named \
+         as disagreeing"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn a_counted_display_motion_on_a_decorated_row_lands_where_vim_lands() -> anyhow::Result<()> {
+    let vim = VimDriver::new()?;
+
+    assert_eq!(
+        BTreeSet::<String>::new(),
+        diverging(&vim, COUNTED, &DECORATED_COLUMNS)?,
+        "a decorated counted motion disagrees with vim, and none is named as doing so"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn a_chain_on_a_decorated_row_holds_the_column_vim_holds() -> anyhow::Result<()> {
+    let vim = VimDriver::new()?;
+    let walks = CARRIED_THROUGH_A_VERTICAL_MOTION
+        .into_iter()
+        .chain(ENDED_BY_A_MOTION_OF_ITS_OWN.map(|(keys, _carried)| keys));
+
+    assert_eq!(
+        BTreeSet::<String>::new(),
+        diverging(&vim, walks, &DECORATED_COLUMNS)?,
+        "a decorated chain disagrees with vim, and none is named as doing so"
+    );
 
     Ok(())
 }
@@ -561,6 +810,46 @@ fn agrees_with_vim(
     }
 
     Ok(())
+}
+
+/// Replays every one of `walks` against every text of [`TEXTS`] in every window of `widths`, under
+/// each of [`DECORATIONS`], through vim and through an engine whose screen motions the shim
+/// answers.
+///
+/// # Type Parameters
+///
+/// * `WalksType` - The key sequences to replay.
+///
+/// # Returns
+///
+/// The cases the two left the cursor in different places in, named by text, width, decoration and
+/// keys, on success.
+///
+/// # Errors
+///
+/// Returns an error if:
+///
+/// * Forwards [`VimDriver::run_case`]'s return values on failure.
+fn diverging<WalksType: IntoIterator<Item = &'static str>>(
+    vim: &VimDriver,
+    walks: WalksType,
+    widths: &[u16],
+) -> anyhow::Result<BTreeSet<String>> {
+    let mut diverged = BTreeSet::new();
+    for keys in walks {
+        for decoration in DECORATIONS {
+            for (name, text) in TEXTS {
+                for columns in widths {
+                    let case = case(text, keys, *columns, decoration);
+                    if where_vim_left_it(&vim.run_case(&case)?) != cursor(&case, true) {
+                        diverged.insert(format!("{name} w{columns} {} {keys}", decoration.0));
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(diverged)
 }
 
 /// # Returns

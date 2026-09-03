@@ -817,8 +817,9 @@ impl Engine {
     /// action of an engine built without one.
     fn answered(&mut self, editor: &EditorAction, context: &EditContext) -> Option<Landing> {
         let shim = self.shim.as_mut()?;
+        let bare = bare(editor, context);
         let Some((Classification::Intercepted(motion), count)) = classified(editor) else {
-            shim.note(editor);
+            shim.note(editor, bare);
 
             return None;
         };
@@ -829,8 +830,8 @@ impl Engine {
             grapheme: grapheme_offset(&text.line(cursor.y).unwrap_or_default(), cursor.x),
         };
         let landing = shim.intercept(motion, context.resolve(&count), at, text);
-        if !bare(editor, context) {
-            shim.note(editor);
+        if !bare {
+            shim.note(editor, false);
         }
 
         landing
