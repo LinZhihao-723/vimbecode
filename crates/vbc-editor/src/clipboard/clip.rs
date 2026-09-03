@@ -157,9 +157,12 @@ impl Clip {
         let written = input.write_all(&encode(text)).and_then(|()| input.flush());
         drop(input);
 
-        let status = child.wait().map_err(pipe_error);
-        written.map_err(pipe_error)?;
-        exited(status?)
+        // A writer that refuses the yank stops reading, so the pipe breaks under the write and the
+        // broken pipe is the symptom rather than the cause. Whether it broke is a race against how
+        // much the pipe happened to buffer; what the writer exited with is not.
+        let status = child.wait().map_err(pipe_error)?;
+        exited(status)?;
+        written.map_err(pipe_error)
     }
 }
 
