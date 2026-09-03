@@ -621,6 +621,14 @@ mod tests {
             "the blank lines at the start of a block were taken by the inner object"
         );
         assert_eq!(Some(padded), text(&spaced, &resolve(&spaced, "aam", 0, 0)));
+
+        let whitespace = "  \nhere is the fix\n   \n";
+        let blank = said(whitespace);
+        assert_eq!(
+            Some("here is the fix"),
+            text(&blank, &resolve(&blank, "iam", 0, 0)),
+            "a line holding nothing but spaces was not read as a blank line"
+        );
     }
 
     #[test]
@@ -863,6 +871,22 @@ mod tests {
             resolve(&lot, "iac", 0, at(buried, "let a = 1;")),
             "a fence buried under four spaces of indent was read as a fence"
         );
+
+        let trailed = "```rust\nlet a = 1;\n```  \nafter\n";
+        let spaced = said(trailed);
+        assert_eq!(
+            Some("let a = 1;"),
+            text(
+                &spaced,
+                &resolve(&spaced, "iac", 0, at(trailed, "let a = 1;"))
+            ),
+            "the spaces written after a closing fence were read as the language it names"
+        );
+        assert_eq!(
+            None,
+            resolve(&spaced, "iac", 0, at(trailed, "after")),
+            "the region ran on past the fence that closed it"
+        );
     }
 
     #[test]
@@ -878,6 +902,18 @@ mod tests {
         assert_eq!(
             Some("```rust\nfn a() {}"),
             text(&transcript, &resolve(&transcript, "aac", 0, inside))
+        );
+
+        let both = "~~~outer\n```rust\nfn a() {}\n";
+        let open = said(both);
+        assert_eq!(
+            Some("```rust\nfn a() {}"),
+            text(&open, &resolve(&open, "aac", 0, at(both, "fn a")))
+        );
+        assert_eq!(
+            Some("~~~outer\n```rust\nfn a() {}"),
+            text(&open, &resolve(&open, "aac", 0, at(both, "outer"))),
+            "a region left open around another was lost at the end of the block"
         );
     }
 
