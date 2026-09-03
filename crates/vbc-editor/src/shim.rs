@@ -66,6 +66,10 @@
 //! in whatever line it is measured against. Carrying a number instead was measured against vim
 //! and moved forty-eight cases off it that were on it.
 //!
+//! A motion this seam measures and then leaves to modalkit forgets that column as anything else
+//! does. `H`, `M` and `L` move the cursor whoever answers them, and vim sets `curswant` from each,
+//! so a chain reaching past one would be walking down a column vim had already forgotten.
+//!
 //! What a motion is answered with is a place together with the two facts an operator applied over
 //! it turns on and a cursor moved by it does not: whether the grapheme landed on is part of what
 //! the operator takes, which is what separates `g$` from `gj`, and whether the walk travelled the
@@ -286,7 +290,8 @@ impl Shim {
     /// # Returns
     ///
     /// Where the motion goes, and [`None`] for a motion this seam does not answer, which the
-    /// caller is then to leave to modalkit.
+    /// caller is then to leave to modalkit. A motion left to modalkit still ends the chain: it
+    /// moves the cursor, and vim sets `curswant` from every cursor move but a bare `j` or `k`.
     pub fn intercept<TextType: Text>(
         &mut self,
         motion: ScreenMotion,
@@ -308,7 +313,9 @@ impl Shim {
 
         let (steps, direction, wanted) = match motion {
             ScreenMotion::ViewportPos(_) | ScreenMotion::LinePos(MovePosition::Middle) => {
-                return None
+                self.wanted = None;
+
+                return None;
             }
             ScreenMotion::FirstWord(direction) => (count, direction, Wanted::FirstWord),
             ScreenMotion::Line(direction) => (
@@ -963,6 +970,41 @@ mod tests {
                 grapheme: 0,
             },
             below
+        );
+    }
+
+    #[test]
+    fn a_motion_left_to_modalkit_ends_the_chain() {
+        let mut shim = Shim::new(geometry());
+        let held = text(&RAGGED);
+        shim.note(&ended_a_line(), true);
+        let at = LogicalPosition {
+            line: 0,
+            grapheme: 0,
+        };
+
+        assert_eq!(
+            None,
+            shim.intercept(
+                ScreenMotion::ViewportPos(MovePosition::Beginning),
+                1,
+                at,
+                &held
+            )
+        );
+
+        let below = shim
+            .intercept(ScreenMotion::Line(MoveDir1D::Next), 3, at, &held)
+            .expect("a screen line down is answered")
+            .at;
+
+        assert_eq!(
+            LogicalPosition {
+                line: 1,
+                grapheme: 0,
+            },
+            below,
+            "an `H` between the two carried a chain vim's own `curswant` does not outlive"
         );
     }
 

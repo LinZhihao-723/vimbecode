@@ -40,7 +40,9 @@
 //! same chain carried on would not, so that agreeing with vim there says which of the two happened
 //! rather than only that the cursor arrived somewhere plausible. The one chain a `g$` starts is
 //! not among them: it wants a column rather than an end, so the seam ends it at a `j` and vim does
-//! not, and that is pinned as a divergence with the reason rather than answered here.
+//! not, and that is pinned as a divergence with the reason rather than answered here. A chain a
+//! numbered column started is pinned beside it for the same reason, on the texts the `j` in front
+//! of it is measured landing where vim lands it, so that the pin reports the column alone.
 //!
 //! Every case above is laid out in a window that draws no decoration in front of a continuation
 //! row, and a window like that cannot tell a column measured against the whole window from a
@@ -318,13 +320,21 @@ const CARRIED_THROUGH_A_VERTICAL_MOTION: [&str; 6] =
 /// is what says a case here turns on the chain having ended rather than on where it was going
 /// anyway.
 ///
+/// An `H` is here because a motion the seam measures and then leaves to modalkit is a cursor move
+/// like any other: vim sets `curswant` from it, so the chain has to end there even though nothing
+/// here answered the motion. `M` and `L` are the same shape and are left out, because their own
+/// landings disagree with vim before any chain is involved -- a bare `Mgj` was measured diverging
+/// in 41 of these 80 windows and a bare `Lgj` in 22, where a bare `Hgj` diverges in none -- so a
+/// case built on either would be reporting modalkit's viewport arithmetic rather than the chain.
+///
 /// A motion that fails is left out, because vim leaves `curswant` alone across one and nothing
 /// here can see that a motion modalkit answered did not move: an `l` at the end of a line is a
 /// chain vim carries on and this seam ends, which is a divergence of its own rather than one of
 /// these rules.
-const ENDED_BY_A_MOTION_OF_ITS_OWN: [(&str, &str); 4] = [
+const ENDED_BY_A_MOTION_OF_ITS_OWN: [(&str, &str); 5] = [
     ("$j0gj", "$jgj"),
     ("$wgj", "$gj"),
+    ("$Hgj", "$gj"),
     ("llllllllllgjlgj", "llllllllllgjgj"),
     ("y$gj", "$gj"),
 ];
@@ -341,6 +351,25 @@ const ENDED_BY_A_MOTION_OF_ITS_OWN: [(&str, &str); 4] = [
 /// adopted: the rule that would fix it is the rule the exclusive-ness of `g$` says is wrong, and
 /// nothing reconciling the two has been measured.
 const A_SCREEN_LINE_END_BEHIND_A_VERTICAL_MOTION: &str = "g$jgj";
+
+/// The keys that put a bare `j` between two screen motions walking down a numbered column, which
+/// vim answers somewhere this seam does not, pinned so that the divergence is reported rather than
+/// rediscovered.
+///
+/// Only the end of a row is carried across a vertical motion, so the seam ends this chain at the
+/// `j` and vim does not. Carrying the number too was measured against vim and moved forty-eight
+/// cases off it that were on it, which is why it is not adopted; the reason is written out in
+/// `shim`'s own docs.
+///
+/// The two texts below are the ones the divergence is the chain's alone on. A bare `gjj` was
+/// measured landing where vim lands it on both of them in every window here, so what is left when
+/// `gjgj` disagrees is the column and not the row it was measured from. On the tab-straddled text
+/// the `j` itself already lands elsewhere, which would make a pin there report two things at once.
+const A_NUMBERED_COLUMN_BEHIND_A_VERTICAL_MOTION: &str = "gjjgj";
+
+/// The texts the chain above is pinned on, which are the ones the `j` in front of it lands where
+/// vim lands it on.
+const A_NUMBERED_COLUMN_IS_THE_WHOLE_DIVERGENCE_ON: [&str; 2] = ["ascii", "cjk"];
 
 /// The keys that put a chain of screen motions behind an end of line, which leaves the chain
 /// wanting the end of every row it lands on rather than a column of its own.
@@ -532,6 +561,40 @@ fn a_chain_a_screen_line_end_started_is_a_known_divergence() -> anyhow::Result<(
             "`{keys}` on the {name} text lands where vim lands it now, so the divergence this \
              file pins has been closed and the file should say so"
         );
+    }
+
+    Ok(())
+}
+
+#[test]
+fn a_chain_a_numbered_column_started_is_a_known_divergence() -> anyhow::Result<()> {
+    let vim = VimDriver::new()?;
+
+    let keys = A_NUMBERED_COLUMN_BEHIND_A_VERTICAL_MOTION;
+    let stepped = &keys[..keys.len() - "gj".len()];
+    for (name, text) in TEXTS {
+        if !A_NUMBERED_COLUMN_IS_THE_WHOLE_DIVERGENCE_ON.contains(&name) {
+            continue;
+        }
+        for columns in COLUMNS {
+            let stopped = case(text, stepped, columns, PLAIN);
+
+            assert_eq!(
+                where_vim_left_it(&vim.run_case(&stopped)?),
+                cursor(&stopped, true),
+                "`{stepped}` on the {name} text no longer lands where vim lands it, so the \
+                 divergence below is no longer the chain's alone"
+            );
+
+            let case = case(text, keys, columns, PLAIN);
+
+            assert_ne!(
+                where_vim_left_it(&vim.run_case(&case)?),
+                cursor(&case, true),
+                "`{keys}` on the {name} text lands where vim lands it now, so the divergence this \
+                 file pins has been closed and the file should say so"
+            );
+        }
     }
 
     Ok(())
