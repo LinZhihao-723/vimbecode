@@ -15,6 +15,10 @@
 //! text. Everything a layout has no say in reaches the text exactly as it did before that shim
 //! existed, and an engine can be built without one, which is what the seam is compared against.
 //!
+//! The size of the window an engine is laid out in is handed on to modalkit all the same, because
+//! a screen line is a screen line only relative to some window, and a motion counted in them has
+//! nowhere to land without one.
+//!
 //! An action the seam does not run is reported rather than dropped. An engine that quietly ignores
 //! what it was asked to do is an engine whose tests pass against a keystroke that did nothing, so
 //! there is no arm here that swallows an action. A motion the shim classifies as out of scope is
@@ -154,19 +158,22 @@ impl Engine {
     /// `geometry`.
     #[must_use]
     pub fn laid_out_in(text: &str, geometry: Geometry) -> Self {
-        Self::built(text, Some(Shim::new(geometry)))
+        let shim = Shim::new(geometry.clone());
+
+        Self::built(text, &geometry, Some(shim))
     }
 
     /// Factory function.
     ///
     /// # Returns
     ///
-    /// A newly created engine like [`Engine::new`]'s with no shim installed, so that a screen
-    /// motion is answered by modalkit's own width math as everything was answered before the seam
-    /// existed. This is the engine the seam is compared against.
+    /// A newly created engine like [`Engine::laid_out_in`]'s with no shim installed, so that a
+    /// screen motion is answered by modalkit's own width math as everything was answered before
+    /// the seam existed. This is the engine the seam is compared against, and it is laid out in
+    /// the same window so that the shim is the only thing the comparison holds.
     #[must_use]
-    pub fn bypassing_the_shim(text: &str) -> Self {
-        Self::built(text, None)
+    pub fn bypassing_the_shim(text: &str, geometry: &Geometry) -> Self {
+        Self::built(text, geometry, None)
     }
 
     /// # Returns
@@ -383,17 +390,23 @@ impl Engine {
 
     /// # Returns
     ///
-    /// A newly created engine editing `text`, whose screen motions pass through `shim`.
-    fn built(text: &str, shim: Option<Shim>) -> Self {
+    /// A newly created engine editing `text` in the window `geometry` describes, whose screen
+    /// motions pass through `shim`.
+    fn built(text: &str, geometry: &Geometry, shim: Option<Shim>) -> Self {
         let mut edited = EditBuffer::from_str(ONLY_TEXT.to_owned(), text);
         let group = edited.create_group();
+        let window = ViewportContext {
+            corner: Cursor::default(),
+            dimensions: (geometry.columns().get(), geometry.window().height().get()),
+            wrap: true,
+        };
 
         Self {
             keys: default_vim_keys(),
             text: edited,
             store: Store::default(),
             group,
-            window: ViewportContext::default(),
+            window,
             shim,
         }
     }

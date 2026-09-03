@@ -26,12 +26,13 @@
 //! The events an application loop delivers are checked against the keys they stand for, so the
 //! path the application reaches the engine by is held to the one vim was compared against.
 
-use std::collections::BTreeMap;
+mod outcome;
 
-use vbc_editor::engine::{typed, Engine, Held, Shape};
+use vbc_editor::engine::{typed, Engine};
 use vbc_editor::event::{Event, Paste};
-use vbc_oracle::state::{Mode, Register, RegisterType};
 use vbc_oracle::vim::VimDriver;
+
+use crate::outcome::Outcome;
 
 /// One cross-check: a starting text, the keys typed at it, and the name it is reported under.
 struct Case {
@@ -118,17 +119,6 @@ const CASES: [Case; 13] = [
     },
 ];
 
-/// What both engines are compared on: everything the vim engine decides, and nothing the layout
-/// decides.
-#[derive(Debug, Eq, PartialEq)]
-struct Outcome {
-    text: String,
-    line: u64,
-    column: u64,
-    mode: Mode,
-    registers: BTreeMap<char, Register>,
-}
-
 #[test]
 fn the_engine_ends_every_control_sequence_where_vim_does() -> anyhow::Result<()> {
     let vim = VimDriver::new()?;
@@ -139,7 +129,7 @@ fn the_engine_ends_every_control_sequence_where_vim_does() -> anyhow::Result<()>
 
         assert_eq!(
             vim_outcome(&vim, case.text, case.keys)?,
-            engine_outcome(&mut engine),
+            Outcome::of(&mut engine),
             "`{}` left the engine somewhere other than where vim left it",
             case.id
         );
@@ -157,7 +147,7 @@ fn an_engine_that_was_handed_no_keys_diverges_from_vim() -> anyhow::Result<()> {
 
         assert_ne!(
             vim_outcome(&vim, case.text, case.keys)?,
-            engine_outcome(&mut engine),
+            Outcome::of(&mut engine),
             "`{}` agreed with vim without a single key being typed at the engine",
             case.id
         );
@@ -177,7 +167,7 @@ fn an_engine_handed_all_but_the_last_key_diverges_from_vim() -> anyhow::Result<(
 
         assert_ne!(
             vim_outcome(&vim, case.text, case.keys)?,
-            engine_outcome(&mut engine),
+            Outcome::of(&mut engine),
             "`{}` agreed with vim with the key that completes it never typed",
             case.id
         );
@@ -206,14 +196,11 @@ fn the_events_an_application_loop_delivers_land_where_the_same_keys_would() -> a
     }))?;
 
     assert_ne!(
-        engine_outcome(&mut Engine::new(PROSE)),
-        engine_outcome(&mut delivered),
+        Outcome::of(&mut Engine::new(PROSE)),
+        Outcome::of(&mut delivered),
         "the events left the engine where an engine handed nothing stands"
     );
-    assert_eq!(
-        engine_outcome(&mut typed_at),
-        engine_outcome(&mut delivered)
-    );
+    assert_eq!(Outcome::of(&mut typed_at), Outcome::of(&mut delivered));
 
     Ok(())
 }
@@ -221,31 +208,12 @@ fn the_events_an_application_loop_delivers_land_where_the_same_keys_would() -> a
 #[test]
 fn a_key_no_binding_answers_leaves_the_engine_where_it_stood() -> anyhow::Result<()> {
     let mut engine = Engine::new(PROSE);
-    let before = engine_outcome(&mut engine);
+    let before = Outcome::of(&mut engine);
     engine.press(typed('\u{f8ff}'))?;
 
-    assert_eq!(before, engine_outcome(&mut engine));
+    assert_eq!(before, Outcome::of(&mut engine));
 
     Ok(())
-}
-
-/// # Returns
-///
-/// What the engine was left holding.
-fn engine_outcome(engine: &mut Engine) -> Outcome {
-    let cursor = engine.cursor();
-
-    Outcome {
-        text: engine.text(),
-        line: cursor.line as u64,
-        column: cursor.column as u64,
-        mode: mode(engine),
-        registers: engine
-            .registers()
-            .into_iter()
-            .map(|(name, held)| (name, register(held)))
-            .collect(),
-    }
 }
 
 /// # Returns
@@ -258,43 +226,5 @@ fn engine_outcome(engine: &mut Engine) -> Outcome {
 ///
 /// * Forwards [`VimDriver::run`]'s return values on failure.
 fn vim_outcome(vim: &VimDriver, text: &str, keys: &str) -> anyhow::Result<Outcome> {
-    let state = vim.run(text, keys)?;
-
-    Ok(Outcome {
-        text: state.buffer,
-        line: state.cursor.line,
-        column: state.cursor.column,
-        mode: state.mode,
-        registers: state.registers,
-    })
-}
-
-/// # Returns
-///
-/// The mode the engine is in, in the terms the harness compares modes in.
-fn mode(engine: &Engine) -> Mode {
-    use modalkit::env::vim::VimMode;
-
-    match engine.mode() {
-        VimMode::Normal => Mode::Normal,
-        VimMode::Insert => Mode::Insert,
-        VimMode::Visual | VimMode::Select => Mode::Visual,
-        VimMode::OperationPending => Mode::OperatorPending,
-        VimMode::Command => Mode::CommandLine,
-        mode => panic!("`{mode:?}` is a mode the harness has no name for"),
-    }
-}
-
-/// # Returns
-///
-/// What a register holds, in the terms the harness compares registers in.
-fn register(held: Held) -> Register {
-    Register {
-        text: held.text,
-        register_type: match held.shape {
-            Shape::Charwise => RegisterType::Charwise,
-            Shape::Linewise => RegisterType::Linewise,
-            Shape::Blockwise => RegisterType::Blockwise,
-        },
-    }
+    Ok(Outcome::from(vim.run(text, keys)?))
 }
