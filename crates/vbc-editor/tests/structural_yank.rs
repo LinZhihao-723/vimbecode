@@ -83,6 +83,21 @@ const AFTER: &str = "fn main() {\n    todo!();\n}\n";
 /// The word the fixture styles, which is the syntax decoration a yank must not carry.
 const DECORATED: &str = "println!";
 
+/// A grapheme cluster the terminal draws in one column and holds several characters of, and one
+/// character of it the cursor is put on.
+const CLUSTER: &str = "\u{1f468}\u{200d}\u{1f469}\u{200d}\u{1f467}\u{200d}\u{1f466}";
+const INSIDE_THE_CLUSTER: &str = "\u{1f467}";
+
+/// The cluster the edit under test writes in that one's place.
+const REPLACEMENT: &str = "\u{1f9d1}\u{200d}\u{1f680}";
+
+/// Code whose characters and whose columns do not stand in one another's places: the wide ones are
+/// drawn in two columns each and the joiners in none at all.
+const CLUSTERED_CODE: &str = concat!(
+    "let family = \"\u{1f468}\u{200d}\u{1f469}\u{200d}\u{1f467}\u{200d}\u{1f466}\";\n",
+    "let name = \"\u{65e5}\u{672c}\u{8a9e}\";"
+);
+
 /// What the patch under test is written to inside the directory it is applied in.
 const PATCH_FILE: &str = "yanked.patch";
 
@@ -258,6 +273,33 @@ fn a_yank_carries_no_newline_the_wrap_put_there() {
 }
 
 #[test]
+fn a_yank_carries_none_of_the_columns_the_clusters_were_drawn_across() {
+    let transcript = clustered();
+    let block = transcript
+        .block(0)
+        .expect("the fixture holds an answer holding clusters");
+    let first = CLUSTERED_CODE
+        .lines()
+        .next()
+        .expect("the fixture's code holds a line");
+
+    assert_ne!(
+        first.chars().count(),
+        Metrics::default().text_width(first, 0),
+        "the fixture's code is drawn in one column per character, so no cluster is at stake"
+    );
+
+    let at = block
+        .source()
+        .find(INSIDE_THE_CLUSTER)
+        .expect("the fixture's code holds the cluster the cursor is put inside");
+    let yanked = Yank::structural(&transcript, Position::new(0, at), Structure::Code)
+        .expect("the cursor is in the fenced code");
+
+    assert_eq!(CLUSTERED_CODE, yanked.text());
+}
+
+#[test]
 fn a_patch_yanked_from_a_diff_applies_cleanly() -> anyhow::Result<()> {
     let transcript = said();
     let yanked = Yank::structural(&transcript, Position::new(EDIT, 0), Structure::Diff)
@@ -290,6 +332,18 @@ fn a_patch_over_changes_far_apart_applies_cleanly_in_every_hunk() -> anyhow::Res
             .count(),
         "the fixture was written in one hunk, so no second hunk was applied: {written:?}"
     );
+    assert_eq!(Some(new), applied(PATH, &old, &written)?);
+
+    Ok(())
+}
+
+#[test]
+fn a_patch_over_lines_no_column_lines_up_with_applies_cleanly() -> anyhow::Result<()> {
+    let old = format!("\u{58f1}\n{CLUSTER}\n\u{53c2}\n");
+    let new = format!("\u{58f1}\n{REPLACEMENT}\n\u{53c2}\n");
+    let block = Block::diff(PATH.to_owned(), &old, &new);
+    let written = patch(&block).expect("the diff is a patch");
+
     assert_eq!(Some(new), applied(PATH, &old, &written)?);
 
     Ok(())
@@ -577,6 +631,19 @@ fn wrapping() -> Wrapping {
 /// The style the fixture's syntax decoration is painted in.
 fn decoration() -> Style {
     Style::new().fg(Color::Red).add_modifier(Modifier::BOLD)
+}
+
+/// # Returns
+///
+/// An answer fencing [`CLUSTERED_CODE`], which is code the panel draws in a number of columns no
+/// count of its characters gives.
+fn clustered() -> Transcript {
+    [Block::new(
+        Kind::Message(Role::Assistant),
+        format!("here it is\n\n```rust\n{CLUSTERED_CODE}\n```"),
+    )]
+    .into_iter()
+    .collect()
 }
 
 /// # Returns
