@@ -22,6 +22,13 @@
 //! The wrapped cases are laid out in a window narrow enough that their first line takes three rows,
 //! so an engine shifting rows rather than lines writes a different buffer than vim does.
 //!
+//! A shift also has to be a change that can be taken back. `u` is not a stub the way
+//! `EditBuffer::indent` is: the keybindings issue a checkpoint after every edit and the buffer
+//! runs it, so an engine that writes a shift out by replacing the whole text -- which
+//! reinitializes the buffer's undo history -- leaves `u` with nothing to undo and takes the edits
+//! made before the shift out of reach with it. Nothing in a comparison of the text a shift leaves
+//! behind can see that, so the undo cases below type the `u` themselves.
+//!
 //! The rest is the arithmetic vim does at the edges: a count that reaches past the last line, a
 //! motion that starts on it, an outdent already at column zero, an indent far past any width a
 //! terminal could draw, a line of nothing but blanks and a line of nothing at all. Vim shifts a
@@ -33,7 +40,7 @@ mod outcome;
 use std::collections::BTreeSet;
 use std::num::NonZeroUsize;
 
-use crossterm::event::KeyCode;
+use crossterm::event::{KeyCode, KeyModifiers};
 use vbc_editor::engine::{typed, Engine, Error};
 use vbc_editor::event::KeyEvent;
 use vbc_editor::indent::Shift;
@@ -62,9 +69,13 @@ struct Spelling {
     expandtab: bool,
 }
 
-/// How vim's notation names the escape key, which is the one key these cases do not spell with the
-/// character it types.
-const ESCAPE: &str = "<Esc>";
+/// How vim's notation names the keys these cases do not spell with the character they type. A `<`
+/// that begins none of these is the outdent operator and stands for itself, which is what these
+/// cases spell an outdent with.
+const NAMED: [(&str, KeyCode, KeyModifiers); 2] = [
+    ("<Esc>", KeyCode::Esc, KeyModifiers::NONE),
+    ("<C-v>", KeyCode::Char('v'), KeyModifiers::CONTROL),
+];
 
 /// The window the wrapped cases are laid out in, narrow enough that their first line takes three
 /// rows, so a shift over a display motion has rows to be wrong about.
@@ -76,11 +87,13 @@ const WIDE: u16 = 80;
 /// The screen lines every case is laid out in, more than any of them fills.
 const ROWS: u16 = 24;
 
-/// The three spellings every case is replayed under. The first writes an indent no tab reaches,
-/// the second writes one in tabs, and the third writes one in spaces however wide it is, so an
-/// engine ignoring either `'shiftwidth'` or `'expandtab'` disagrees with vim under at least one of
-/// them.
-const SPELLINGS: [Spelling; 3] = [
+/// The four spellings every case is replayed under. The first writes an indent no tab reaches, the
+/// second writes one in tabs, the third writes one in spaces however wide it is, and the fourth
+/// draws its tabs to a stop no other spelling uses, so an engine ignoring any of `'shiftwidth'`,
+/// `'expandtab'` and `'tabstop'` disagrees with vim under at least one of them. A tab is worth the
+/// columns it takes to reach the next stop rather than a fixed number of them, so a spelling that
+/// never moved the stop could not see an engine measuring every tab as eight columns.
+const SPELLINGS: [Spelling; 4] = [
     Spelling {
         id: "sw4-ts8-noexpandtab",
         shiftwidth: 4,
@@ -98,6 +111,12 @@ const SPELLINGS: [Spelling; 3] = [
         shiftwidth: 4,
         tabstop: 8,
         expandtab: true,
+    },
+    Spelling {
+        id: "sw2-ts4-noexpandtab",
+        shiftwidth: 2,
+        tabstop: 4,
+        expandtab: false,
     },
 ];
 
@@ -151,11 +170,32 @@ const SPELLED: Case = Case {
 };
 
 /// The indenting commands this seam does not run: vim's automatic reindent, which works an indent
-/// out from the text around it rather than from a count, and a shift over a target this seam does
-/// not turn into whole lines. Both are refused rather than run over a guess, because an editor
-/// that answers them by editing nothing is one whose tests pass against a keystroke that did
-/// nothing at all.
-const REFUSED: [&str; 3] = ["==", ">w", ">}"];
+/// out from the text around it rather than from a count, a shift over a target this seam does not
+/// turn into whole lines, and a shift over a blockwise selection, which vim lays down at the
+/// block's own left column rather than at the start of the lines the block spans. All are refused
+/// rather than run over a guess, because an editor that answers them by editing nothing -- or, in
+/// the blockwise case, by editing the wrong columns -- is one whose tests pass against a keystroke
+/// that did something else entirely.
+const REFUSED: [&str; 4] = ["==", ">w", ">}", "ll<C-v>j>"];
+
+/// The blockwise shift the seam refuses, and the linewise one it runs. vim answers the two
+/// differently, which is the whole reason the blockwise one cannot be run as though it named the
+/// lines its block spans.
+const BLOCKWISE: Case = Case {
+    id: "indent the columns of a blockwise selection",
+    text: PROSE,
+    columns: WIDE,
+    keys: "ll<C-v>j>",
+};
+
+/// The linewise shift covering the same lines, which is the answer a seam that read a blockwise
+/// selection as the lines it spans would give.
+const LINEWISE: Case = Case {
+    id: "indent the lines a blockwise selection spans",
+    text: PROSE,
+    columns: WIDE,
+    keys: "Vj>",
+};
 
 /// The cases whose keys leave vim's text different from the text they started with, which is every
 /// case that is not asserting an edge vim answers by editing nothing.
@@ -361,6 +401,119 @@ const UNSHIFTED: [Case; 6] = [
     },
 ];
 
+/// The cases that shift something and then take it back. A shift has to be one undoable change,
+/// and it has to leave the changes made before it undoable too: `u` is not a stub the way
+/// `EditBuffer::indent` is, so an engine that writes a shift out by replacing the whole text --
+/// which reinitializes the buffer's undo history -- answers every one of these by leaving the
+/// shift standing, and the last of them by losing the edit that came before it as well.
+const UNDONE: [Case; 5] = [
+    Case {
+        id: "undo an indent",
+        text: PROSE,
+        columns: WIDE,
+        keys: ">>u",
+    },
+    Case {
+        id: "undo a counted indent",
+        text: PROSE,
+        columns: WIDE,
+        keys: "3>>u",
+    },
+    Case {
+        id: "undo an outdent",
+        text: INDENTED,
+        columns: WIDE,
+        keys: "<<u",
+    },
+    Case {
+        id: "undo an indent of a selection",
+        text: PROSE,
+        columns: WIDE,
+        keys: "Vj>u",
+    },
+    Case {
+        id: "undo an edit made before an indent",
+        text: PROSE,
+        columns: WIDE,
+        keys: "x3>>uu",
+    },
+];
+
+/// A delete taken back, which has no shift anywhere in it. It is here to name whose the one thing
+/// the undo cases do not compare is: modalkit carries the cursor an undo was standing at by the
+/// change it takes back, where vim puts it at the start of the line it changed, and the two have
+/// disagreed about that since long before `>` did anything at all.
+const TAKEN_BACK: Case = Case {
+    id: "undo a delete",
+    text: INDENTED,
+    columns: WIDE,
+    keys: "xu",
+};
+
+#[test]
+fn a_shift_is_one_undoable_change_that_leaves_the_edits_before_it_undoable() -> anyhow::Result<()> {
+    let vim = VimDriver::new()?;
+
+    for case in &UNDONE {
+        for spelling in &SPELLINGS {
+            let expected = vim_outcome(&vim, case, spelling)?;
+            assert_eq!(
+                case.text, expected.text,
+                "`{}` under {} does not take vim's own text back to where it started, so the \
+                 comparison below is not holding an undo to anything",
+                case.id, spelling.id
+            );
+
+            let held = engine_outcome(case, spelling);
+            assert_eq!(
+                expected.text, held.text,
+                "`{}` under {} left the engine holding text vim does not hold, so the shift is \
+                 not a change `u` takes back",
+                case.id, spelling.id
+            );
+            assert_eq!(
+                expected.mode, held.mode,
+                "`{}` under {} left the engine in a mode vim is not in",
+                case.id, spelling.id
+            );
+            assert_eq!(
+                expected.registers, held.registers,
+                "`{}` under {} left the engine holding registers vim does not hold",
+                case.id, spelling.id
+            );
+        }
+    }
+
+    Ok(())
+}
+
+#[test]
+fn the_place_an_undo_leaves_the_cursor_is_modalkits_whatever_it_takes_back() -> anyhow::Result<()> {
+    let vim = VimDriver::new()?;
+
+    for spelling in &SPELLINGS {
+        let expected = vim_outcome(&vim, &TAKEN_BACK, spelling)?;
+        let held = engine_outcome(&TAKEN_BACK, spelling);
+        assert_eq!(
+            expected.text, held.text,
+            "`{}` under {} did not take the delete back",
+            TAKEN_BACK.id, spelling.id
+        );
+
+        assert_ne!(
+            (expected.line, expected.column),
+            (held.line, held.column),
+            "`{}` under {} now leaves the cursor where vim leaves it, so modalkit's undo has \
+             stopped diverging and the shift cases above should be comparing the whole outcome \
+             rather than the text, the mode and the registers alone",
+            TAKEN_BACK.id,
+            spelling.id
+        );
+    }
+
+    Ok(())
+}
+
 #[test]
 fn every_case_meant_to_shift_something_moves_vims_own_text() -> anyhow::Result<()> {
     let vim = VimDriver::new()?;
@@ -543,6 +696,25 @@ fn an_indenting_command_whose_lines_the_seam_cannot_work_out_is_refused() {
 }
 
 #[test]
+fn a_blockwise_shift_is_not_the_linewise_one_over_the_lines_it_spans() -> anyhow::Result<()> {
+    let vim = VimDriver::new()?;
+
+    for spelling in &SPELLINGS {
+        assert_ne!(
+            vim_outcome(&vim, &BLOCKWISE, spelling)?.text,
+            vim_outcome(&vim, &LINEWISE, spelling)?.text,
+            "vim writes `{}` and `{}` out the same under {}, so refusing the blockwise shift \
+             rather than running it over the lines it spans is refusing nothing",
+            BLOCKWISE.id,
+            LINEWISE.id,
+            spelling.id
+        );
+    }
+
+    Ok(())
+}
+
+#[test]
 fn a_mark_set_before_a_shift_still_names_the_line_it_was_set_on() {
     let mut engine = Engine::new(PROSE);
     engine
@@ -617,16 +789,22 @@ fn vim_outcome(vim: &VimDriver, case: &Case, spelling: &Spelling) -> anyhow::Res
 
 /// # Returns
 ///
-/// The key events `keys` stands for, in which `<Esc>` names the escape key and every other
-/// character stands for itself. A `<` that does not begin `<Esc>` is the outdent operator and
-/// stands for itself, which is what these cases spell an outdent with.
+/// The key events `keys` stands for, in which the spellings of [`NAMED`] stand for the keys they
+/// name and every other character stands for itself.
 fn typed_keys(keys: &str) -> Vec<KeyEvent> {
     let mut typed_keys = Vec::new();
     let mut rest = keys;
-    while let Some(index) = rest.find(ESCAPE) {
+    while let Some((index, name, code, modifiers)) = NAMED
+        .iter()
+        .filter_map(|(name, code, modifiers)| {
+            rest.find(name)
+                .map(|index| (index, *name, *code, *modifiers))
+        })
+        .min_by_key(|(index, ..)| *index)
+    {
         typed_keys.extend(rest[..index].chars().map(typed));
-        typed_keys.push(KeyEvent::from(KeyCode::Esc));
-        rest = &rest[index + ESCAPE.len()..];
+        typed_keys.push(KeyEvent::new(code, modifiers));
+        rest = &rest[index + name.len()..];
     }
     typed_keys.extend(rest.chars().map(typed));
 

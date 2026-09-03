@@ -36,8 +36,11 @@
 //! instead is decided here: the target names whole logical lines however it was reached, and the
 //! whitespace those lines are written out in is the [`indent`](crate::indent) module's, since a
 //! step of a shift is measured in screen columns and a tab is worth as many of them as it takes to
-//! reach the next tab stop. A target this seam cannot turn into lines is refused for the same
-//! reason every other unanswered action is.
+//! reach the next tab stop. The lines are spliced rather than the text replaced, because a shift
+//! has to be a change `u` takes back and replacing the text reinitializes the buffer's history. A
+//! target this seam cannot turn into lines is refused for the same reason every other unanswered
+//! action is, and so is the blockwise selection, whose shift vim lays down at the block's own left
+//! column rather than at the start of the lines it spans.
 //!
 //! An action the seam does not run is reported rather than dropped. An engine that quietly ignores
 //! what it was asked to do is an engine whose tests pass against a keystroke that did nothing, so
@@ -58,13 +61,13 @@ use std::fmt::{Display, Formatter, Result as FmtResult};
 use std::num::NonZeroUsize;
 
 use crossterm::event::{KeyCode, KeyModifiers};
-use editor_types::context::Resolve;
+use editor_types::context::{EditContextBuilder, Resolve};
 use editor_types::prelude::{
-    EditTarget, IndentChange, Mark, MoveDir1D, MovePosition, MoveType, RangeType, Register as Slot,
-    Specifier, TargetShape, ViewportContext,
+    Count, EditTarget, IndentChange, Mark, MoveDir1D, MovePosition, MoveType, RangeType,
+    Register as Slot, Specifier, TargetShape, ViewportContext,
 };
 use editor_types::EditAction;
-use modalkit::actions::{Action, Editable, EditorAction};
+use modalkit::actions::{Action, Editable, EditorAction, InsertTextAction};
 use modalkit::editing::application::EmptyInfo;
 use modalkit::editing::buffer::{CursorGroupId, EditBuffer};
 use modalkit::editing::context::EditContext;
@@ -79,7 +82,7 @@ use vbc_layout::position::LogicalPosition;
 use vbc_layout::width::graphemes;
 
 use crate::event::{Event, KeyEvent};
-use crate::indent::{resting_column, Shift};
+use crate::indent::{indent_of, resting_column, Shift};
 use crate::screen::Geometry;
 use crate::shim::{classified, Classification, Landing, Shim, Text};
 
@@ -470,9 +473,8 @@ impl Engine {
         let Some((first, last)) = span else {
             return Ok(());
         };
-        self.written(first, last, columns);
 
-        Ok(())
+        self.written(first, last, columns)
     }
 
     /// # Returns
@@ -533,7 +535,10 @@ impl Engine {
     /// Returns an error if:
     ///
     /// * [`Error::Unindentable`] if the target is one this seam does not turn into whole lines,
-    ///   which is refused rather than shifted over a guess at the lines it covers.
+    ///   which is refused rather than shifted over a guess at the lines it covers. A blockwise
+    ///   selection is one of them: vim lays its shift down at the block's own left column rather
+    ///   than at the start of the lines the block spans, which is a different operation from the
+    ///   one this module runs and not the linewise shift the lines would suggest.
     fn spanned(
         &mut self,
         target: &EditTarget,
@@ -586,9 +591,14 @@ impl Engine {
                 Ok(Some(sorted(cursor.y, line)))
             }
             EditTarget::Selection => {
-                let Some((one, other, _)) = self.text.get_leader_selection(self.group) else {
+                let Some((one, other, shape)) = self.text.get_leader_selection(self.group) else {
                     return Ok(Some((cursor.y, cursor.y)));
                 };
+                if TargetShape::BlockWise == shape {
+                    return Err(Error::Unindentable {
+                        action: format!("{shape:?} {target:?}"),
+                    });
+                }
 
                 Ok(Some(sorted(one.y, other.y)))
             }
@@ -602,32 +612,79 @@ impl Engine {
     /// and leaves the cursor where vim leaves it: on the first non-blank of the first line the
     /// shift covered.
     ///
-    /// The text is replaced rather than spliced, which resets the buffer's own undo history, its
-    /// change list and its jump list. None of the three is reachable from this engine yet -- the
-    /// actions that read them are among the ones it reports as unsupported -- and the marks a text
-    /// is edited with are kept in the store rather than in the buffer, so they survive.
-    fn written(&mut self, first: usize, last: usize, columns: isize) {
-        let text = self.text.get_text();
-        let mut lines: Vec<String> = text.split('\n').map(str::to_owned).collect();
-        let mut changed = false;
-        for line in lines.iter_mut().take(last + 1).skip(first) {
-            let Some(shifted) = self.shift.shifted(line, columns) else {
+    /// Each line's indent is spliced rather than the whole text replaced. `EditBuffer::set_text`
+    /// would be the shorter way to write the lines out and is the wrong one: it reinitializes the
+    /// buffer's undo history, so a shift would leave `u` with nothing to undo and would take every
+    /// edit made before it out of reach as well. Undo is not a stub the way `indent` is -- the
+    /// keybindings issue a checkpoint after every edit and the buffer runs it -- so the shift is
+    /// written through the same insert and delete the rest of the buffer's edits go through, and
+    /// the checkpoint that follows the keystroke makes the whole of it one change.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`Engine::apply`]'s return values on failure.
+    fn written(&mut self, first: usize, last: usize, columns: isize) -> Result<(), Error> {
+        for line in first..=last {
+            let held = self.line(line);
+            let Some(shifted) = self.shift.shifted(&held, columns) else {
                 continue;
             };
-            changed |= &shifted != line;
-            *line = shifted;
+            if shifted == held {
+                continue;
+            }
+            self.respelled(line, indent_of(&held).chars().count(), indent_of(&shifted))?;
         }
 
         let followers = self.text.get_followers(self.group);
-        if changed {
-            self.text.set_text(lines.join("\n"));
-        }
         let resting = Cursor::new(first, resting_column(&self.line(first)));
         let members = followers.into_iter().map(CursorState::Location).collect();
         self.text.set_group(
             self.group,
             CursorGroup::new(CursorState::Location(resting), members),
         );
+
+        Ok(())
+    }
+
+    /// Replaces the `held` characters `line` begins with by the blanks `laid`, which is one line's
+    /// share of a shift.
+    ///
+    /// The new indent goes in first and the old one is taken away after it. Neither half is
+    /// allowed near a register: vim's own `>>` leaves every register holding what it held, so the
+    /// delete is spelled against the black hole rather than the unnamed register a delete reaches
+    /// for by default.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`Engine::apply`]'s return values on failure.
+    fn respelled(&mut self, line: usize, held: usize, laid: &str) -> Result<(), Error> {
+        let context = EditContextBuilder::default()
+            .register(Some(Slot::Blackhole))
+            .build();
+        if !laid.is_empty() {
+            self.text.set_leader(self.group, Cursor::new(line, 0));
+            let written = EditorAction::InsertText(InsertTextAction::Transcribe(
+                laid.to_owned(),
+                MoveDir1D::Previous,
+                Count::Exact(1),
+            ));
+            self.apply(&written, &context)?;
+        }
+        if 0 < held {
+            self.text
+                .set_leader(self.group, Cursor::new(line, laid.chars().count()));
+            let taken = EditorAction::Edit(
+                Specifier::Exact(EditAction::Delete),
+                EditTarget::Motion(MoveType::Column(MoveDir1D::Next, false), Count::Exact(held)),
+            );
+            self.apply(&taken, &context)?;
+        }
+
+        Ok(())
     }
 
     /// Puts the scratch mark where a screen motion's answer says the motion goes, and the cursor

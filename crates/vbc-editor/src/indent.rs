@@ -155,7 +155,8 @@ pub fn resting_column(line: &str) -> usize {
 /// # Returns
 ///
 /// The blanks `line` begins with, which is the whole of a line holding nothing else.
-fn indent_of(line: &str) -> &str {
+#[must_use]
+pub fn indent_of(line: &str) -> &str {
     let end = line
         .find(|held| !matches!(held, ' ' | '\t'))
         .unwrap_or(line.len());
