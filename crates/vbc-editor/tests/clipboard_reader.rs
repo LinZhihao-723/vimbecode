@@ -427,6 +427,8 @@ fn a_reader_that_has_stopped_refuses_rather_than_waits() -> Result<()> {
         Progress::Ready(Outcome::Unavailable(Reason::Refused(_)))
     ));
     assert!(FRAME_BOUND >= cost, "a refusal cost {cost:?}");
+    assert_eq!(stub.calls(), 0);
+    assert_eq!(reader.reads_issued(), 0);
 
     Ok(())
 }

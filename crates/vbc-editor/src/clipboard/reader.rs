@@ -188,12 +188,12 @@ impl Reader {
 
         let id = self.next_id;
         self.next_id += 1;
-        self.issued += 1;
 
         let sent = self
             .commands
             .as_ref()
             .is_some_and(|commands| commands.send(Command::Read(id)).is_ok());
+        self.issued += u64::from(sent);
         let outcome = (!sent).then(|| Outcome::Unavailable(Reason::Refused(STOPPED.to_owned())));
         self.current = Some(Reading {
             id,
