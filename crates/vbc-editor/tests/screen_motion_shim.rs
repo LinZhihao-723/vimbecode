@@ -5,9 +5,13 @@
 //! The control group is every case of the corpus that asks for no screen motion. Each is replayed
 //! twice -- once through an engine with the shim installed and once through an engine built
 //! without one -- and the two are required to end byte for byte in the same state, or to fail in
-//! the same way. A seam that disturbed the logical path would show up here as a case whose text,
-//! cursor, mode or registers moved, and there is nothing about a case counted in characters that
-//! this file exempts.
+//! the same way with the same state behind them. A case whose keys ask for a motion the
+//! display-motion audit puts out of scope fails in both, since what the engine refuses is decided
+//! by that audit rather than by whether a shim is installed, and the state a refusal stopped in is
+//! compared as an ending state is, so the keys typed before it are held to the seam like any
+//! others. A seam that disturbed the logical path would show up here as a case whose text, cursor,
+//! mode or registers moved, and there is nothing about a case counted in characters that this file
+//! exempts.
 //!
 //! The cases that do ask for a screen motion are the ones the seam exists to answer for itself,
 //! and a seam that answered every one of them exactly as modalkit already did would be a seam
@@ -52,8 +56,10 @@ use vbc_layout::width::{AmbiWidth, Metrics};
 use vbc_oracle::corpus::{self, AmbiWidth as CaseAmbiWidth, Case, Corpus};
 
 /// The screen motions each case of the corpus asks for, in the order it asks for them. A case the
-/// corpus holds and this table does not asks for none.
-const SCREENWISE: [(&str, &[ScreenMotion]); 18] = [
+/// corpus holds and this table does not asks for none, which is also where a case whose keys the
+/// engine refuses before it reaches a screen motion belongs: `|` is out of scope, so the four
+/// cases that type it stop there.
+const SCREENWISE: [(&str, &[ScreenMotion]); 16] = [
     (
         "anchor-walk-w40-breakindent-showbreak",
         &[ScreenMotion::LinePos(MovePosition::End)],
@@ -142,16 +148,16 @@ const SCREENWISE: [(&str, &[ScreenMotion]); 18] = [
             ScreenMotion::LinePos(MovePosition::End),
         ],
     ),
-    ("wrap-w80-plain", &[ScreenMotion::Line(MoveDir1D::Next)]),
-    ("wrap-w80-showbreak", &[ScreenMotion::Line(MoveDir1D::Next)]),
 ];
 
 /// The cases of the corpus the shim leaves somewhere other than the modalkit arithmetic it was
 /// written to replace leaves them, which are the ones whose cells are not their characters or
 /// whose rows carry a decoration. A case asking for a screen motion and absent from here is one on
 /// which dividing a character column by the window's width happens to give the same answer as
-/// walking the rows, which is every case of plain undecorated ASCII.
-const ANSWERED_FOR_ITSELF: [&str; 10] = [
+/// walking the rows, which is every case of plain undecorated ASCII. A case whose keys reach a
+/// motion the display-motion audit puts out of scope is absent too, because both engines refuse it
+/// at the same key and neither reaches the screen motion behind it.
+const ANSWERED_FOR_ITSELF: [&str; 9] = [
     "anchor-walk-w40-breakindent-showbreak",
     "cjk-ambiwidth-double",
     "cjk-ambiwidth-single",
@@ -161,7 +167,6 @@ const ANSWERED_FOR_ITSELF: [&str; 10] = [
     "wrap-w24-breakindent-showbreak",
     "wrap-w24-showbreak",
     "wrap-w40-breakindent-showbreak",
-    "wrap-w80-showbreak",
 ];
 
 /// A line whose every character is drawn two cells wide, on which the column a cursor is drawn in
@@ -236,6 +241,10 @@ struct Outcome {
     mode: VimMode,
     registers: BTreeMap<char, Held>,
 }
+
+/// How a replay ended: what the engine was left holding, or the error it failed with and what it
+/// was left holding when it did.
+type Ending = Result<Outcome, (Error, Outcome)>;
 
 #[test]
 fn a_case_no_layout_has_a_say_in_ends_where_it_ended_before_the_seam_existed() {
@@ -511,17 +520,18 @@ fn laid_out(columns: usize) -> Geometry {
 ///
 /// # Returns
 ///
-/// * What the engine was left holding, or the error it failed with.
+/// * How the replay ended.
 /// * The screen motions the shim was handed, empty where none was installed.
-fn replay(case: &Case, with_shim: bool) -> (Result<Outcome, Error>, Vec<(ScreenMotion, usize)>) {
+fn replay(case: &Case, with_shim: bool) -> (Ending, Vec<(ScreenMotion, usize)>) {
     let mut engine = if with_shim {
         Engine::laid_out_in(&case.buffer, geometry_of(case))
     } else {
         Engine::bypassing_the_shim(&case.buffer, &geometry_of(case))
     };
-    let outcome = engine
-        .press_all(keys(&case.keys))
-        .map(|()| outcome(&mut engine));
+    let outcome = match engine.press_all(keys(&case.keys)) {
+        Ok(()) => Ok(outcome(&mut engine)),
+        Err(error) => Err((error, outcome(&mut engine))),
+    };
     let taken = engine
         .shim()
         .map(|shim| {

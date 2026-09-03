@@ -1,10 +1,12 @@
 //! The bare display motions held to the vim they are copied from.
 //!
-//! `gj`, `gk`, `g0`, `g^`, `g$` and `gm` are the motions a window's own cells decide the answer to,
-//! and the shim exists so that the layout engine decides them rather than modalkit's character
-//! arithmetic. Whether it decides them the way vim does is not something this workspace can settle
-//! by itself, so every case here is replayed against a real vim in the window the case declares,
-//! and the two cursors are required to rest on the same byte of the same line.
+//! `gj`, `gk`, `g0`, `g^` and `g$` are the motions a window's own cells decide the answer to and
+//! the shim answers, and it exists so that the layout engine decides them rather than modalkit's
+//! character arithmetic. `gm` is the same shape and the display-motion audit puts it out of scope,
+//! so it is refused rather than answered and is not compared here. Whether the engine decides the
+//! rest the way vim does is not something this workspace can settle by itself, so every case here
+//! is replayed against a real vim in the window the case declares, and the two cursors are
+//! required to rest on the same byte of the same line.
 //!
 //! Which text a case is replayed against is the point of the exercise rather than a detail of it.
 //! On plain ASCII a character column and a display column are the same number, so a comparison
@@ -47,7 +49,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::num::NonZeroUsize;
 
 use crossterm::event::KeyCode;
-use vbc_editor::engine::{typed, Engine};
+use vbc_editor::engine::{typed, Engine, Error};
 use vbc_editor::event::KeyEvent;
 use vbc_editor::screen::Geometry;
 use vbc_layout::line::Options;
@@ -100,7 +102,7 @@ const WHOLE_COLUMNS: [u16; 2] = [16, 40];
 const ROWS: u16 = 10;
 
 /// The keys each motion is reached by.
-const MOTIONS: [&str; 6] = ["gj", "gk", "g0", "g^", "g$", "gm"];
+const MOTIONS: [&str; 5] = ["gj", "gk", "g0", "g^", "g$"];
 
 /// The keys typed in front of a motion to leave the cursor part-way along a continuation row
 /// rather than on the first row of the text.
@@ -132,10 +134,22 @@ const COUNTED: [&str; 8] = ["3gj", "5gj", "12gj", "G4gk", "G12gk", "2g$", "3g$",
 /// wanting the end of every row it lands on rather than a column of its own.
 const STICKING_TO_THE_END: [&str; 4] = ["$gj", "$gjgj", "g$gj", "g$gjgj"];
 
-/// The number of cases the corpus holds that ask for a screen motion, which is the sample the
-/// comparison against vim below is worth. A case added to the corpus that asks for one moves this
-/// number.
-const SCREENWISE_CASES: usize = 18;
+/// The number of cases the corpus holds that ask for a screen motion and reach it, which is the
+/// sample the comparison against vim below is worth. A case added to the corpus that asks for one
+/// moves this number.
+const SCREENWISE_CASES: usize = 16;
+
+/// The cases of the corpus whose keys reach a motion the display-motion audit puts out of scope,
+/// paired with the keys vim's manual names that motion by. The engine refuses them before any
+/// screen motion behind them is reached, so there is no cursor of ours to compare with vim's, and
+/// naming them here is what keeps a case that starts or stops being refused from leaving the
+/// sample unremarked.
+const REFUSED_CASES: [(&str, &str); 4] = [
+    ("tab-leading-indent-ts4", "|"),
+    ("tab-leading-indent-ts8", "|"),
+    ("wrap-w80-plain", "|"),
+    ("wrap-w80-showbreak", "|"),
+];
 
 /// The corpus cases whose screen motion vim answers somewhere this seam does not, each with the
 /// reason, so that a case which starts or stops agreeing fails this file rather than quietly
@@ -267,11 +281,18 @@ fn every_corpus_case_that_asks_for_a_screen_motion_lands_where_vim_lands() -> an
 
     let mut asked = BTreeSet::new();
     let mut diverged = BTreeSet::new();
+    let mut refused = BTreeMap::new();
     for case in corpus.cases() {
         let mut engine = Engine::laid_out_in(&case.buffer, geometry(case));
-        engine
-            .press_all(replayed(&case.keys))
-            .unwrap_or_else(|error| panic!("the keys of `{}` run: {error}", case.id));
+        match engine.press_all(replayed(&case.keys)) {
+            Ok(()) => {}
+            Err(Error::OutOfScope { keys }) => {
+                refused.insert(case.id.as_str(), keys);
+
+                continue;
+            }
+            Err(error) => panic!("the keys of `{}` run: {error}", case.id),
+        }
         if engine
             .shim()
             .expect("an engine laid out in a window holds a shim")
@@ -288,6 +309,14 @@ fn every_corpus_case_that_asks_for_a_screen_motion_lands_where_vim_lands() -> an
         }
     }
 
+    assert_eq!(
+        REFUSED_CASES.into_iter().collect::<BTreeMap<&str, &str>>(),
+        refused
+            .iter()
+            .map(|(id, keys)| (*id, keys.as_str()))
+            .collect::<BTreeMap<&str, &str>>(),
+        "the cases the audit refuses before they reach a screen motion are not the ones named"
+    );
     assert_eq!(
         SCREENWISE_CASES,
         asked.len(),
