@@ -4,6 +4,7 @@
 //! rendered through the layout engine.
 
 pub mod app;
+pub mod chat;
 pub mod clipboard;
 pub mod engine;
 pub mod event;
