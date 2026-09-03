@@ -354,7 +354,7 @@ const A_SCREEN_LINE_END_BEHIND_A_VERTICAL_MOTION: &str = "g$jgj";
 
 /// The keys that put a bare `j` between two screen motions walking down a numbered column, which
 /// vim answers somewhere this seam does not, pinned so that the divergence is reported rather than
-/// rediscovered.
+/// rediscovered, paired with the keys in front of the second motion alone.
 ///
 /// Only the end of a row is carried across a vertical motion, so the seam ends this chain at the
 /// `j` and vim does not. Carrying the number too was measured against vim and moved forty-eight
@@ -365,7 +365,7 @@ const A_SCREEN_LINE_END_BEHIND_A_VERTICAL_MOTION: &str = "g$jgj";
 /// measured landing where vim lands it on both of them in every window here, so what is left when
 /// `gjgj` disagrees is the column and not the row it was measured from. On the tab-straddled text
 /// the `j` itself already lands elsewhere, which would make a pin there report two things at once.
-const A_NUMBERED_COLUMN_BEHIND_A_VERTICAL_MOTION: &str = "gjjgj";
+const A_NUMBERED_COLUMN_BEHIND_A_VERTICAL_MOTION: (&str, &str) = ("gjjgj", "gjj");
 
 /// The texts the chain above is pinned on, which are the ones the `j` in front of it lands where
 /// vim lands it on.
@@ -570,8 +570,7 @@ fn a_chain_a_screen_line_end_started_is_a_known_divergence() -> anyhow::Result<(
 fn a_chain_a_numbered_column_started_is_a_known_divergence() -> anyhow::Result<()> {
     let vim = VimDriver::new()?;
 
-    let keys = A_NUMBERED_COLUMN_BEHIND_A_VERTICAL_MOTION;
-    let stepped = &keys[..keys.len() - "gj".len()];
+    let (keys, stepped) = A_NUMBERED_COLUMN_BEHIND_A_VERTICAL_MOTION;
     for (name, text) in TEXTS {
         if !A_NUMBERED_COLUMN_IS_THE_WHOLE_DIVERGENCE_ON.contains(&name) {
             continue;
