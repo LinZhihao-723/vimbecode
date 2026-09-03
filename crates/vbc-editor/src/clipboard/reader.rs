@@ -127,7 +127,8 @@ impl Source for Helper {
 /// The clipboard as the render loop reaches it: a worker thread that makes the calls, and requests
 /// that are asked how they are getting on rather than waited for.
 ///
-/// It belongs to the thread that draws, which is the thread the deadlines are about.
+/// It belongs to the thread that draws, which is the thread the deadlines are about. Dropping it
+/// ends the worker and the source with it, without waiting for either.
 #[derive(Debug)]
 pub struct Reader {
     commands: Option<Sender<Command>>,
@@ -269,12 +270,6 @@ impl Reader {
             };
             current.outcome = Some(answer.outcome);
         }
-    }
-}
-
-impl Drop for Reader {
-    fn drop(&mut self) {
-        self.commands = None;
     }
 }
 
