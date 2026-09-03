@@ -7,9 +7,12 @@
 //! to over a pipe that stays open for the life of the session, and this module holds the language
 //! that pipe carries.
 //!
-//! Two things make that up: the wire, which is the frames the two sides exchange and the answers a
-//! request can come back with, and the helper's life, which is the process those frames travel
-//! between and the rules about starting it, keeping it and letting it go.
+//! Three things make that up: the wire, which is the frames the two sides exchange and the answers
+//! a request can come back with; the helper's life, which is the process those frames travel
+//! between and the rules about starting it, keeping it and letting it go; and the reading, which
+//! is the worker thread every one of those exchanges happens on and the deadlines the render loop
+//! holds them to.
 
 pub mod helper;
 pub mod protocol;
+pub mod reader;
