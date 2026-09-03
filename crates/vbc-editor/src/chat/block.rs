@@ -421,6 +421,20 @@ mod tests {
                 .expect("a render names a range of the source")
         );
         assert_eq!(4, rendered.rows().len());
+
+        let marked: Vec<&str> = block
+            .spans()
+            .iter()
+            .map(|span| {
+                block
+                    .slice(span.range().clone())
+                    .expect("a span names a range of the source")
+            })
+            .collect();
+        assert_eq!(
+            vec!["-fn main() {}", "+fn main() {", "+    todo!();", "+}"],
+            marked
+        );
     }
 
     #[test]
