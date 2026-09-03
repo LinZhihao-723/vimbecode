@@ -9,4 +9,5 @@ pub mod event;
 pub mod gutter;
 pub mod render;
 pub mod screen;
+pub mod shim;
 pub mod style;

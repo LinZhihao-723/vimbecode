@@ -97,6 +97,22 @@ impl Geometry {
 
     /// # Returns
     ///
+    /// How the text between the columns is measured.
+    #[must_use]
+    pub fn metrics(&self) -> Metrics {
+        self.wrapping.metrics()
+    }
+
+    /// # Returns
+    ///
+    /// How a line too long for the columns is wrapped and decorated.
+    #[must_use]
+    pub fn options(&self) -> &Options {
+        self.wrapping.options()
+    }
+
+    /// # Returns
+    ///
     /// The window the text is scrolled inside.
     #[must_use]
     pub fn window(&self) -> Window {
@@ -249,7 +265,7 @@ pub fn scroll(
 /// # Panics
 ///
 /// Panics if `rows` is empty, which no line lays out into.
-fn row_index(rows: &[DisplayRow], grapheme: usize) -> usize {
+pub(crate) fn row_index(rows: &[DisplayRow], grapheme: usize) -> usize {
     assert!(!rows.is_empty(), "a line lays out into at least one row");
 
     rows.partition_point(|row| row.end() <= grapheme)
