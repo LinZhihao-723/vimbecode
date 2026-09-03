@@ -15,7 +15,7 @@
 //!
 //! A motion that asks nothing about cells is not the shim's business and is handed on untouched,
 //! which is most of vim: the seam is worth having only if it is invisible to everything but the
-//! four motions it is for.
+//! motions it is for.
 //!
 //! What the shim measures costs the cursor's own logical line and nothing else. It lays that one
 //! line out, on the motion that asked for it, and keeps none of it, because a screenful of rows is
@@ -24,6 +24,25 @@
 //! The shim recognises and measures; it does not yet answer. Until it does, the action goes on to
 //! modalkit exactly as it did before the seam existed, which is what makes this a seam that can be
 //! shown to change nothing before it is asked to change something.
+//!
+//! Which motions the seam is for is a decision rather than an observation, so it is written down
+//! here as one. Every motion modalkit can hand it is classified: one whose answer is counted in
+//! cells and which the shim measures is intercepted, one whose answer is counted in cells and
+//! which nothing here measures is out of scope, and one whose answer is the same number counted
+//! either way is modalkit's. The middle bucket is refused rather than run. `gm`, `gM` and `|` all
+//! land where display geometry says and modalkit answers all three by counting characters, and on
+//! a line of CJK vim was measured landing somewhere else for each of them; a wrong cursor that
+//! reports itself is worth more than a wrong cursor that does not, so those three fail rather than
+//! land.
+//!
+//! Two things the classification does not cover are named here so that they are not mistaken for
+//! covered. A motion is classified by the place it names, which makes `j` and `k` characterwise:
+//! the line they land on is a position in a text. The column they keep is not one -- vim carries a
+//! screen column across a vertical motion where modalkit carries a character index -- and that is
+//! a seam of its own, held to vim by a test that pins the divergence rather than left to be
+//! rediscovered. And an intercepted motion is still answered by modalkit until the shim answers
+//! it, so it is as wrong today as it was before the seam existed; what separates it from a refused
+//! one is that it is measured and on its way to an answer.
 
 use editor_types::prelude::{Count, EditTarget, MoveDir1D, MovePosition, MoveType};
 use modalkit::actions::EditorAction;
@@ -42,7 +61,8 @@ pub enum ScreenMotion {
     /// Move a number of screen lines, as `gj` and `gk` do.
     Line(MoveDir1D),
 
-    /// Move to a column of the screen line the cursor is on, as `g0`, `gm` and `g$` do.
+    /// Move to a column of the screen line the cursor is on, as `g0` and `g$` do. `gm` is the
+    /// same shape and is out of scope, so [`MovePosition::Middle`] does not arrive here.
     LinePos(MovePosition),
 
     /// Move to the first word of the line drawn at a place in the viewport, as `H`, `M` and `L`
@@ -50,21 +70,28 @@ pub enum ScreenMotion {
     ViewportPos(MovePosition),
 }
 
-impl ScreenMotion {
-    /// # Returns
-    ///
-    /// The screen motion `move_type` names, and `None` where it names a motion counted in
-    /// characters, which modalkit is already the authority on.
-    #[must_use]
-    pub fn of(move_type: &MoveType) -> Option<Self> {
-        match move_type {
-            MoveType::ScreenFirstWord(direction) => Some(Self::FirstWord(*direction)),
-            MoveType::ScreenLine(direction) => Some(Self::Line(*direction)),
-            MoveType::ScreenLinePos(position) => Some(Self::LinePos(*position)),
-            MoveType::ViewportPos(position) => Some(Self::ViewportPos(*position)),
-            _ => None,
-        }
-    }
+/// What the audit of vim's motions makes of one of them, which is what decides whether the layout
+/// engine measures it, the engine refuses it, or modalkit answers it as it always has.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Classification {
+    /// The answer is counted in cells and the shim measures it, so the layout engine is the
+    /// authority on where the motion lands.
+    Intercepted(ScreenMotion),
+
+    /// The answer is counted in cells and nothing here measures it, so the motion is refused
+    /// rather than answered in characters.
+    OutOfScope {
+        /// The keys vim's manual names the motion by, which is what a refusal reports.
+        keys: &'static str,
+    },
+
+    /// The place the motion names is a position in a text rather than a place on a screen, so its
+    /// answer is the same however wide a grapheme is drawn and wherever a line breaks.
+    Characterwise,
+
+    /// A motion this audit does not name, which is what a [`MoveType`] added to a later release of
+    /// the crate that declares it arrives as until someone classifies it.
+    Unclassified,
 }
 
 /// One screen motion the shim took, and where the layout engine says the cursor stood when it
@@ -161,15 +188,58 @@ impl Shim {
 
 /// # Returns
 ///
-/// The screen motion `action` asks for and the count it asks for it with, and `None` where the
-/// action asks for something no layout has a say in.
+/// What the audit makes of `move_type`.
 #[must_use]
-pub fn screen_motion(action: &EditorAction) -> Option<(ScreenMotion, Count)> {
+pub fn classify(move_type: &MoveType) -> Classification {
+    match move_type {
+        MoveType::ScreenFirstWord(direction) => {
+            Classification::Intercepted(ScreenMotion::FirstWord(*direction))
+        }
+        MoveType::ScreenLine(direction) => {
+            Classification::Intercepted(ScreenMotion::Line(*direction))
+        }
+        MoveType::ScreenLinePos(MovePosition::Middle) => Classification::OutOfScope { keys: "gm" },
+        MoveType::ScreenLinePos(position) => {
+            Classification::Intercepted(ScreenMotion::LinePos(*position))
+        }
+        MoveType::ViewportPos(position) => {
+            Classification::Intercepted(ScreenMotion::ViewportPos(*position))
+        }
+        MoveType::LineColumnOffset => Classification::OutOfScope { keys: "|" },
+        MoveType::LinePercent | MoveType::LinePos(MovePosition::Middle) => {
+            Classification::OutOfScope { keys: "gM" }
+        }
+        MoveType::BufferByteOffset
+        | MoveType::BufferLineOffset
+        | MoveType::BufferLinePercent
+        | MoveType::BufferPos(_)
+        | MoveType::Column(_, _)
+        | MoveType::FinalNonBlank(_)
+        | MoveType::FirstWord(_)
+        | MoveType::ItemMatch
+        | MoveType::Line(_)
+        | MoveType::LinePos(_)
+        | MoveType::ParagraphBegin(_)
+        | MoveType::SectionBegin(_)
+        | MoveType::SectionEnd(_)
+        | MoveType::SentenceBegin(_)
+        | MoveType::WordBegin(_, _)
+        | MoveType::WordEnd(_, _) => Classification::Characterwise,
+        _ => Classification::Unclassified,
+    }
+}
+
+/// # Returns
+///
+/// What the audit makes of the motion `action` asks for, and the count it asks for it with, and
+/// `None` where the action asks for something that is not a motion at all.
+#[must_use]
+pub fn classified(action: &EditorAction) -> Option<(Classification, Count)> {
     let EditorAction::Edit(_, EditTarget::Motion(move_type, count)) = action else {
         return None;
     };
 
-    ScreenMotion::of(move_type).map(|motion| (motion, count.clone()))
+    Some((classify(move_type), count.clone()))
 }
 
 #[cfg(test)]
@@ -191,7 +261,7 @@ mod tests {
     const WIDE: &str = "你好世界一二三四五六";
 
     #[test]
-    fn the_four_motions_counted_in_cells_are_recognised() {
+    fn a_motion_counted_in_cells_is_the_layout_engines() {
         for (move_type, motion) in [
             (
                 MoveType::ScreenFirstWord(MoveDir1D::Next),
@@ -211,8 +281,23 @@ mod tests {
             ),
         ] {
             assert_eq!(
-                Some((motion, Count::Exact(2))),
-                screen_motion(&edit(EditTarget::Motion(move_type, Count::Exact(2))))
+                Some((Classification::Intercepted(motion), Count::Exact(2))),
+                classified(&edit(EditTarget::Motion(move_type, Count::Exact(2))))
+            );
+        }
+    }
+
+    #[test]
+    fn a_motion_counted_in_cells_that_nothing_measures_is_out_of_scope() {
+        for (move_type, keys) in [
+            (MoveType::ScreenLinePos(MovePosition::Middle), "gm"),
+            (MoveType::LinePos(MovePosition::Middle), "gM"),
+            (MoveType::LinePercent, "gM"),
+            (MoveType::LineColumnOffset, "|"),
+        ] {
+            assert_eq!(
+                Some((Classification::OutOfScope { keys }, Count::Contextual)),
+                classified(&edit(EditTarget::Motion(move_type, Count::Contextual)))
             );
         }
     }
@@ -225,23 +310,19 @@ mod tests {
             MoveType::LinePos(MovePosition::End),
             MoveType::FirstWord(MoveDir1D::Next),
             MoveType::WordBegin(WordStyle::Little, MoveDir1D::Next),
-            MoveType::LineColumnOffset,
         ] {
             assert_eq!(
-                None,
-                screen_motion(&edit(EditTarget::Motion(move_type, Count::Contextual)))
+                Some((Classification::Characterwise, Count::Contextual)),
+                classified(&edit(EditTarget::Motion(move_type, Count::Contextual)))
             );
         }
     }
 
     #[test]
     fn an_action_that_is_not_a_motion_is_left_to_modalkit() {
-        assert_eq!(None, screen_motion(&edit(EditTarget::CurrentPosition)));
-        assert_eq!(None, screen_motion(&edit(EditTarget::Selection)));
-        assert_eq!(
-            None,
-            screen_motion(&EditorAction::Mark(Specifier::Contextual))
-        );
+        assert_eq!(None, classified(&edit(EditTarget::CurrentPosition)));
+        assert_eq!(None, classified(&edit(EditTarget::Selection)));
+        assert_eq!(None, classified(&EditorAction::Mark(Specifier::Contextual)));
     }
 
     #[test]
