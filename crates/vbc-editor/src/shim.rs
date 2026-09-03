@@ -483,6 +483,11 @@ fn column_of(row: &DisplayRow, grapheme: usize) -> usize {
 /// vim steps back off one it landed in the second half of a row: a tab reaching across the end of
 /// a row would otherwise carry the cursor a row further along than the motion asked for. Only the
 /// far half of a row is stepped back from, which is where vim steps back.
+///
+/// The half is a half of the row's own text rather than of the window, because a continuation row
+/// draws its decoration in front of that text and both the column carried onto the row and the
+/// columns the row is measured in count those cells. Measuring against the window instead moves
+/// the mark by half the decoration, which is why an undecorated window cannot tell the two apart.
 fn grapheme_at(row: &DisplayRow, wanted: Wanted, width: usize) -> usize {
     let held = row.end() - row.start();
     if 0 == held {
@@ -495,7 +500,12 @@ fn grapheme_at(row: &DisplayRow, wanted: Wanted, width: usize) -> usize {
                 .partition_point(|drawn| *drawn <= column)
                 .saturating_sub(1);
             let grapheme = row.start() + offset;
-            if 0 < grapheme && column < column_of(row, grapheme) && width / 2 < column {
+            let decoration = row.columns()[0];
+            let beside = width.saturating_sub(decoration);
+            if 0 < grapheme
+                && column < column_of(row, grapheme)
+                && beside / 2 < column.saturating_sub(decoration)
+            {
                 return grapheme - 1;
             }
 
@@ -549,6 +559,19 @@ mod tests {
     /// A text whose second line draws a tab across the cells four to seven, which is a grapheme a
     /// column carried down from the line above can land in the middle of.
     const STRADDLED: [&str; 2] = ["0123456789", "abcd\tefgh"];
+
+    /// The columns the decorated measurements below are made in. Half of the window and half of a
+    /// decorated row's own text are different columns there, which is what makes the two rules a
+    /// row can be stepped back from tell each other apart.
+    const DECORATED_COLUMNS: usize = 15;
+
+    /// The continuation marker the decorated measurements below are drawn with.
+    const SHOW_BREAK: &str = "> ";
+
+    /// A line of tabs, every row of which ends part-way through one. Drawn behind a continuation
+    /// marker, a column carried down it lands in the middle of a tab on a row whose text starts
+    /// two cells in.
+    const TABS: [&str; 1] = ["a\tb\tc\td\te\tf\tg\th\ti\tj\tk\tl"];
 
     /// A text held in memory as the lines it is written from.
     struct Lines(Vec<String>);
@@ -978,6 +1001,30 @@ mod tests {
     }
 
     #[test]
+    fn the_half_a_row_is_stepped_back_from_is_a_half_of_its_own_text() {
+        let held = text(&TABS);
+
+        assert_eq!(
+            Some(LogicalPosition {
+                line: 0,
+                grapheme: 9,
+            }),
+            Shim::new(decorated_geometry())
+                .intercept(
+                    ScreenMotion::Line(MoveDir1D::Next),
+                    1,
+                    LogicalPosition {
+                        line: 0,
+                        grapheme: 5,
+                    },
+                    &held,
+                )
+                .map(|landing| landing.at),
+            "a column in the near half of a decorated row's text was stepped back from, which it              is only in the near half of the window the row is drawn in"
+        );
+    }
+
+    #[test]
     fn a_motion_counted_against_the_window_is_left_to_modalkit() {
         assert_eq!(
             None,
@@ -1034,6 +1081,17 @@ mod tests {
             NonZeroUsize::new(COLUMNS).expect("the columns are not zero"),
             NonZeroUsize::new(ROWS).expect("the rows are not zero"),
         )
+    }
+
+    /// # Returns
+    ///
+    /// The layout the decorated measurements above are made in.
+    fn decorated_geometry() -> Geometry {
+        Geometry::new(
+            NonZeroUsize::new(DECORATED_COLUMNS).expect("the columns are not zero"),
+            NonZeroUsize::new(ROWS).expect("the rows are not zero"),
+        )
+        .with_options(line::Options::new().with_show_break(SHOW_BREAK.to_owned()))
     }
 
     /// # Returns

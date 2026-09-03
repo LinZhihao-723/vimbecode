@@ -33,6 +33,23 @@
 //! leaves it wanting the end of every row it lands on, which is a column no screen motion asked
 //! for.
 //!
+//! Every case above is laid out in a window that draws no decoration in front of a continuation
+//! row, and a window like that cannot tell a column measured against the whole window from a
+//! column measured against the row's own text: the two are the same number only while nothing
+//! stands in front of that text. So the same motions and the same walks are replayed with
+//! `'showbreak'`, with `'breakindent'`, and with both at once, in three windows apiece, which is
+//! where the difference between the two is a column rather than nothing.
+//!
+//! What those decorated windows still disagree with vim about is a difference of coordinates
+//! rather than of layout, and is named case by case below. vim decides whether to step back off a
+//! grapheme a row split from `curswant`, which is a virtual column of the logical line that counts
+//! no decoration at all, taken modulo the window's width; the seam carries the screen column a row
+//! draws the cursor in, which counts every decoration cell drawn above it. On an undecorated row
+//! the two are the same number and every case agrees. On a decorated one they are not, and no
+//! threshold written in screen columns is the threshold vim wrote in virtual ones. The rows
+//! themselves are not in question: every decorated layout here was compared with the screen vim
+//! drew for it, cell for cell, and they are the same rows.
+//!
 //! The corpus is compared too. Every case of it that asks for a screen motion is replayed against
 //! vim in the window and under the display options the case declares, which is the sample this
 //! seam was actually built against: the two cases vim answers somewhere else are named here with
@@ -117,6 +134,77 @@ const WHOLE_COLUMNS: [u16; 2] = [16, 40];
 /// The screen lines the windows below hold, which is more rows than any case's text draws.
 const ROWS: u16 = 10;
 
+/// What a continuation row is decorated with: the name the case is reported under, whether the
+/// line's indent is repeated onto the row, and the marker drawn in front of it.
+type Decoration = (&'static str, bool, &'static str);
+
+/// The window that decorates nothing, which is the one every undecorated case is laid out in.
+const PLAIN: Decoration = ("plain", false, "");
+
+/// The decorations a continuation row is drawn with. Decoration is the whole of the difference
+/// between a column measured against the window and a column measured against the row's own text,
+/// so it is the one thing a case has to draw for the two to be told apart.
+const DECORATIONS: [Decoration; 3] = [
+    ("showbreak", false, "> "),
+    ("breakindent", true, ""),
+    ("both", true, "+++ "),
+];
+
+/// The windows the decorated cases are laid out in. A decoration takes the same cells from each of
+/// them, so the fraction of a row it stands in front of is different in every one.
+const DECORATED_COLUMNS: [u16; 3] = [15, 20, 31];
+
+/// The keys that walk along the first row of a line and then down onto a decorated one, from the
+/// columns at which a row's decoration moves its halfway mark past.
+const DECORATED_WALKS: [&str; 5] = [
+    "gg0lllgj",
+    "gg0lllllgj",
+    "gg0lllllllgj",
+    "gg0lllllllllgj",
+    "gg0lllllgjgj",
+];
+
+/// The decorated cases vim answers somewhere this seam does not, each with the reason, so that a
+/// case which starts or stops agreeing fails this file rather than quietly leaving the sample.
+///
+/// All of them are the same disagreement, and it is about which column is being halved rather than
+/// about where the rows are. vim halves the window and compares it against `curswant` taken modulo
+/// that width, and `curswant` is a virtual column of the logical line that counts no decoration;
+/// the seam halves the row's text and compares it against the screen column the cursor is drawn
+/// in, which counts every decoration cell above it. Where a row splits a tab, the two columns fall
+/// on opposite sides of their own halfway marks, and one engine steps back off the tab while the
+/// other stays on it.
+const DECORATED_DIVERGENCES: [(&str, &str); 7] = [
+    (
+        "straddled w15 showbreak gg0lllllllllgj",
+        "the seam steps back off the tab the row split and vim stays on it",
+    ),
+    (
+        "straddled w20 both gg0lllgj",
+        "the seam steps back off the tab the row split and vim stays on it",
+    ),
+    (
+        "straddled w20 showbreak gg0lllllllgj",
+        "vim steps back off the tab the row split and the seam stays on it",
+    ),
+    (
+        "straddled w31 both gg0lllllgj",
+        "the seam steps back off the tab the row split and vim stays on it",
+    ),
+    (
+        "straddled w31 both gg0lllllgjgj",
+        "the seam steps back off the tab the row split and vim stays on it",
+    ),
+    (
+        "straddled w31 showbreak gg0lllllgj",
+        "the seam steps back off the tab the row split and vim stays on it",
+    ),
+    (
+        "straddled w31 showbreak gg0lllllgjgj",
+        "the seam steps back off the tab the row split and vim stays on it",
+    ),
+];
+
 /// The keys each motion is reached by.
 const MOTIONS: [&str; 5] = ["gj", "gk", "g0", "g^", "g$"];
 
@@ -188,13 +276,62 @@ fn every_bare_display_motion_lands_where_vim_lands() -> anyhow::Result<()> {
     let vim = VimDriver::new()?;
 
     for motion in MOTIONS {
-        agrees_with_vim(&vim, motion, &COLUMNS)?;
+        agrees_with_vim(&vim, motion, &COLUMNS, PLAIN)?;
         agrees_with_vim(
             &vim,
             &format!("{ONTO_A_CONTINUATION_ROW}{motion}"),
             &COLUMNS,
+            PLAIN,
         )?;
     }
+
+    Ok(())
+}
+
+#[test]
+fn every_bare_display_motion_on_a_decorated_row_lands_where_vim_lands() -> anyhow::Result<()> {
+    let vim = VimDriver::new()?;
+
+    for motion in MOTIONS {
+        for decoration in DECORATIONS {
+            agrees_with_vim(
+                &vim,
+                &format!("{ONTO_A_CONTINUATION_ROW}{motion}"),
+                &DECORATED_COLUMNS,
+                decoration,
+            )?;
+        }
+    }
+
+    Ok(())
+}
+
+#[test]
+fn a_walk_onto_a_decorated_row_lands_where_vim_lands() -> anyhow::Result<()> {
+    let vim = VimDriver::new()?;
+    let mut diverged = BTreeSet::new();
+
+    for keys in DECORATED_WALKS {
+        for decoration in DECORATIONS {
+            for (name, text) in TEXTS {
+                for columns in DECORATED_COLUMNS {
+                    let case = case(text, keys, columns, decoration);
+                    if where_vim_left_it(&vim.run_case(&case)?) != cursor(&case, true) {
+                        diverged.insert(format!("{name} w{columns} {} {keys}", decoration.0));
+                    }
+                }
+            }
+        }
+    }
+
+    assert_eq!(
+        DECORATED_DIVERGENCES
+            .into_iter()
+            .map(|(case, _reason)| case.to_owned())
+            .collect::<BTreeSet<String>>(),
+        diverged,
+        "the decorated cases that disagree with vim are not the ones named as disagreeing"
+    );
 
     Ok(())
 }
@@ -206,8 +343,8 @@ fn a_motion_off_the_edge_of_a_logical_line_lands_where_vim_lands() -> anyhow::Re
     for (onto_the_edge, motion) in ACROSS_A_LINE_BOUNDARY {
         for (name, text) in TEXTS {
             for columns in COLUMNS {
-                let edge = case(text, onto_the_edge, columns);
-                let crossed = case(text, &format!("{onto_the_edge}{motion}"), columns);
+                let edge = case(text, onto_the_edge, columns, PLAIN);
+                let crossed = case(text, &format!("{onto_the_edge}{motion}"), columns, PLAIN);
 
                 assert_ne!(
                     cursor(&edge, true).0,
@@ -233,7 +370,7 @@ fn a_walk_down_a_ragged_buffer_tracks_the_column_vim_tracks() -> anyhow::Result<
     let vim = VimDriver::new()?;
 
     for keys in RAGGED_WALK {
-        agrees_with_vim(&vim, keys, &COLUMNS)?;
+        agrees_with_vim(&vim, keys, &COLUMNS, PLAIN)?;
     }
 
     Ok(())
@@ -244,7 +381,7 @@ fn a_counted_display_motion_lands_where_vim_lands() -> anyhow::Result<()> {
     let vim = VimDriver::new()?;
 
     for keys in COUNTED {
-        agrees_with_vim(&vim, keys, &COLUMNS)?;
+        agrees_with_vim(&vim, keys, &COLUMNS, PLAIN)?;
     }
 
     Ok(())
@@ -255,7 +392,7 @@ fn an_end_of_line_behind_a_walk_sticks_to_the_ends_vim_sticks_to() -> anyhow::Re
     let vim = VimDriver::new()?;
 
     for keys in STICKING_TO_THE_END {
-        agrees_with_vim(&vim, keys, &WHOLE_COLUMNS)?;
+        agrees_with_vim(&vim, keys, &WHOLE_COLUMNS, PLAIN)?;
     }
 
     Ok(())
@@ -271,7 +408,7 @@ fn the_engine_modalkit_answers_a_screen_motion_in_diverges_from_vim() -> anyhow:
         let mut diverged = false;
         for (_name, text) in TEXTS {
             for columns in COLUMNS {
-                let case = case(text, &keys, columns);
+                let case = case(text, &keys, columns, PLAIN);
                 diverged |= where_vim_left_it(&vim.run_case(&case)?) != cursor(&case, false);
             }
         }
@@ -379,9 +516,10 @@ fn replayed(sequence: &str) -> Vec<KeyEvent> {
     keys
 }
 
-/// Replays `keys` against every text of [`TEXTS`] in every window of `widths`, through vim and
-/// through an engine whose screen motions the shim answers, and requires the two to have left the
-/// cursor on the same byte of the same line.
+/// Replays `keys` against every text of [`TEXTS`] in every window of `widths`, whose continuation
+/// rows are decorated as `decoration` says, through vim and through an engine whose screen motions
+/// the shim answers, and requires the two to have left the cursor on the same byte of the same
+/// line.
 ///
 /// # Errors
 ///
@@ -392,16 +530,22 @@ fn replayed(sequence: &str) -> Vec<KeyEvent> {
 /// # Panics
 ///
 /// Panics if a replay left the two cursors somewhere different.
-fn agrees_with_vim(vim: &VimDriver, keys: &str, widths: &[u16]) -> anyhow::Result<()> {
+fn agrees_with_vim(
+    vim: &VimDriver,
+    keys: &str,
+    widths: &[u16],
+    decoration: Decoration,
+) -> anyhow::Result<()> {
     for (name, text) in TEXTS {
         for columns in widths {
-            let case = case(text, keys, *columns);
+            let case = case(text, keys, *columns, decoration);
 
             assert_eq!(
                 where_vim_left_it(&vim.run_case(&case)?),
                 cursor(&case, true),
-                "`{keys}` on the {name} text in a window {columns} columns wide landed somewhere \
-                 vim does not"
+                "`{keys}` on the {name} text in a {} window {columns} columns wide landed \
+                 somewhere vim does not",
+                decoration.0
             );
         }
     }
@@ -441,17 +585,24 @@ fn cursor(case: &Case, shimmed: bool) -> (u64, u64) {
 
 /// # Returns
 ///
-/// A case replaying `keys` against `text` in a window `columns` columns wide.
-fn case(text: &str, keys: &str, columns: u16) -> Case {
+/// A case replaying `keys` against `text` in a window `columns` columns wide whose continuation
+/// rows are decorated as `decoration` says.
+fn case(text: &str, keys: &str, columns: u16, decoration: Decoration) -> Case {
+    let (name, break_indent, show_break) = decoration;
+
     Case {
-        id: format!("display-motion-{columns}"),
+        id: format!("display-motion-{name}-{columns}"),
         description: "A bare display motion held to vim.".to_owned(),
         buffer: text.to_owned(),
         keys: keys.to_owned(),
         viewport_width: columns,
         viewport_height: ROWS,
         tags: BTreeSet::from([Tag::Wrap]),
-        options: CaseOptions::default(),
+        options: CaseOptions {
+            breakindent: break_indent,
+            showbreak: show_break.to_owned(),
+            ..CaseOptions::default()
+        },
     }
 }
 
