@@ -439,10 +439,11 @@ const UNDONE: [Case; 5] = [
     },
 ];
 
-/// A delete taken back, which has no shift anywhere in it. It is here to name whose the one thing
-/// the undo cases do not compare is: modalkit carries the cursor an undo was standing at by the
-/// change it takes back, where vim puts it at the start of the line it changed, and the two have
-/// disagreed about that since long before `>` did anything at all.
+/// A delete taken back, which has no shift anywhere in it. It says whose the one thing the undo
+/// cases above do not compare belongs to: modalkit carries the cursor an undo was standing at by
+/// the change it takes back, where vim puts it at the start of the line it changed. That is `u`'s
+/// divergence rather than the shift operators', and this case is what holds it to a keystroke with
+/// no `>` anywhere in it.
 const TAKEN_BACK: Case = Case {
     id: "undo a delete",
     text: INDENTED,
