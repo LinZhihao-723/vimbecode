@@ -7,9 +7,10 @@
 //! extend it where vim extends it, and that the operator applied afterwards takes the selection
 //! that leaves -- which is the whole of what a caller sees of a visual mode.
 //!
-//! The comparison is the one `vim_engine.rs` makes: the four dimensions the engine is the
-//! authority on -- the text, the cursor, the mode and the registers, each register with the type
-//! a put would reinsert it with -- taken from a real vim laid out in the same viewport.
+//! The comparison is the one `vim_engine.rs` makes, in the record both share: the four dimensions
+//! the engine is the authority on -- the text, the cursor, the mode and the registers, each
+//! register with the type a put would reinsert it with -- taken from a real vim laid out in the
+//! same viewport.
 //!
 //! Every case is written so that a display motion and the logical motion spelled the same way
 //! answer differently, and that is asserted of vim rather than assumed: a case where `gj` and `j`
