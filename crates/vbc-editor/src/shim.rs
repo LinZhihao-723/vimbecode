@@ -74,8 +74,10 @@ pub struct Intercepted {
     /// The motion that was asked for.
     pub motion: ScreenMotion,
 
-    /// How many times it was asked for.
-    pub count: Count,
+    /// The count the motion resolved to, in the terms that motion counts in: `gj` counts the
+    /// screen lines to move down and resolves to one where no count was typed, `g$` counts the
+    /// screen lines below the cursor's own and resolves to none, and `g0` takes no count at all.
+    pub count: usize,
 
     /// Where the cursor was drawn, in the rows the cursor's own logical line lays out into: the
     /// row within that line, and the column in cells. This is the measurement modalkit divides a
@@ -121,14 +123,14 @@ impl Shim {
         &self.intercepted
     }
 
-    /// Takes the screen motion `motion`, asked for `count` times with the cursor standing at `at`
-    /// on a logical line whose text is `line`, and records where the layout engine draws that
-    /// cursor. Only that one line is laid out, so what the measurement costs is the cursor's line
-    /// rather than the text around it. The line is the text alone, without its line ending.
+    /// Takes the screen motion `motion`, resolved to the count `count`, with the cursor standing
+    /// at `at` on a logical line whose text is `line`, and records where the layout engine draws
+    /// that cursor. Only that one line is laid out, so what the measurement costs is the cursor's
+    /// line rather than the text around it. The line is the text alone, without its line ending.
     pub fn intercept(
         &mut self,
         motion: ScreenMotion,
-        count: Count,
+        count: usize,
         at: LogicalPosition,
         line: &str,
     ) {
@@ -247,7 +249,7 @@ mod tests {
         let mut shim = Shim::new(geometry());
         shim.intercept(
             ScreenMotion::Line(MoveDir1D::Next),
-            Count::Contextual,
+            1,
             LogicalPosition {
                 line: 0,
                 grapheme: 6,
@@ -258,7 +260,7 @@ mod tests {
         assert_eq!(
             [Intercepted {
                 motion: ScreenMotion::Line(MoveDir1D::Next),
-                count: Count::Contextual,
+                count: 1,
                 from: DisplayPosition { row: 1, column: 2 },
             }],
             shim.intercepted()
@@ -270,7 +272,7 @@ mod tests {
         let mut shim = Shim::new(geometry());
         shim.intercept(
             ScreenMotion::LinePos(MovePosition::End),
-            Count::Contextual,
+            1,
             LogicalPosition {
                 line: 0,
                 grapheme: 5,

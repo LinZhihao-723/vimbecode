@@ -25,6 +25,7 @@ use std::fmt::{Display, Formatter, Result as FmtResult};
 use std::num::NonZeroUsize;
 
 use crossterm::event::{KeyCode, KeyModifiers};
+use editor_types::context::Resolve;
 use editor_types::prelude::{Register as Slot, TargetShape, ViewportContext};
 use modalkit::actions::{Action, Editable, EditorAction};
 use modalkit::editing::application::EmptyInfo;
@@ -341,7 +342,7 @@ impl Engine {
                     line: cursor.y,
                     grapheme: grapheme_offset(line, cursor.x),
                 };
-                shim.intercept(motion, count, at, line);
+                shim.intercept(motion, context.resolve(&count), at, line);
             }
         }
 
