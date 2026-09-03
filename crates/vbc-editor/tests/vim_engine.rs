@@ -12,13 +12,24 @@
 //! about. They are the control group: a divergence in one of them is a fault in the wiring rather
 //! than a grapheme the two engines measure differently.
 //!
+//! They are typed at two texts and, in one case, past the end of the first line. A cursor is
+//! reported as a byte offset where modalkit keeps a character index, and on a text of one-byte
+//! characters resting on the first line the two counts agree, so a seam that never converted and a
+//! seam that never left the first line would both go unreported. The second text is one whose
+//! characters are two bytes wide and one cell wide, which separates the two counts without asking
+//! the layout question the shim above this seam is for.
+//!
 //! A comparison is only worth what it would catch, so the same comparison is run against an engine
 //! that was handed no keys at all and against one handed the wrong count, and it is required to
 //! report the divergence rather than agree.
+//!
+//! The events an application loop delivers are checked against the keys they stand for, so the
+//! path the application reaches the engine by is held to the one vim was compared against.
 
 use std::collections::BTreeMap;
 
 use vbc_editor::engine::{typed, Engine, Held, Shape};
+use vbc_editor::event::{Event, Paste};
 use vbc_oracle::state::{Mode, Register, RegisterType};
 use vbc_oracle::vim::VimDriver;
 
@@ -32,9 +43,14 @@ struct Case {
 /// The prose the character-counted sequences are typed at.
 const PROSE: &str = "the quick brown fox\njumps over it\n";
 
+/// The prose the same sequences are typed at to separate the byte offset a cursor is reported at
+/// from the character index modalkit keeps: every accented character is two bytes wide and one
+/// cell wide, so the two counts differ without the width of a grapheme coming into it.
+const ACCENTED: &str = "héllo wörld\nvoilà là\n";
+
 /// The sequences whose answers modalkit counts in characters, which is what makes them the control
 /// group for the wiring rather than a test of how a grapheme is measured.
-const CASES: [Case; 7] = [
+const CASES: [Case; 13] = [
     Case {
         id: "w",
         text: PROSE,
@@ -69,6 +85,36 @@ const CASES: [Case; 7] = [
         id: "dd",
         text: PROSE,
         keys: "dd",
+    },
+    Case {
+        id: "j then w",
+        text: PROSE,
+        keys: "jw",
+    },
+    Case {
+        id: "w over two-byte characters",
+        text: ACCENTED,
+        keys: "ww",
+    },
+    Case {
+        id: "e over two-byte characters",
+        text: ACCENTED,
+        keys: "ee",
+    },
+    Case {
+        id: "x over two-byte characters",
+        text: ACCENTED,
+        keys: "lx",
+    },
+    Case {
+        id: "dw over two-byte characters",
+        text: ACCENTED,
+        keys: "wdw",
+    },
+    Case {
+        id: "j then w over two-byte characters",
+        text: ACCENTED,
+        keys: "jw",
     },
 ];
 
@@ -136,6 +182,33 @@ fn an_engine_handed_all_but_the_last_key_diverges_from_vim() -> anyhow::Result<(
             case.id
         );
     }
+
+    Ok(())
+}
+
+#[test]
+fn the_events_an_application_loop_delivers_land_where_the_same_keys_would() -> anyhow::Result<()> {
+    let mut typed_at = Engine::new(PROSE);
+    typed_at.press_all("dwiab".chars().map(typed))?;
+
+    let mut delivered = Engine::new(PROSE);
+    delivered.handle(&Event::Key(typed('d')))?;
+    delivered.handle(&Event::Resize {
+        columns: 80,
+        rows: 24,
+    })?;
+    delivered.handle(&Event::Key(typed('w')))?;
+    delivered.handle(&Event::Redraw)?;
+    delivered.handle(&Event::Key(typed('i')))?;
+    delivered.handle(&Event::Paste(Paste {
+        text: "ab".to_owned(),
+        dropped_keys: 0,
+    }))?;
+
+    assert_eq!(
+        engine_outcome(&mut typed_at),
+        engine_outcome(&mut delivered)
+    );
 
     Ok(())
 }
