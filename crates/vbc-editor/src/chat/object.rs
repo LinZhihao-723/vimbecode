@@ -8,8 +8,12 @@
 //!
 //! Three objects are addressed, each by the keys vim would spell them with: `iac` and `aac` for a
 //! code block, `iam` and `aam` for a message, `iat` and `aat` for a tool result. What the cursor
-//! is in decides which of them resolves and to what, and a position in a block of another kind
-//! resolves to nothing at all rather than to whatever happened to lie nearby.
+//! is in decides which of them resolves and to what, and a block of another kind -- a call to a
+//! tool, a thinking block, a diff -- is no object of its own, so a position in one resolves to
+//! nothing rather than to whatever happened to lie nearby. What such a block fences is another
+//! matter: a fenced region is read out of the bytes it is written among rather than out of the
+//! kind of the block holding them, so `iac` from inside a fence written in a thinking block names
+//! that fence's code, and only the block as a whole is what a block of no kind offers nothing of.
 //!
 //! An object is either a block or a fenced region written inside one, and the two differ in what
 //! the `a` form adds to the `i` form. A fenced region's delimiters are bytes of the source, so
@@ -392,6 +396,11 @@ fn fenced(source: &str) -> Vec<Candidate> {
     found
 }
 
+/// A fence line is a run of at least [`FENCE`] of one of [`FENCES`], under no more than [`INDENT`]
+/// spaces, and what follows the run names the language where it is not blank. A run of backticks
+/// naming a language that itself holds a backtick is no fence, because what is written there is a
+/// span of inline code rather than the opening of a region.
+///
 /// # Returns
 ///
 /// What `text` does to the regions open around it, or `None` where it is no fence line.
@@ -601,6 +610,15 @@ mod tests {
         );
         assert_eq!(Some(ANSWERED), text(&transcript, &around));
         assert_ne!(inner, around);
+
+        let padded = "\n\nhere is the fix\n\nand that is all\n\n";
+        let spaced = said(padded);
+        assert_eq!(
+            Some("here is the fix\n\nand that is all"),
+            text(&spaced, &resolve(&spaced, "iam", 0, 0)),
+            "the blank lines at the start of a block were taken by the inner object"
+        );
+        assert_eq!(Some(padded), text(&spaced, &resolve(&spaced, "aam", 0, 0)));
     }
 
     #[test]
@@ -893,6 +911,109 @@ mod tests {
         for keys in ["", "ia", "aa", "iaw", "aap", "iaC", "iacc", "cia"] {
             assert_eq!(None, Object::from_keys(keys), "`{keys}` spelled an object");
         }
+    }
+
+    #[test]
+    fn a_run_of_fewer_fence_characters_than_a_fence_takes_is_no_fence_at_all() {
+        let short = "``text\nnot code\n``\n";
+        let shortest = "~text\nnot code\n~\n";
+
+        for source in [short, shortest] {
+            let transcript = said(source);
+
+            assert_eq!(
+                None,
+                resolve(&transcript, "iac", 0, at(source, "not code")),
+                "a run of fewer than three characters opened a region of {source:?}"
+            );
+            assert_eq!(
+                Some(source.trim_end_matches('\n')),
+                text(&transcript, &resolve(&transcript, "iam", 0, 0)),
+                "the lines that are no fence were left out of the message holding them"
+            );
+        }
+    }
+
+    #[test]
+    fn a_fence_of_backticks_naming_a_language_that_holds_one_is_no_fence_either() {
+        let inline = "```a`b\ncode\n```\n";
+        let named = "```ab\ncode\n```\n";
+
+        let spanned = said(inline);
+        assert_eq!(
+            None,
+            resolve(&spanned, "iac", 0, at(inline, "code")),
+            "a line of inline code was read as the fence opening a region"
+        );
+
+        let opened = said(named);
+        assert_eq!(
+            Some("code"),
+            text(&opened, &resolve(&opened, "iac", 0, at(named, "code"))),
+            "the same line without the backtick in its language opened no region"
+        );
+
+        let tilde = "~~~a`b\ncode\n~~~\n";
+        let fenced = said(tilde);
+        assert_eq!(
+            Some("code"),
+            text(&fenced, &resolve(&fenced, "iac", 0, at(tilde, "code"))),
+            "a backtick in the language of a fence of tildes stopped it opening a region"
+        );
+    }
+
+    #[test]
+    fn a_region_the_fence_around_it_closed_over_ends_above_that_fence_line() {
+        let source = "~~~outer\n```inner\ncode\n~~~\nafter\n";
+        let transcript = said(source);
+        let inside = at(source, "code");
+
+        assert_eq!(
+            Some("```inner\ncode"),
+            text(&transcript, &resolve(&transcript, "aac", 0, inside)),
+            "a region left open took the fence line that closed the region around it"
+        );
+        assert_eq!(
+            Some("code"),
+            text(&transcript, &resolve(&transcript, "iac", 0, inside))
+        );
+        assert_eq!(
+            Some("~~~outer\n```inner\ncode\n~~~"),
+            text(
+                &transcript,
+                &resolve(&transcript, "aac", 0, at(source, "outer"))
+            ),
+            "the region written around the one left open was not closed by its own fence"
+        );
+    }
+
+    #[test]
+    fn a_fence_written_in_a_block_that_is_no_object_still_fences_a_region_of_code() {
+        let thought = "reasoning\n```rust\nlet x = 1;\n```\ndone\n";
+        let transcript: Transcript =
+            std::iter::once(Block::new(BlockKind::Thinking, thought.to_owned())).collect();
+        let inside = at(thought, "let x = 1;");
+
+        assert_eq!(
+            Some("let x = 1;"),
+            text(&transcript, &resolve(&transcript, "iac", 0, inside))
+        );
+        assert_eq!(
+            Some("```rust\nlet x = 1;\n```"),
+            text(&transcript, &resolve(&transcript, "aac", 0, inside))
+        );
+        for keys in ["iam", "aam", "iat", "aat"] {
+            assert_eq!(
+                None,
+                resolve(&transcript, keys, 0, inside),
+                "`{keys}` named bytes of a thinking block, which is no object of a transcript"
+            );
+        }
+        assert_eq!(
+            None,
+            resolve(&transcript, "iac", 0, at(thought, "reasoning")),
+            "the block itself was an object of code outside the region it fenced"
+        );
     }
 
     /// # Returns
