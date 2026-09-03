@@ -21,9 +21,9 @@
 //!
 //! What is not covered, and is not implied anywhere here:
 //!
-//! * Blockwise visual mode. `C-v` was never exercised, in this file or anywhere else in the
-//!   workspace, so nothing is known about whether a blockwise selection extends over a display
-//!   motion. It is not tested, and this file makes no claim about it.
+//! * Blockwise visual mode. `C-v` is typed nowhere in this file, so nothing here says whether a
+//!   blockwise selection extends over a display motion. It is not tested, and this file makes no
+//!   claim about it.
 //! * A line whose graphemes are wider than one cell. The shim measures a screen motion but does
 //!   not yet answer one, so a motion over such a line is still modalkit's own guess at where a
 //!   row ends. That divergence is asserted below rather than left to be discovered, and the
