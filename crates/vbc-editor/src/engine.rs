@@ -28,6 +28,7 @@
 //! decision about what it answers rather than the shim's about what it measures -- so the engine
 //! the seam is compared against refuses exactly what the engine with the seam refuses.
 
+use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::error::Error as StdError;
 use std::fmt::{Display, Formatter, Result as FmtResult};
@@ -36,11 +37,13 @@ use std::num::NonZeroUsize;
 use crossterm::event::{KeyCode, KeyModifiers};
 use editor_types::context::Resolve;
 use editor_types::prelude::{Register as Slot, TargetShape, ViewportContext};
+use editor_types::EditAction;
 use modalkit::actions::{Action, Editable, EditorAction};
 use modalkit::editing::application::EmptyInfo;
 use modalkit::editing::buffer::{CursorGroupId, EditBuffer};
 use modalkit::editing::context::EditContext;
 use modalkit::editing::cursor::Cursor;
+use modalkit::editing::rope::EditRope;
 use modalkit::editing::store::Store;
 use modalkit::env::vim::keybindings::{default_vim_keys, VimMachine};
 use modalkit::env::vim::VimMode;
@@ -51,7 +54,7 @@ use vbc_layout::width::graphemes;
 
 use crate::event::{Event, KeyEvent};
 use crate::screen::Geometry;
-use crate::shim::{classified, Classification, Shim};
+use crate::shim::{classified, Classification, Shim, Text};
 
 /// The registers a run reads back, in the notation a register is addressed by in vim: the unnamed
 /// register, the small-delete register, the yank register, the nine delete registers and the
@@ -330,10 +333,11 @@ impl Engine {
 
     /// Runs one of the actions that edit the text, offering it to the shim on the way.
     ///
-    /// This is the seam: an action asking about cells is the shim's to answer, an action asking
-    /// about cells that nothing here answers is refused, and everything else reaches the text as
-    /// it stands. The shim recognises and measures but does not answer yet, so for the time being
-    /// a motion it measures goes on to modalkit whatever the shim made of it.
+    /// This is the seam: a bare motion counted in cells is the shim's to answer and is written
+    /// straight onto the cursor, a motion counted in cells that nothing here measures is refused,
+    /// and everything else reaches the text as it stands. An operator applied to an intercepted
+    /// motion spans a range rather than naming a place, which is not something a cursor can be
+    /// moved to, so it is measured by the shim and then left to modalkit.
     ///
     /// # Errors
     ///
@@ -355,24 +359,18 @@ impl Engine {
                     action: format!("{editor:?}"),
                 });
             }
-            Some((Classification::Intercepted(motion), count)) => {
-                if let Some(shim) = self.shim.as_mut() {
-                    let cursor = self.text.get_leader(self.group);
-                    let held = self
-                        .text
-                        .get()
-                        .get_line(cursor.y)
-                        .map(|line| line.to_string())
-                        .unwrap_or_default();
-                    let line = held.strip_suffix('\n').unwrap_or(&held);
-                    let at = LogicalPosition {
-                        line: cursor.y,
-                        grapheme: grapheme_offset(line, cursor.x),
-                    };
-                    shim.intercept(motion, context.resolve(&count), at, line);
-                }
-            }
-            Some((Classification::Characterwise, _)) | None => {}
+            _ => {}
+        }
+
+        if let Some(at) = self.answered(editor, context) {
+            let column = char_offset(
+                &self.text.get().line(at.line).unwrap_or_default(),
+                at.grapheme,
+            );
+            self.text
+                .set_leader(self.group, Cursor::new(at.line, column));
+
+            return Ok(());
         }
 
         self.text
@@ -386,6 +384,39 @@ impl Engine {
                 action: format!("{editor:?}"),
                 message: error.to_string(),
             })
+    }
+
+    /// Offers an action to the shim and reads back what the layout engine makes of it.
+    ///
+    /// # Returns
+    ///
+    /// Where the action leaves the cursor, and [`None`] for an action the shim does not answer,
+    /// which is every action of an engine built without one.
+    fn answered(
+        &mut self,
+        editor: &EditorAction,
+        context: &EditContext,
+    ) -> Option<LogicalPosition> {
+        let shim = self.shim.as_mut()?;
+        let Some((Classification::Intercepted(motion), count)) = classified(editor) else {
+            shim.note(editor);
+
+            return None;
+        };
+        let cursor = self.text.get_leader(self.group);
+        let text = self.text.get();
+        let at = LogicalPosition {
+            line: cursor.y,
+            grapheme: grapheme_offset(&text.line(cursor.y).unwrap_or_default(), cursor.x),
+        };
+        let target = shim.intercept(motion, context.resolve(&count), at, text);
+        if !bare(editor, context) {
+            shim.note(editor);
+
+            return None;
+        }
+
+        target
     }
 
     /// # Returns
@@ -409,6 +440,20 @@ impl Engine {
             window,
             shim,
         }
+    }
+}
+
+impl Text for EditRope {
+    fn line_count(&self) -> usize {
+        self.get_lines().max(1)
+    }
+
+    fn line(&self, index: usize) -> Option<Cow<'_, str>> {
+        self.get_line(index).map(|line| {
+            let held = line.to_string();
+
+            Cow::Owned(held.strip_suffix('\n').unwrap_or(&held).to_owned())
+        })
     }
 }
 
@@ -494,6 +539,29 @@ fn grapheme_offset(line: &str, characters: usize) -> usize {
     }
 
     offset
+}
+
+/// # Returns
+///
+/// Whether `action` is a motion with no operator applied to it, which is the only shape of action
+/// whose answer is a place a cursor can be moved to. An operator applied to the same motion spans
+/// a range instead, and is modalkit's to run.
+fn bare(action: &EditorAction, context: &EditContext) -> bool {
+    match action {
+        EditorAction::Edit(operation, _) => EditAction::Motion == context.resolve(operation),
+        _ => false,
+    }
+}
+
+/// # Returns
+///
+/// The number of characters of `line` in front of the grapheme at `grapheme`, which is the column
+/// modalkit keeps a cursor in.
+fn char_offset(line: &str, grapheme: usize) -> usize {
+    graphemes(line)
+        .take(grapheme)
+        .map(|cluster| cluster.chars().count())
+        .sum()
 }
 
 /// # Returns

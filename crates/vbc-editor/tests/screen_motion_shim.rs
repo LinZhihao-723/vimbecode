@@ -2,15 +2,23 @@
 //! worth having only if both are true: that what it is for reaches it, and that everything else
 //! reaches the text exactly as it did before it existed.
 //!
-//! The control group is the whole corpus. Every case is replayed twice -- once through an engine
-//! with the shim installed and once through an engine built without one -- and the two are
-//! required to end byte for byte in the same state, or to fail in the same way with the same state
-//! behind them. A case whose keys ask for a motion the display-motion audit puts out of scope
-//! fails in both, since what the engine refuses is decided by that audit rather than by whether a
-//! shim is installed, and the state a refusal stopped in is compared as an ending state is, so the
-//! keys typed before it are held to the seam like any others. A seam that disturbed the logical
-//! path would show up here as a case whose text, cursor, mode or registers moved, and there is
-//! nothing about a case counted in characters that this file exempts.
+//! The control group is every case of the corpus that asks for no screen motion. Each is replayed
+//! twice -- once through an engine with the shim installed and once through an engine built
+//! without one -- and the two are required to end byte for byte in the same state, or to fail in
+//! the same way with the same state behind them. A case whose keys ask for a motion the
+//! display-motion audit puts out of scope fails in both, since what the engine refuses is decided
+//! by that audit rather than by whether a shim is installed, and the state a refusal stopped in is
+//! compared as an ending state is, so the keys typed before it are held to the seam like any
+//! others. A seam that disturbed the logical path would show up here as a case whose text, cursor,
+//! mode or registers moved, and there is nothing about a case counted in characters that this file
+//! exempts.
+//!
+//! The cases that do ask for a screen motion are the ones the seam exists to answer for itself,
+//! and a seam that answered every one of them exactly as modalkit already did would be a seam
+//! worth nothing at all. The cases the shim leaves somewhere else than the engine without one are
+//! therefore named, and are required to be exactly those. Whether the answer is the right one is
+//! not a question either engine can settle, and is settled against a real vim in
+//! `display_motion_oracle.rs` rather than here.
 //!
 //! That the seam is reached is asserted rather than inferred. A seam nothing ever enters would
 //! pass every comparison in this file and be worth nothing at all, so the screen motions the
@@ -142,6 +150,25 @@ const SCREENWISE: [(&str, &[ScreenMotion]); 16] = [
     ),
 ];
 
+/// The cases of the corpus the shim leaves somewhere other than the modalkit arithmetic it was
+/// written to replace leaves them, which are the ones whose cells are not their characters or
+/// whose rows carry a decoration. A case asking for a screen motion and absent from here is one on
+/// which dividing a character column by the window's width happens to give the same answer as
+/// walking the rows, which is every case of plain undecorated ASCII. A case whose keys reach a
+/// motion the display-motion audit puts out of scope is absent too, because both engines refuse it
+/// at the same key and neither reaches the screen motion behind it.
+const ANSWERED_FOR_ITSELF: [&str; 9] = [
+    "anchor-walk-w40-breakindent-showbreak",
+    "cjk-ambiwidth-double",
+    "cjk-ambiwidth-single",
+    "cjk-wide-cell-straddles-edge",
+    "emoji-zwj-family-wrap-edge",
+    "wrap-w24-breakindent",
+    "wrap-w24-breakindent-showbreak",
+    "wrap-w24-showbreak",
+    "wrap-w40-breakindent-showbreak",
+];
+
 /// A line whose every character is drawn two cells wide, on which the column a cursor is drawn in
 /// and the character it sits at are different numbers.
 const WIDE: &str = "你好世界一二三四五六\n";
@@ -220,23 +247,21 @@ struct Outcome {
 type Ending = Result<Outcome, (Error, Outcome)>;
 
 #[test]
-fn the_whole_corpus_ends_where_it_ended_before_the_seam_existed() {
+fn a_case_no_layout_has_a_say_in_ends_where_it_ended_before_the_seam_existed() {
     let corpus = Corpus::load_dir(&corpus::default_dir()).expect("the corpus loads");
     let screenwise: BTreeSet<&str> = SCREENWISE.iter().map(|(id, _)| *id).collect();
 
     let mut control = BTreeSet::new();
     for case in corpus.cases() {
-        let group = if screenwise.contains(case.id.as_str()) {
-            "screen motion"
-        } else {
-            control.insert(case.id.as_str());
-            "control"
-        };
+        if screenwise.contains(case.id.as_str()) {
+            continue;
+        }
+        control.insert(case.id.as_str());
 
         assert_eq!(
             replay(case, false).0,
             replay(case, true).0,
-            "the {group} case `{}` ends somewhere else with the shim installed",
+            "the control case `{}` ends somewhere else with the shim installed",
             case.id
         );
     }
@@ -249,6 +274,24 @@ fn the_whole_corpus_ends_where_it_ended_before_the_seam_existed() {
     assert!(
         !control.is_empty(),
         "the control group is empty, so the comparison above compared nothing"
+    );
+}
+
+#[test]
+fn the_cases_the_seam_answers_for_itself_are_the_ones_it_leaves_somewhere_else() {
+    let corpus = Corpus::load_dir(&corpus::default_dir()).expect("the corpus loads");
+
+    let mut moved = BTreeSet::new();
+    for case in corpus.cases() {
+        if replay(case, false).0 != replay(case, true).0 {
+            moved.insert(case.id.as_str());
+        }
+    }
+
+    assert_eq!(
+        ANSWERED_FOR_ITSELF.into_iter().collect::<BTreeSet<&str>>(),
+        moved,
+        "the cases the shim answers differently are not the ones named as answered for itself"
     );
 }
 
@@ -351,7 +394,11 @@ fn the_shim_holds_the_cell_the_cursor_is_drawn_in_rather_than_the_character_it_s
         6, taken[0].from.column,
         "the shim measured the cursor in characters rather than in cells"
     );
-    assert_eq!(3, engine.cursor().column / "你".len());
+    assert_eq!(
+        8,
+        engine.cursor().column / "你".len(),
+        "the motion was answered from a character column rather than from a cell"
+    );
 }
 
 #[test]
