@@ -15,13 +15,16 @@
 //! spans are the other thing there are as many of as the block is long.
 //!
 //! The diff is measured in the memory it takes to align four thousand lines against four thousand,
-//! which is where the table a full dynamic program allocates comes to 128 MB and where an edit to
-//! a file a few times longer would come to gigabytes.
+//! which is where the table a full dynamic program allocates comes to 128 MB, and in the memory it
+//! takes over a twenty-thousand-line file, where that table is 3.2 GB and the crash it causes is
+//! the whole reason there is a bound at all.
 //!
 //! What these assert is what they were seen to measure. In release: twenty rows off the top of a
 //! block cost 37 µs and 24,017 bytes at a hundred lines and at a hundred thousand alike, and 10 µs
 //! and 13,726 bytes at a hundred coloured lines and at a hundred thousand alike; four thousand
-//! lines diffed against four thousand with nothing in common cost 56 ms and 2.4 MB.
+//! lines diffed against four thousand with nothing in common cost 56 ms and 2.4 MB; twenty
+//! thousand against twenty thousand cost 10 ms and 11 MB past the bound, and 3.6 ms with one line
+//! inserted, which the common head and tail match off to a middle of one line either side.
 
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
@@ -64,6 +67,13 @@ const DIFFED: usize = 4_000;
 /// The memory that diff may take. A table of `(4000 + 1) * (4000 + 1)` `usize` is 128 MB, so
 /// anything of that shape misses this by more than an order of magnitude.
 const DIFF_MEMORY: usize = 8 << 20;
+
+/// The lines of the file a routine `Edit` is to, which is longer than the bound reaches.
+const EDITED: usize = 20_000;
+
+/// The memory a diff of a file that long may take. A table of `(20000 + 1) * (20000 + 1)` `usize`
+/// is 3.2 GB, which is the out-of-memory crash this bound exists against.
+const BOUNDED_MEMORY: usize = 32 << 20;
 
 /// The time that diff may take, which is generous enough for an unoptimized build on a shared
 /// machine and still far under what a text large enough to be bounded instead would cost.
@@ -201,28 +211,59 @@ fn diffing_four_thousand_lines_against_four_thousand_takes_bounded_memory() {
 }
 
 #[test]
-fn a_diff_too_large_to_align_takes_less_than_one_that_is_aligned() {
-    let over = 1 + DIFFED;
-    let old = lines(0..over);
-    let new = lines(over..2 * over);
+fn an_edit_to_a_long_file_is_shown_whole_rather_than_allocated_for() {
+    let old = lines(0..EDITED);
+    let new = lines(EDITED..2 * EDITED);
 
-    let (bounded, of_bounded) = measured(|| diff::compute(&old, &new));
-    let old = lines(0..DIFFED);
-    let new = lines(DIFFED..2 * DIFFED);
-    let (_, of_aligned) = measured(|| diff::compute(&old, &new));
+    let started = Instant::now();
+    let (block, memory) = measured(|| diff::compute(&old, &new));
+    let elapsed = started.elapsed();
 
     assert_eq!(
         format!("{}{}", diff::BOUNDED, diff::BOUNDED_NOTE),
-        bounded
+        block
             .source()
             .lines()
             .next()
             .expect("a bounded diff holds a line of its own"),
         "the diff past the bound did not say that it was"
     );
+    assert_eq!(
+        1 + 2 * EDITED,
+        block.source().lines().count(),
+        "the diff did not mark every line of both texts under that one"
+    );
     assert!(
-        of_bounded < of_aligned,
-        "the diff past the bound took {of_bounded} bytes and the one under it took {of_aligned}"
+        memory < BOUNDED_MEMORY,
+        "diffing {EDITED} lines against {EDITED} took {memory} bytes and {elapsed:?}"
+    );
+    assert!(
+        elapsed < DIFF_TIME,
+        "diffing {EDITED} lines against {EDITED} took {elapsed:?} and {memory} bytes"
+    );
+}
+
+#[test]
+fn an_edit_of_one_line_into_a_long_file_is_aligned_all_the_same() {
+    let old = lines(0..EDITED);
+    let new = lines(0..EDITED / 2) + &lines(EDITED..1 + EDITED) + &lines(EDITED / 2..EDITED);
+
+    let started = Instant::now();
+    let (block, memory) = measured(|| diff::compute(&old, &new));
+    let elapsed = started.elapsed();
+
+    assert_eq!(
+        1 + EDITED,
+        block.source().lines().count(),
+        "the edit was not matched off to the one line it changed"
+    );
+    assert!(
+        memory < BOUNDED_MEMORY,
+        "diffing {EDITED} lines against {EDITED} took {memory} bytes and {elapsed:?}"
+    );
+    assert!(
+        elapsed < DIFF_TIME,
+        "diffing {EDITED} lines against {EDITED} took {elapsed:?} and {memory} bytes"
     );
 }
 
