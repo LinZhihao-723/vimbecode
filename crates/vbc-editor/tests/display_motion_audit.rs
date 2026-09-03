@@ -399,6 +399,10 @@ fn audited() -> Vec<(MoveType, Classification)> {
     ]
 }
 
+/// # Type Parameters
+///
+/// * `PredicateType` - The test a classification is picked out by.
+///
 /// # Returns
 ///
 /// The motions the audit classifies as `wanted` says, named the way the crate that declares them
@@ -473,9 +477,11 @@ fn declared(source: &str) -> BTreeSet<String> {
 ///
 /// Returns an error if:
 ///
-/// * [`anyhow::Error`] if `cargo metadata` could not be run, if it reported a failure, if it does
-///   not report [`UPSTREAM`], or if no file of that package holds [`DECLARATION`].
+/// * [`anyhow::Error`] if `cargo metadata` reported a failure, if it does not report [`UPSTREAM`],
+///   or if no file of that package holds [`DECLARATION`].
+/// * Forwards [`Command::output`]'s return values on failure.
 /// * Forwards [`serde_json::from_slice`]'s return values on failure.
+/// * Forwards [`holding`]'s return values on failure.
 fn upstream_source() -> anyhow::Result<String> {
     let reported = Command::new(env!("CARGO"))
         .current_dir(workspace())
@@ -507,14 +513,15 @@ fn upstream_source() -> anyhow::Result<String> {
 /// # Returns
 ///
 /// The source of the first file under `directory` that holds [`DECLARATION`], and `None` where no
-/// file under it does, on success.
+/// file under it does, on success. A file that does not read back as text is not one that holds
+/// it.
 ///
 /// # Errors
 ///
 /// Returns an error if:
 ///
-/// * Forwards [`fs::read_dir`]'s return values on failure.
-/// * Forwards [`fs::read_to_string`]'s return values on failure.
+/// * Forwards [`fs::read_dir`]'s return values, and those of the entries it yields, on failure.
+/// * Forwards [`holding`]'s return values on failure, which is how a subdirectory is walked.
 fn holding(directory: &Path) -> anyhow::Result<Option<String>> {
     for entry in fs::read_dir(directory)? {
         let path = entry?.path();
