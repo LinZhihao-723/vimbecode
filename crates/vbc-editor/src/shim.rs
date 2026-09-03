@@ -1020,7 +1020,8 @@ mod tests {
                     &held,
                 )
                 .map(|landing| landing.at),
-            "a column in the near half of a decorated row's text was stepped back from, which it              is only in the near half of the window the row is drawn in"
+            "a column in the near half of a decorated row's own text was stepped back from, which \
+             it is only in the near half of the window the row is drawn in"
         );
     }
 
