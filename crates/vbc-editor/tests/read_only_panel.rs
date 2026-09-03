@@ -47,7 +47,10 @@
 //! begins with, is typed at a panel with the policy taken out and at one with it in place: a
 //! sequence the first writes with, or reaches insert mode with, the second is required to refuse
 //! and to leave the transcript byte-identical. That holds a key the list forgot, and a key a later
-//! table binds, to the same promise as the ones the list names.
+//! table binds, to the same promise as the ones the list names. The sweep runs the other way too:
+//! every pair of the keys a reader reaches for is required to be neither refused nor answered any
+//! differently from a bare [`Engine`], so a policy that bought its promise by refusing too much
+//! would be caught by the same machinery that catches one refusing too little.
 //!
 //! Winding the keys back to where the engine stands after a refusal gets its own case, because the
 //! transcript alone cannot show the difference: a panel wound back to a mode the engine is not in
@@ -495,6 +498,12 @@ const FOLLOWERS: &str = "\"2<>dcywgvViIaAoOpPuUxX~$0jkl";
 const PRINTABLE: &str = " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcde\
 fghijklmnopqrstuvwxyz{|}~";
 
+/// The keys a reader reaches for, which a sweep pairs with one another. The keys that ask to write
+/// are left out of it, because a `p` with nothing yanked, an `X` in the first column and a `u`
+/// with nothing to take back all leave the transcript as it stands without being keys a reader
+/// came for.
+const READABLE: &str = "hjklwWbBeE0^$-+_G%HMLgvV\"123fFtT;,yY";
+
 /// Everything an engine is the authority on, which is what a panel and an engine are compared in.
 #[derive(Debug, Eq, PartialEq)]
 struct Reading {
@@ -842,6 +851,23 @@ fn a_refusal_winds_the_panel_back_to_where_the_engine_stands() -> Result<()> {
     Ok(())
 }
 
+#[test]
+fn no_pair_of_the_keys_a_reader_reaches_for_is_refused_or_answered_differently() {
+    let mut wrong = Vec::new();
+    for first in READABLE.chars() {
+        if let Some(reason) = over_refusal(&format!("{first}")) {
+            wrong.push(reason);
+        }
+        for second in READABLE.chars() {
+            if let Some(reason) = over_refusal(&format!("{first}{second}")) {
+                wrong.push(reason);
+            }
+        }
+    }
+
+    assert_eq!(Vec::<String>::new(), wrong);
+}
+
 /// # Returns
 ///
 /// A newly created panel showing [`TRANSCRIPT`] under `policy`, laid out in a window narrow
@@ -900,6 +926,27 @@ fn escape(case: &str) -> Option<String> {
     }
     if !said {
         return Some(format!("`{case}` was dropped without a word"));
+    }
+
+    None
+}
+
+/// # Returns
+///
+/// What a read-only panel took away from `case`, and [`None`] where it neither refused it nor
+/// answered it any differently from an editor laid out in the same window. A case the engine
+/// answers with an error is one this editor does not measure yet, and is passed over.
+fn over_refusal(case: &str) -> Option<String> {
+    let mut locked = panel(Policy::ReadOnly);
+    locked.press_all(keys(case)).ok()?;
+    if let Some(refusal) = locked.refusal() {
+        return Some(format!("`{case}` was refused with `{refusal}`"));
+    }
+    let mut engine = Engine::laid_out_in(TRANSCRIPT, window());
+    engine.press_all(keys(case)).ok()?;
+    let read = Reading::of_panel(&mut locked);
+    if Reading::of_engine(&mut engine) != read {
+        return Some(format!("`{case}` answered differently from the editor"));
     }
 
     None
