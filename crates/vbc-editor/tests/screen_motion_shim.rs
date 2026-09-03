@@ -4,7 +4,9 @@
 //!
 //! The control group is the whole corpus. Every case is replayed twice -- once through an engine
 //! with the shim installed and once through an engine built without one -- and the two are
-//! required to end byte for byte in the same state, or to fail in the same way. A seam that
+//! required to end byte for byte in the same state, or to fail in the same way. A case whose keys
+//! ask for a motion the display-motion audit puts out of scope fails in both, since what the
+//! engine refuses is decided by that audit rather than by whether a shim is installed. A seam that
 //! disturbed the logical path would show up here as a case whose text, cursor, mode or registers
 //! moved, and there is nothing about a case counted in characters that this file exempts.
 //!
@@ -44,8 +46,10 @@ use vbc_layout::width::{AmbiWidth, Metrics};
 use vbc_oracle::corpus::{self, AmbiWidth as CaseAmbiWidth, Case, Corpus};
 
 /// The screen motions each case of the corpus asks for, in the order it asks for them. A case the
-/// corpus holds and this table does not asks for none.
-const SCREENWISE: [(&str, &[ScreenMotion]); 18] = [
+/// corpus holds and this table does not asks for none, which is also where a case whose keys the
+/// engine refuses before it reaches a screen motion belongs: `|` is out of scope, so the four
+/// cases that type it stop there.
+const SCREENWISE: [(&str, &[ScreenMotion]); 16] = [
     (
         "anchor-walk-w40-breakindent-showbreak",
         &[ScreenMotion::LinePos(MovePosition::End)],
@@ -134,8 +138,6 @@ const SCREENWISE: [(&str, &[ScreenMotion]); 18] = [
             ScreenMotion::LinePos(MovePosition::End),
         ],
     ),
-    ("wrap-w80-plain", &[ScreenMotion::Line(MoveDir1D::Next)]),
-    ("wrap-w80-showbreak", &[ScreenMotion::Line(MoveDir1D::Next)]),
 ];
 
 /// A line whose every character is drawn two cells wide, on which the column a cursor is drawn in

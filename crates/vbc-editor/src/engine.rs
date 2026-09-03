@@ -17,7 +17,12 @@
 //!
 //! An action the seam does not run is reported rather than dropped. An engine that quietly ignores
 //! what it was asked to do is an engine whose tests pass against a keystroke that did nothing, so
-//! there is no arm here that swallows an action.
+//! there is no arm here that swallows an action. A motion the shim classifies as out of scope is
+//! reported for the same reason: modalkit would answer it, in characters, at a place vim does not
+//! put the cursor, and an editor that does that quietly is harder to trust than one that says so.
+//! Whether a shim is installed makes no difference to that -- the classification is the editor's
+//! decision about what it answers rather than the shim's about what it measures -- so the engine
+//! the seam is compared against refuses exactly what the engine with the seam refuses.
 
 use std::collections::BTreeMap;
 use std::error::Error as StdError;
@@ -42,7 +47,7 @@ use vbc_layout::width::graphemes;
 
 use crate::event::{Event, KeyEvent};
 use crate::screen::Geometry;
-use crate::shim::{screen_motion, Shim};
+use crate::shim::{classified, Classification, Shim};
 
 /// The registers a run reads back, in the notation a register is addressed by in vim: the unnamed
 /// register, the small-delete register, the yank register, the nine delete registers and the
@@ -318,32 +323,49 @@ impl Engine {
 
     /// Runs one of the actions that edit the text, offering it to the shim on the way.
     ///
-    /// This is the seam: an action asking about cells is the shim's to answer, and everything else
-    /// reaches the text as it stands. The shim recognises and measures but does not answer yet, so
-    /// for the time being every action goes on to modalkit whatever the shim made of it.
+    /// This is the seam: an action asking about cells is the shim's to answer, an action asking
+    /// about cells that nothing here answers is refused, and everything else reaches the text as
+    /// it stands. The shim recognises and measures but does not answer yet, so for the time being
+    /// a motion it measures goes on to modalkit whatever the shim made of it.
     ///
     /// # Errors
     ///
     /// Returns an error if:
     ///
+    /// * [`Error::OutOfScope`] if the motion lands where display geometry says and nothing here
+    ///   measures it.
+    /// * [`Error::Unclassified`] if the motion is one the shim's audit does not name.
     /// * [`Error::Unrunnable`] if the action could not be run against the text.
     fn edit(&mut self, editor: &EditorAction, context: &EditContext) -> Result<(), Error> {
-        if let Some(shim) = self.shim.as_mut() {
-            if let Some((motion, count)) = screen_motion(editor) {
-                let cursor = self.text.get_leader(self.group);
-                let held = self
-                    .text
-                    .get()
-                    .get_line(cursor.y)
-                    .map(|line| line.to_string())
-                    .unwrap_or_default();
-                let line = held.strip_suffix('\n').unwrap_or(&held);
-                let at = LogicalPosition {
-                    line: cursor.y,
-                    grapheme: grapheme_offset(line, cursor.x),
-                };
-                shim.intercept(motion, context.resolve(&count), at, line);
+        match classified(editor) {
+            Some((Classification::OutOfScope { keys }, _)) => {
+                return Err(Error::OutOfScope {
+                    keys: keys.to_owned(),
+                });
             }
+            Some((Classification::Unclassified, _)) => {
+                return Err(Error::Unclassified {
+                    action: format!("{editor:?}"),
+                });
+            }
+            Some((Classification::Intercepted(motion), count)) => {
+                if let Some(shim) = self.shim.as_mut() {
+                    let cursor = self.text.get_leader(self.group);
+                    let held = self
+                        .text
+                        .get()
+                        .get_line(cursor.y)
+                        .map(|line| line.to_string())
+                        .unwrap_or_default();
+                    let line = held.strip_suffix('\n').unwrap_or(&held);
+                    let at = LogicalPosition {
+                        line: cursor.y,
+                        grapheme: grapheme_offset(line, cursor.x),
+                    };
+                    shim.intercept(motion, context.resolve(&count), at, line);
+                }
+            }
+            Some((Classification::Characterwise, _)) | None => {}
         }
 
         self.text
@@ -380,6 +402,18 @@ impl Engine {
 /// The ways a keystroke can fail to leave an engine in a state worth reading back.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Error {
+    /// A motion that lands where display geometry says, which nothing here measures.
+    OutOfScope {
+        /// The keys vim's manual names the motion by.
+        keys: String,
+    },
+
+    /// A motion the shim's audit does not name.
+    Unclassified {
+        /// The action nothing here classifies.
+        action: String,
+    },
+
     /// An action could not be run against the text.
     Unrunnable {
         /// The action that could not be run.
@@ -399,6 +433,16 @@ pub enum Error {
 impl Display for Error {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> FmtResult {
         match self {
+            Self::OutOfScope { keys } => write!(
+                formatter,
+                "`{keys}` lands at a screen column this editor does not measure yet, so it is \
+                 refused rather than answered by counting characters"
+            ),
+            Self::Unclassified { action } => write!(
+                formatter,
+                "`{action}` is a motion the screen-motion audit does not classify; classify it \
+                 in `vbc_editor::shim::classify`"
+            ),
             Self::Unrunnable { action, message } => {
                 write!(formatter, "`{action}` could not be run: {message}")
             }
