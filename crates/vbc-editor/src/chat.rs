@@ -25,8 +25,8 @@
 //!
 //! What a transcript is read with is the editor's own machinery, and what it is not read with is
 //! the editor's permission to write. A record of an exchange that already happened has no edits to
-//! make to it, so the keystrokes that would make one are refused rather than run, which is
-//! [`policy`]'s.
+//! make to it, so the keystrokes that would make one are refused rather than run, which is what
+//! [`policy`] is for.
 
 pub mod ansi;
 pub mod block;
