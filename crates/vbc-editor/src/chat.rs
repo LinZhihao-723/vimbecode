@@ -34,4 +34,5 @@ pub mod diff;
 pub mod fold;
 pub mod object;
 pub mod policy;
+pub mod selection;
 pub mod transcript;
