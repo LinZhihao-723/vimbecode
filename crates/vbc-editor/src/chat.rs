@@ -26,4 +26,5 @@
 pub mod ansi;
 pub mod block;
 pub mod diff;
+pub mod selection;
 pub mod transcript;
