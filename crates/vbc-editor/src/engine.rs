@@ -10,8 +10,10 @@
 //! The engine is the authority on the text, the cursor, the mode and the registers, and on nothing
 //! else. Where a line is drawn on a screen and how wide a grapheme is are the layout engine's
 //! business, and the engine deliberately knows nothing about either: modalkit counts a line in
-//! characters where a terminal counts it in cells, and reconciling the two is the work of the shim
-//! that sits above this seam rather than of the seam itself.
+//! characters where a terminal counts it in cells, and reconciling the two is the work of the
+//! [`shim`](crate::shim) an action passes through on its way from the keybinding machine to the
+//! text. Everything a layout has no say in reaches the text exactly as it did before that shim
+//! existed, and an engine can be built without one, which is what the seam is compared against.
 //!
 //! An action the seam does not run is reported rather than dropped. An engine that quietly ignores
 //! what it was asked to do is an engine whose tests pass against a keystroke that did nothing, so
@@ -20,10 +22,11 @@
 use std::collections::BTreeMap;
 use std::error::Error as StdError;
 use std::fmt::{Display, Formatter, Result as FmtResult};
+use std::num::NonZeroUsize;
 
 use crossterm::event::{KeyCode, KeyModifiers};
 use editor_types::prelude::{Register as Slot, TargetShape, ViewportContext};
-use modalkit::actions::{Action, Editable};
+use modalkit::actions::{Action, Editable, EditorAction};
 use modalkit::editing::application::EmptyInfo;
 use modalkit::editing::buffer::{CursorGroupId, EditBuffer};
 use modalkit::editing::context::EditContext;
@@ -33,8 +36,12 @@ use modalkit::env::vim::keybindings::{default_vim_keys, VimMachine};
 use modalkit::env::vim::VimMode;
 use modalkit::key::TerminalKey;
 use modalkit::keybindings::BindingMachine;
+use vbc_layout::position::LogicalPosition;
+use vbc_layout::width::graphemes;
 
 use crate::event::{Event, KeyEvent};
+use crate::screen::Geometry;
+use crate::shim::{screen_motion, Shim};
 
 /// The registers a run reads back, in the notation a register is addressed by in vim: the unnamed
 /// register, the small-delete register, the yank register, the nine delete registers and the
@@ -46,6 +53,14 @@ const READ_BACK: [char; 38] = [
 
 /// The identifier modalkit files the one text an engine edits under.
 const ONLY_TEXT: &str = "vimbecode";
+
+/// The columns a screen motion is measured in where an engine was not told what window it is being
+/// typed at, which is the terminal every vim manual draws its examples in.
+const DEFAULT_COLUMNS: usize = 80;
+
+/// The screen lines a screen motion is measured in where an engine was not told what window it is
+/// being typed at.
+const DEFAULT_ROWS: usize = 24;
 
 /// Where the cursor rests, counted the way the differential harness counts it: a zero-based line,
 /// and a zero-based byte offset within that line.
@@ -102,6 +117,7 @@ pub struct Engine {
     store: Store<EmptyInfo>,
     group: CursorGroupId,
     window: ViewportContext<Cursor>,
+    shim: Option<Shim>,
 }
 
 impl Engine {
@@ -110,19 +126,50 @@ impl Engine {
     /// # Returns
     ///
     /// A newly created engine in normal mode, editing `text` with the cursor on its first
-    /// character.
+    /// character, and measuring the screen motions typed at it in a window of the size a vim
+    /// manual draws its examples in.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the default window is zero columns wide or zero rows tall, which it is not.
     #[must_use]
     pub fn new(text: &str) -> Self {
-        let mut edited = EditBuffer::from_str(ONLY_TEXT.to_owned(), text);
-        let group = edited.create_group();
+        let columns = NonZeroUsize::new(DEFAULT_COLUMNS).expect("the default columns are not zero");
+        let rows = NonZeroUsize::new(DEFAULT_ROWS).expect("the default rows are not zero");
 
-        Self {
-            keys: default_vim_keys(),
-            text: edited,
-            store: Store::default(),
-            group,
-            window: ViewportContext::default(),
-        }
+        Self::laid_out_in(text, Geometry::new(columns, rows))
+    }
+
+    /// Factory function.
+    ///
+    /// # Returns
+    ///
+    /// A newly created engine like [`Engine::new`]'s, measuring the screen motions typed at it in
+    /// `geometry`.
+    #[must_use]
+    pub fn laid_out_in(text: &str, geometry: Geometry) -> Self {
+        Self::built(text, Some(Shim::new(geometry)))
+    }
+
+    /// Factory function.
+    ///
+    /// # Returns
+    ///
+    /// A newly created engine like [`Engine::new`]'s with no shim installed, so that a screen
+    /// motion is answered by modalkit's own width math as everything was answered before the seam
+    /// existed. This is the engine the seam is compared against.
+    #[must_use]
+    pub fn bypassing_the_shim(text: &str) -> Self {
+        Self::built(text, None)
+    }
+
+    /// # Returns
+    ///
+    /// The shim the engine's screen motions pass through, and `None` where the engine was built
+    /// without one.
+    #[must_use]
+    pub fn shim(&self) -> Option<&Shim> {
+        self.shim.as_ref()
     }
 
     /// Types one key at the engine and runs everything that key asks for.
@@ -261,21 +308,70 @@ impl Engine {
     fn run(&mut self, action: &Action, context: &EditContext) -> Result<(), Error> {
         match action {
             Action::NoOp => Ok(()),
-            Action::Editor(editor) => self
-                .text
-                .editor_command(
-                    editor,
-                    &(self.group, &self.window, context),
-                    &mut self.store,
-                )
-                .map(|_info| ())
-                .map_err(|error| Error::Unrunnable {
-                    action: format!("{editor:?}"),
-                    message: error.to_string(),
-                }),
+            Action::Editor(editor) => self.edit(editor, context),
             action => Err(Error::Unsupported {
                 action: format!("{action:?}"),
             }),
+        }
+    }
+
+    /// Runs one of the actions that edit the text, offering it to the shim on the way.
+    ///
+    /// This is the seam: an action asking about cells is the shim's to answer, and everything else
+    /// reaches the text as it stands. The shim recognises and measures but does not answer yet, so
+    /// for the time being every action goes on to modalkit whatever the shim made of it.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`Error::Unrunnable`] if the action could not be run against the text.
+    fn edit(&mut self, editor: &EditorAction, context: &EditContext) -> Result<(), Error> {
+        if let Some(shim) = self.shim.as_mut() {
+            if let Some((motion, count)) = screen_motion(editor) {
+                let cursor = self.text.get_leader(self.group);
+                let held = self
+                    .text
+                    .get()
+                    .get_line(cursor.y)
+                    .map(|line| line.to_string())
+                    .unwrap_or_default();
+                let line = held.strip_suffix('\n').unwrap_or(&held);
+                let at = LogicalPosition {
+                    line: cursor.y,
+                    grapheme: grapheme_offset(line, cursor.x),
+                };
+                shim.intercept(motion, count, at, line);
+            }
+        }
+
+        self.text
+            .editor_command(
+                editor,
+                &(self.group, &self.window, context),
+                &mut self.store,
+            )
+            .map(|_info| ())
+            .map_err(|error| Error::Unrunnable {
+                action: format!("{editor:?}"),
+                message: error.to_string(),
+            })
+    }
+
+    /// # Returns
+    ///
+    /// A newly created engine editing `text`, whose screen motions pass through `shim`.
+    fn built(text: &str, shim: Option<Shim>) -> Self {
+        let mut edited = EditBuffer::from_str(ONLY_TEXT.to_owned(), text);
+        let group = edited.create_group();
+
+        Self {
+            keys: default_vim_keys(),
+            text: edited,
+            store: Store::default(),
+            group,
+            window: ViewportContext::default(),
+            shim,
         }
     }
 }
@@ -324,6 +420,26 @@ pub fn typed(character: char) -> KeyEvent {
 
 /// # Returns
 ///
+/// The grapheme of `line` holding the character `characters` characters into it, which is the
+/// offset past the line's last grapheme where the line is shorter than that. A grapheme is one or
+/// more characters, so a cursor modalkit put in the middle of a combining sequence or an emoji is
+/// reported here as standing on the whole of it, which is where a screen draws it.
+fn grapheme_offset(line: &str, characters: usize) -> usize {
+    let mut counted = 0;
+    let mut offset = 0;
+    for grapheme in graphemes(line) {
+        counted += grapheme.chars().count();
+        if characters < counted {
+            return offset;
+        }
+        offset += 1;
+    }
+
+    offset
+}
+
+/// # Returns
+///
 /// The register modalkit addresses by the name vim addresses it by.
 fn slot(name: char) -> Slot {
     match name {
@@ -332,5 +448,30 @@ fn slot(name: char) -> Slot {
         '0' => Slot::LastYanked,
         '1'..='9' => Slot::RecentlyDeleted(name as usize - '1' as usize),
         name => Slot::Named(name),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A line whose graphemes are not its characters: a family emoji joined by zero-width joiners,
+    /// an accented letter written as a combining sequence, and a plain letter.
+    const CLUSTERED: &str = "\u{1f468}\u{200d}\u{1f469}\u{200d}\u{1f467}e\u{301}x";
+
+    #[test]
+    fn a_character_inside_a_cluster_is_reported_as_the_cluster_it_falls_in() {
+        assert_eq!(0, grapheme_offset(CLUSTERED, 0));
+        assert_eq!(0, grapheme_offset(CLUSTERED, 4));
+        assert_eq!(1, grapheme_offset(CLUSTERED, 5));
+        assert_eq!(1, grapheme_offset(CLUSTERED, 6));
+        assert_eq!(2, grapheme_offset(CLUSTERED, 7));
+    }
+
+    #[test]
+    fn a_character_past_the_end_of_a_line_is_reported_as_the_offset_past_its_last_grapheme() {
+        assert_eq!(3, grapheme_offset(CLUSTERED, 8));
+        assert_eq!(3, grapheme_offset(CLUSTERED, 99));
+        assert_eq!(0, grapheme_offset("", 0));
     }
 }
