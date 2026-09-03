@@ -30,6 +30,15 @@
 //! applied here, by choosing where the mark goes and whether the target jumps to a character or to
 //! a line.
 //!
+//! The shift operators are the one family of edits the seam runs itself rather than handing on.
+//! modalkit ships `EditBuffer::indent` as a stub that returns without touching the text, so `>>`,
+//! `<<` and everything spelled with them reached the buffer and did nothing at all. What they do
+//! instead is decided here: the target names whole logical lines however it was reached, and the
+//! whitespace those lines are written out in is the [`indent`](crate::indent) module's, since a
+//! step of a shift is measured in screen columns and a tab is worth as many of them as it takes to
+//! reach the next tab stop. A target this seam cannot turn into lines is refused for the same
+//! reason every other unanswered action is.
+//!
 //! An action the seam does not run is reported rather than dropped. An engine that quietly ignores
 //! what it was asked to do is an engine whose tests pass against a keystroke that did nothing, so
 //! there is no arm here that swallows an action. A motion the shim classifies as out of scope is
@@ -51,14 +60,15 @@ use std::num::NonZeroUsize;
 use crossterm::event::{KeyCode, KeyModifiers};
 use editor_types::context::Resolve;
 use editor_types::prelude::{
-    EditTarget, Mark, Register as Slot, Specifier, TargetShape, ViewportContext,
+    EditTarget, IndentChange, Mark, MoveDir1D, MovePosition, MoveType, RangeType, Register as Slot,
+    Specifier, TargetShape, ViewportContext,
 };
 use editor_types::EditAction;
 use modalkit::actions::{Action, Editable, EditorAction};
 use modalkit::editing::application::EmptyInfo;
 use modalkit::editing::buffer::{CursorGroupId, EditBuffer};
 use modalkit::editing::context::EditContext;
-use modalkit::editing::cursor::Cursor;
+use modalkit::editing::cursor::{Cursor, CursorGroup, CursorState};
 use modalkit::editing::rope::EditRope;
 use modalkit::editing::store::Store;
 use modalkit::env::vim::keybindings::{default_vim_keys, VimMachine};
@@ -69,6 +79,7 @@ use vbc_layout::position::LogicalPosition;
 use vbc_layout::width::graphemes;
 
 use crate::event::{Event, KeyEvent};
+use crate::indent::{resting_column, Shift};
 use crate::screen::Geometry;
 use crate::shim::{classified, Classification, Landing, Shim, Text};
 
@@ -152,6 +163,7 @@ pub struct Engine {
     group: CursorGroupId,
     window: ViewportContext<Cursor>,
     shim: Option<Shim>,
+    shift: Shift,
 }
 
 impl Engine {
@@ -198,6 +210,16 @@ impl Engine {
     #[must_use]
     pub fn bypassing_the_shim(text: &str, geometry: &Geometry) -> Self {
         Self::built(text, geometry, None)
+    }
+
+    /// # Returns
+    ///
+    /// The same engine whose shift operators lay `shift`'s whitespace down.
+    #[must_use]
+    pub fn indenting_by(mut self, shift: Shift) -> Self {
+        self.shift = shift;
+
+        self
     }
 
     /// # Returns
@@ -368,6 +390,7 @@ impl Engine {
     ///   measures it.
     /// * [`Error::Unclassified`] if the motion is one the shim's audit does not name.
     /// * Forwards [`Engine::apply`]'s return values on failure.
+    /// * Forwards [`Engine::reindent`]'s return values on failure.
     fn edit(&mut self, editor: &EditorAction, context: &EditContext) -> Result<(), Error> {
         match classified(editor) {
             Some((Classification::OutOfScope { keys }, _)) => {
@@ -383,13 +406,17 @@ impl Engine {
             _ => {}
         }
 
-        let Some(landing) = self.answered(editor, context) else {
-            return self.apply(editor, context);
-        };
-        let EditorAction::Edit(operator, _) = editor else {
+        let landing = self.answered(editor, context);
+        let EditorAction::Edit(operator, target) = editor else {
             return self.apply(editor, context);
         };
         let operator = context.resolve(operator);
+        if let EditAction::Indent(change) = &operator {
+            return self.reindent(change, target, landing, context);
+        }
+        let Some(landing) = landing else {
+            return self.apply(editor, context);
+        };
         if EditAction::Motion == operator {
             let at = self.placed(landing.at);
             self.text.set_leader(self.group, at);
@@ -399,6 +426,208 @@ impl Engine {
         let retargeted = self.retargeted(operator, landing);
 
         self.apply(&retargeted, context)
+    }
+
+    /// Runs one of vim's shift operators over the whole logical lines its target spans.
+    ///
+    /// A shift is linewise whatever the keys in front of it were: `>gj` carries the logical lines
+    /// the screen motion crossed rather than the row it stopped on, and `v>` carries the lines a
+    /// characterwise selection touched rather than the characters in it. The lines a target spans
+    /// are therefore all the seam needs from it, which is why nothing is asked of modalkit here
+    /// beyond where the cursor stands: `EditBuffer::indent` is a stub that leaves the text as it
+    /// was, and running it would leave the buffer byte for byte the same and the keystroke
+    /// silently undone.
+    ///
+    /// A count in front of the operator is not the count behind it. `3>>` shifts three lines by
+    /// one step and `3>` in visual mode shifts the selection by three, which is the difference
+    /// between the count the target carries and the count the change carries.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`Engine::columns`]'s return values on failure.
+    /// * Forwards [`Engine::spanned`]'s return values on failure.
+    /// * Forwards [`Engine::apply`]'s return values on failure.
+    fn reindent(
+        &mut self,
+        change: &IndentChange,
+        target: &EditTarget,
+        landing: Option<Landing>,
+        context: &EditContext,
+    ) -> Result<(), Error> {
+        let columns = self.columns(change, context)?;
+        let span = match landing {
+            Some(landing) if !landing.complete => {
+                let to = self.placed(landing.at);
+                let carried = self.against(EditAction::Motion, to, false);
+
+                return self.apply(&carried, context);
+            }
+            Some(landing) => Some(self.crossed(&landing)),
+            None => self.spanned(target, context)?,
+        };
+        let Some((first, last)) = span else {
+            return Ok(());
+        };
+        self.written(first, last, columns);
+
+        Ok(())
+    }
+
+    /// # Returns
+    ///
+    /// The columns a shift carries each of its lines by, which is negative for an outdent.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`Error::Unindentable`] if the change is vim's automatic reindent, which decides an
+    ///   indent from the text around it rather than from a count and nothing here does.
+    fn columns(&self, change: &IndentChange, context: &EditContext) -> Result<isize, Error> {
+        let (steps, increasing) = match change {
+            IndentChange::Increase(count) => (context.resolve(count), true),
+            IndentChange::Decrease(count) => (context.resolve(count), false),
+            IndentChange::Auto => {
+                return Err(Error::Unindentable {
+                    action: format!("{change:?}"),
+                });
+            }
+        };
+        let columns =
+            isize::try_from(steps.saturating_mul(self.shift.step())).unwrap_or(isize::MAX);
+
+        Ok(if increasing { columns } else { -columns })
+    }
+
+    /// # Returns
+    ///
+    /// The first and last logical lines a screen motion's answer crosses. A screen motion stops on
+    /// a row rather than on a line, and an exclusive one stopping in the first column of a line
+    /// stops short of that line altogether, which is the rule that decides whether `>4gj` out of a
+    /// line taking three rows carries the line below it or leaves it where it was.
+    fn crossed(&mut self, landing: &Landing) -> (usize, usize) {
+        let cursor = self.text.get_leader(self.group);
+        let to = self.placed(landing.at);
+        let (near, far) = if to < cursor {
+            (to, cursor)
+        } else {
+            (cursor, to)
+        };
+        if !landing.inclusive && 0 == far.x && near.y < far.y {
+            return (near.y, far.y - 1);
+        }
+
+        (near.y, far.y)
+    }
+
+    /// # Returns
+    ///
+    /// * The first and last logical lines a shift's target spans.
+    /// * `None` where the target ran out of text, which vim answers by leaving the operator undone
+    ///   rather than by shifting the lines it did reach.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`Error::Unindentable`] if the target is one this seam does not turn into whole lines,
+    ///   which is refused rather than shifted over a guess at the lines it covers.
+    fn spanned(
+        &mut self,
+        target: &EditTarget,
+        context: &EditContext,
+    ) -> Result<Option<(usize, usize)>, Error> {
+        let cursor = self.text.get_leader(self.group);
+        let last = self.text.get_lines().saturating_sub(1);
+
+        match target {
+            EditTarget::Range(RangeType::Line, _, count) => {
+                let lines = context.resolve(count);
+                if cursor.y >= last && lines > 1 {
+                    return Ok(None);
+                }
+
+                Ok(Some((
+                    cursor.y,
+                    last.min(cursor.y + lines.saturating_sub(1)),
+                )))
+            }
+            EditTarget::Motion(MoveType::Line(MoveDir1D::Next), count) => {
+                if cursor.y >= last {
+                    return Ok(None);
+                }
+
+                Ok(Some((
+                    cursor.y,
+                    last.min(cursor.y + context.resolve(count)),
+                )))
+            }
+            EditTarget::Motion(MoveType::Line(MoveDir1D::Previous), count) => {
+                if 0 == cursor.y {
+                    return Ok(None);
+                }
+
+                Ok(Some((
+                    cursor.y.saturating_sub(context.resolve(count)),
+                    cursor.y,
+                )))
+            }
+            EditTarget::Motion(MoveType::BufferPos(MovePosition::Beginning), _) => {
+                Ok(Some(sorted(cursor.y, 0)))
+            }
+            EditTarget::Motion(MoveType::BufferPos(MovePosition::End), _) => {
+                Ok(Some(sorted(cursor.y, last)))
+            }
+            EditTarget::Motion(MoveType::BufferLineOffset, count) => {
+                let line = last.min(context.resolve(count).saturating_sub(1));
+
+                Ok(Some(sorted(cursor.y, line)))
+            }
+            EditTarget::Selection => {
+                let Some((one, other, _)) = self.text.get_leader_selection(self.group) else {
+                    return Ok(Some((cursor.y, cursor.y)));
+                };
+
+                Ok(Some(sorted(one.y, other.y)))
+            }
+            target => Err(Error::Unindentable {
+                action: format!("{target:?}"),
+            }),
+        }
+    }
+
+    /// Writes the lines from `first` to `last` out with their indents carried `columns` columns,
+    /// and leaves the cursor where vim leaves it: on the first non-blank of the first line the
+    /// shift covered.
+    ///
+    /// The text is replaced rather than spliced, which resets the buffer's own undo history, its
+    /// change list and its jump list. None of the three is reachable from this engine yet -- the
+    /// actions that read them are among the ones it reports as unsupported -- and the marks a text
+    /// is edited with are kept in the store rather than in the buffer, so they survive.
+    fn written(&mut self, first: usize, last: usize, columns: isize) {
+        let text = self.text.get_text();
+        let mut lines: Vec<String> = text.split('\n').map(str::to_owned).collect();
+        let mut changed = false;
+        for line in lines.iter_mut().take(last + 1).skip(first) {
+            let Some(shifted) = self.shift.shifted(line, columns) else {
+                continue;
+            };
+            changed |= &shifted != line;
+            *line = shifted;
+        }
+
+        let followers = self.text.get_followers(self.group);
+        if changed {
+            self.text.set_text(lines.join("\n"));
+        }
+        let resting = Cursor::new(first, resting_column(&self.line(first)));
+        let members = followers.into_iter().map(CursorState::Location).collect();
+        self.text.set_group(
+            self.group,
+            CursorGroup::new(CursorState::Location(resting), members),
+        );
     }
 
     /// Puts the scratch mark where a screen motion's answer says the motion goes, and the cursor
@@ -559,6 +788,7 @@ impl Engine {
             group,
             window,
             shim,
+            shift: Shift::default().with_tab_stop(geometry.metrics().tab_stop()),
         }
     }
 }
@@ -592,6 +822,12 @@ pub enum Error {
         action: String,
     },
 
+    /// An indenting command whose lines this seam does not work out.
+    Unindentable {
+        /// The change or target nothing here shifts by.
+        action: String,
+    },
+
     /// An action could not be run against the text.
     Unrunnable {
         /// The action that could not be run.
@@ -620,6 +856,11 @@ impl Display for Error {
                 formatter,
                 "`{action}` is a motion the screen-motion audit does not classify; classify it \
                  in `vbc_editor::shim::classify`"
+            ),
+            Self::Unindentable { action } => write!(
+                formatter,
+                "`{action}` is an indenting command whose lines this editor does not work out, so \
+                 it is refused rather than shifted over a guess at the lines it covers"
             ),
             Self::Unrunnable { action, message } => {
                 write!(formatter, "`{action}` could not be run: {message}")
@@ -705,6 +946,13 @@ fn in_indent(line: &str, column: usize) -> bool {
             .chars()
             .take_while(|held| matches!(held, ' ' | '\t'))
             .count()
+}
+
+/// # Returns
+///
+/// The two lines in the order a span holds them, nearest first.
+fn sorted(one: usize, other: usize) -> (usize, usize) {
+    (one.min(other), one.max(other))
 }
 
 /// # Returns
