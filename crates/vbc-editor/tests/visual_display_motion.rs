@@ -28,14 +28,18 @@
 //!   row ends. That divergence is asserted below rather than left to be discovered, and the
 //!   assertion is what fails when the shim starts answering.
 
-use std::collections::{BTreeMap, BTreeSet};
+mod outcome;
+
+use std::collections::BTreeSet;
 use std::num::NonZeroUsize;
 
-use vbc_editor::engine::{typed, Engine, Held, Shape};
+use vbc_editor::engine::{typed, Engine};
 use vbc_editor::screen::Geometry;
 use vbc_oracle::corpus;
 use vbc_oracle::state::{Mode, Register, RegisterType};
 use vbc_oracle::vim::VimDriver;
+
+use crate::outcome::Outcome;
 
 /// One cross-check: the keys that extend a selection over a display motion, and the keys that
 /// extend it over the logical motion spelled the same way, which is what says the case turns on
@@ -129,17 +133,6 @@ const EXTENSIONS: [Extension; 10] = [
         logical: "jjvkky",
     },
 ];
-
-/// What both engines are compared on: everything the vim engine decides, and nothing the layout
-/// decides.
-#[derive(Debug, Eq, PartialEq)]
-struct Outcome {
-    text: String,
-    line: u64,
-    column: u64,
-    mode: Mode,
-    registers: BTreeMap<char, Register>,
-}
 
 #[test]
 fn every_visual_display_motion_ends_where_vim_ends_it() -> anyhow::Result<()> {
@@ -282,19 +275,8 @@ fn a_selection_over_a_line_of_wide_characters_is_not_yet_measured_in_cells() -> 
 fn replayed(text: &str, keys: &str) -> anyhow::Result<Outcome> {
     let mut engine = Engine::laid_out_in(text, geometry());
     engine.press_all(keys.chars().map(typed))?;
-    let cursor = engine.cursor();
 
-    Ok(Outcome {
-        text: engine.text(),
-        line: cursor.line as u64,
-        column: cursor.column as u64,
-        mode: mode(&engine),
-        registers: engine
-            .registers()
-            .into_iter()
-            .map(|(name, held)| (name, register(held)))
-            .collect(),
-    })
+    Ok(Outcome::of(&mut engine))
 }
 
 /// # Returns
@@ -318,15 +300,8 @@ fn vim_outcome(vim: &VimDriver, text: &str, keys: &str) -> anyhow::Result<Outcom
         tags: BTreeSet::new(),
         options: corpus::Options::default(),
     };
-    let state = vim.run_case(&case)?;
 
-    Ok(Outcome {
-        text: state.buffer,
-        line: state.cursor.line,
-        column: state.cursor.column,
-        mode: state.mode,
-        registers: state.registers,
-    })
+    Ok(Outcome::from(vim.run_case(&case)?))
 }
 
 /// # Returns
@@ -342,38 +317,4 @@ fn geometry() -> Geometry {
     let rows = NonZeroUsize::new(usize::from(ROWS)).expect("the viewport is not zero rows tall");
 
     Geometry::new(columns, rows)
-}
-
-/// # Returns
-///
-/// The mode the engine is in, in the terms the harness compares modes in.
-///
-/// # Panics
-///
-/// Panics if the engine is in a mode the harness has no name for.
-fn mode(engine: &Engine) -> Mode {
-    use modalkit::env::vim::VimMode;
-
-    match engine.mode() {
-        VimMode::Normal => Mode::Normal,
-        VimMode::Insert => Mode::Insert,
-        VimMode::Visual | VimMode::Select => Mode::Visual,
-        VimMode::OperationPending => Mode::OperatorPending,
-        VimMode::Command => Mode::CommandLine,
-        mode => panic!("`{mode:?}` is a mode the harness has no name for"),
-    }
-}
-
-/// # Returns
-///
-/// What a register holds, in the terms the harness compares registers in.
-fn register(held: Held) -> Register {
-    Register {
-        text: held.text,
-        register_type: match held.shape {
-            Shape::Charwise => RegisterType::Charwise,
-            Shape::Linewise => RegisterType::Linewise,
-            Shape::Blockwise => RegisterType::Blockwise,
-        },
-    }
 }
