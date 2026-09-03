@@ -1,13 +1,15 @@
 //! What a fold has to be worth before a reader trusts it with what it hid.
 //!
 //! A fold is only useful if it is a property of the conversation rather than of the frame it was
-//! drawn in. So a fold has to survive being drawn again at another width; a closed one has to
-//! behave as the single row it is drawn as, so that a reader walking down the panel steps past
-//! everything it covers in one keystroke rather than through it; folds nested inside one another
-//! have to open and close on their own and be reachable at every depth; a tool still writing its
-//! output has to leave the fold over it closed and merely say that there is more of it now; and
-//! none of it may touch a byte of what was said, because the transcript is the truth a selection
-//! and a yank are taken from and a fold is a way of not looking at it.
+//! drawn in. So a fold has to survive being drawn again at another width; it has to survive the
+//! conversation carrying on, which is the one thing a transcript does while a reader is reading it
+//! and which moves a fold's place among the folds without moving the block it heads; a closed one
+//! has to behave as the single row it is drawn as, so that a reader walking down the panel steps
+//! past everything it covers in one keystroke rather than through it; folds nested inside one
+//! another have to open and close on their own and be reachable at every depth; a tool still
+//! writing its output has to leave the fold over it closed and merely say that there is more of it
+//! now; and none of it may touch a byte of what was said, because the transcript is the truth a
+//! selection and a yank are taken from and a fold is a way of not looking at it.
 //!
 //! The transcript these are checked over is the shape the nesting is about: a call to a subagent,
 //! what the subagent said, a call the subagent itself made, what that answered, and what Claude
@@ -104,6 +106,70 @@ fn fold_state_survives_a_resize_and_a_re_render() {
 }
 
 #[test]
+fn a_transcript_that_grows_keeps_every_fold_where_the_reader_left_it() {
+    /// The blocks of this test's own fixture: the call the subagent was started by, the thought
+    /// said outside it, and what the subagent went on to answer while the reader was reading.
+    const CALL: usize = 0;
+    const THOUGHT_SAID: usize = 1;
+    const GREW: usize = 2;
+
+    let mut transcript: Transcript = vec![
+        Block::new(
+            Kind::ToolCall {
+                name: "Task".to_owned(),
+            },
+            "review the anchor".to_owned(),
+        ),
+        Block::new(Kind::Thinking, "the anchor holds".to_owned()),
+    ]
+    .into_iter()
+    .collect();
+    let mut tags = vec![Tag::new(Some(SUBAGENT.to_owned()), None), Tag::untagged()];
+    let mut folds = Folds::of(&transcript, &tags);
+    folds.apply(Command::Open, THOUGHT_SAID);
+
+    assert_eq!(vec![(CALL, 0), (THOUGHT_SAID, 0)], nesting(&folds));
+    assert_eq!(
+        vec!["summary 0", "body 1"],
+        described(&View::of(&folds, &transcript))
+    );
+
+    transcript.push(Block::from_ansi(Kind::ToolResult, RUNNING));
+    tags.push(Tag::new(None, Some(SUBAGENT.to_owned())));
+    folds.rebuild(&transcript, &tags);
+
+    assert_eq!(
+        vec![(CALL, 0), (GREW, 1), (THOUGHT_SAID, 0)],
+        nesting(&folds),
+        "what the transcript grew did not take its place among the folds"
+    );
+    assert!(
+        folds.is_open(THOUGHT_SAID),
+        "the thought the reader had opened closed itself when the transcript grew"
+    );
+    assert!(
+        !folds.is_open(CALL) && !folds.is_open(GREW),
+        "a fold opened itself when the transcript grew"
+    );
+    assert_eq!(
+        vec!["summary 0", "body 1"],
+        described(&View::of(&folds, &transcript)),
+        "what the transcript grew was drawn outside the closed fold it arrived under"
+    );
+
+    folds.apply(Command::Open, CALL);
+    let opened = View::of(&folds, &transcript);
+    assert_eq!(vec!["body 0", "summary 2", "body 1"], described(&opened));
+    let Some(Entry::Summary(summary)) = opened.entries().get(1) else {
+        panic!(
+            "what the transcript grew is not folded: {:?}",
+            opened.entries()
+        );
+    };
+    assert_eq!("+--- 3 lines: result running 4 tests", summary.text());
+}
+
+#[test]
 fn a_closed_fold_is_one_row_and_stepping_down_steps_past_the_whole_of_it() {
     let (transcript, tags) = conversation(RUNNING);
     let mut folds = Folds::of(&transcript, &tags);
@@ -177,11 +243,6 @@ fn nested_folds_open_and_close_on_their_own_and_every_depth_is_reached() {
     let (transcript, tags) = conversation(RUNNING);
     let mut folds = Folds::of(&transcript, &tags);
 
-    let heads: Vec<(usize, usize)> = folds
-        .folds()
-        .iter()
-        .map(|fold| (fold.head(), fold.depth()))
-        .collect();
     assert_eq!(
         vec![
             (SUBAGENT_CALL, 0),
@@ -189,7 +250,7 @@ fn nested_folds_open_and_close_on_their_own_and_every_depth_is_reached() {
             (NESTED_RESULT, 2),
             (THOUGHT, 1)
         ],
-        heads,
+        nesting(&folds),
         "the fixture does not nest a fold three deep, so nothing here reaches a third depth"
     );
 
@@ -426,6 +487,17 @@ fn described(view: &View<'_>) -> Vec<String> {
             Entry::Summary(summary) => format!("summary {}", summary.head()),
             Entry::Body(block) => format!("body {block}"),
         })
+        .collect()
+}
+
+/// # Returns
+///
+/// The block each fold of `folds` heads and how deep it sits, in the order the folds are held in.
+fn nesting(folds: &Folds) -> Vec<(usize, usize)> {
+    folds
+        .folds()
+        .iter()
+        .map(|fold| (fold.head(), fold.depth()))
         .collect()
 }
 
