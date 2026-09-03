@@ -32,6 +32,15 @@
 //! Rebinding is checked at both the things the table is configurable in: the prefix the display
 //! motions and the case operators hang off, and any single binding. In each case the rebound keys
 //! are required to do the work and the keys they replaced are required to have stopped doing it.
+//!
+//! The two reasons the table gives for the shape it has are measured here rather than taken on
+//! trust. An operator typed twice is what runs it over whole lines, so the doubled sequences are
+//! held to vim, `g~g~` among them, which modalkit's own table drops for the bare `~` the way it
+//! drops `gUgj` for `j`. And the targets the table leaves unbound are required to be ones its text
+//! still answers with nothing, and the word object to still name one range whichever way it is
+//! asked for: each is bound to a key and typed, vim is required to answer it with something, and
+//! the editor is required to answer it with nothing. Were modalkit to gain either, the table would
+//! be the poorer for the omission, and these say so.
 
 mod outcome;
 
@@ -40,7 +49,9 @@ use std::num::NonZeroUsize;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use editor_types::context::EditContext;
-use editor_types::prelude::{Count, EditTarget, RangeType, Specifier};
+use editor_types::prelude::{
+    Count, EditTarget, MoveDir1D, MoveType, RangeType, Specifier, WordStyle,
+};
 use modalkit::actions::{Action, EditAction, EditorAction};
 use modalkit::env::vim::keybindings::{default_vim_keys, VimMachine};
 use modalkit::env::vim::VimMode;
@@ -72,6 +83,18 @@ const COLUMNS: u16 = 20;
 
 /// The screen lines the cases below are laid out in.
 const ROWS: u16 = 10;
+
+/// The sequences that double an operator, which is what runs it over whole lines: an operator's own
+/// keys typed again, and its last key alone.
+const DOUBLED: [&str; 8] = ["dd", "yy", "gUU", "gUgU", "guu", "gugu", "g~~", "g~g~"];
+
+/// The prose the unbound targets are named at, which holds two sentences to a paragraph, three
+/// paragraphs, and a tag around the middle one.
+const SENTENCES: &str = "Alpha one. Alpha two.\n\n<a>Beta one. Beta two.</a>\n\nGamma one.\n";
+
+/// The keys that put the cursor inside the tag, the sentence and the paragraph in the middle of
+/// [`SENTENCES`], so that a target naming any of them names something to travel over.
+const PLACED: &str = "2jfB";
 
 /// The operators whose keys begin with the character the display motions also begin with, which is
 /// the pairing modalkit's own table cannot spell.
@@ -362,6 +385,146 @@ fn a_single_binding_can_be_rebound() {
         PROSE, dropped.text,
         "`x` still deletes a character once it is unbound"
     );
+}
+
+#[test]
+fn an_operator_typed_twice_runs_over_whole_lines_where_vim_does() -> anyhow::Result<()> {
+    let vim = VimDriver::new()?;
+    let untouched = outcome_of(Engine::laid_out_in(PROSE, window()), "");
+
+    for keys in DOUBLED {
+        let expected = vim_outcome(&vim, keys)?;
+
+        assert_eq!(
+            expected,
+            outcome_of(Engine::laid_out_in(PROSE, window()), keys),
+            "`{keys}` left the engine somewhere other than where vim left it"
+        );
+        assert_ne!(
+            untouched, expected,
+            "vim left `{keys}` where it left an engine handed no keys, so the case cannot tell an \
+             operator that ran over the line from one that was abandoned"
+        );
+    }
+
+    Ok(())
+}
+
+#[test]
+fn the_targets_the_table_leaves_unbound_are_ones_modalkit_answers_with_nothing(
+) -> anyhow::Result<()> {
+    let vim = VimDriver::new()?;
+    let standing = Outcome::from(vim.run(SENTENCES, PLACED)?);
+    let unmoved = outcome_of(Engine::new(SENTENCES), PLACED);
+
+    for (keys, target) in unbound() {
+        let sequence = format!("{PLACED}d{keys}");
+        let mut bindings = Bindings::vim();
+        bindings.bind(VimMode::OperationPending, &keys, naming(target));
+
+        assert_ne!(
+            standing,
+            Outcome::from(vim.run(SENTENCES, &sequence)?),
+            "vim answers `d{keys}` with nothing, so the case cannot tell a target modalkit answers \
+             from one it does not"
+        );
+        assert_eq!(
+            unmoved,
+            outcome_of(Engine::new(SENTENCES).bound_by(bindings), &sequence),
+            "modalkit's text now answers `d{keys}`, which the table leaves unbound because it did \
+             not"
+        );
+    }
+
+    Ok(())
+}
+
+#[test]
+fn the_word_object_names_one_range_whichever_way_modalkit_is_asked_for_it() -> anyhow::Result<()> {
+    let vim = VimDriver::new()?;
+    let sequence = format!("{PLACED}dQ");
+
+    for style in [WordStyle::Little, WordStyle::Big] {
+        let around = ranged(RangeType::Word(style.clone()), true);
+        let inside = ranged(RangeType::Word(style), false);
+
+        assert_eq!(
+            outcome_of(Engine::new(SENTENCES).bound_by(around), &sequence),
+            outcome_of(Engine::new(SENTENCES).bound_by(inside), &sequence),
+            "modalkit's text now draws the distinction between `iw` and `aw` that the table names \
+             one range apiece because it did not"
+        );
+    }
+    assert_ne!(
+        Outcome::from(vim.run(SENTENCES, &format!("{PLACED}daw"))?),
+        Outcome::from(vim.run(SENTENCES, &format!("{PLACED}diw"))?),
+        "vim answers `daw` where it answers `diw`, so the case cannot tell one range from two"
+    );
+
+    Ok(())
+}
+
+/// # Returns
+///
+/// The motions and the text objects the table leaves unbound, each spelled the way vim spells it
+/// and paired with the target it would name were it bound.
+fn unbound() -> Vec<(String, EditTarget)> {
+    let mut unbound: Vec<(String, EditTarget)> = [
+        (")", MoveType::SentenceBegin(MoveDir1D::Next)),
+        ("(", MoveType::SentenceBegin(MoveDir1D::Previous)),
+        ("}", MoveType::ParagraphBegin(MoveDir1D::Next)),
+        ("{", MoveType::ParagraphBegin(MoveDir1D::Previous)),
+    ]
+    .into_iter()
+    .map(|(keys, move_type)| {
+        (
+            keys.to_owned(),
+            EditTarget::Motion(move_type, Count::Contextual),
+        )
+    })
+    .collect();
+    for (keys, range) in [
+        ("s", RangeType::Sentence),
+        ("p", RangeType::Paragraph),
+        ("t", RangeType::XmlTag),
+    ] {
+        for (around, inclusive) in [("a", true), ("i", false)] {
+            unbound.push((
+                format!("{around}{keys}"),
+                EditTarget::Range(range.clone(), inclusive, Count::Contextual),
+            ));
+        }
+    }
+
+    unbound
+}
+
+/// # Returns
+///
+/// A step running the operator the context holds over `target`.
+fn naming(target: EditTarget) -> Step {
+    Step::Run {
+        changes: Vec::new(),
+        emits: vec![Emit::Always(
+            EditorAction::Edit(Specifier::Contextual, target).into(),
+        )],
+        mode: None,
+    }
+}
+
+/// # Returns
+///
+/// The editor's own table with `Q` bound, in the operator-pending table, to the range `range`
+/// names, taking the characters it stops on where `inclusive`.
+fn ranged(range: RangeType, inclusive: bool) -> Bindings {
+    let mut bindings = Bindings::vim();
+    bindings.bind(
+        VimMode::OperationPending,
+        "Q",
+        naming(EditTarget::Range(range, inclusive, Count::Contextual)),
+    );
+
+    bindings
 }
 
 /// # Returns
