@@ -40,6 +40,18 @@
 //! engine that had run it and rolled it back would leave `u` holding it. `u` and `<C-R>` are
 //! themselves keystrokes that write, so they are refused like the rest, and the transcript is
 //! required to be byte-identical after each of them too.
+//!
+//! A list of keystrokes written down by hand is a list something can be missing from, so the list
+//! is not the whole of what is checked. Every one- and two-key sequence a terminal reports as
+//! printable characters, and every three-key sequence of the keys a longer mutating keystroke
+//! begins with, is typed at a panel with the policy taken out and at one with it in place: a
+//! sequence the first writes with, or reaches insert mode with, the second is required to refuse
+//! and to leave the transcript byte-identical. That holds a key the list forgot, and a key a later
+//! table binds, to the same promise as the ones the list names.
+//!
+//! Winding the keys back to where the engine stands after a refusal gets its own case, because the
+//! transcript alone cannot show the difference: a panel wound back to a mode the engine is not in
+//! leaves the transcript exactly as it was and reads every key after it in the wrong table.
 
 use std::collections::BTreeMap;
 use std::num::NonZeroUsize;
@@ -261,7 +273,7 @@ const INSERTIONS: [Keystroke; 7] = [
 ];
 
 /// The keystrokes a reader came for, which write nothing and must reach the engine untouched.
-const READINGS: [Keystroke; 34] = [
+const READINGS: [Keystroke; 52] = [
     Keystroke {
         id: "down a line",
         keys: "j",
@@ -397,6 +409,78 @@ const READINGS: [Keystroke; 34] = [
     Keystroke {
         id: "yank a linewise selection",
         keys: "Vy",
+    },
+    Keystroke {
+        id: "to the top of the window",
+        keys: "jjHl",
+    },
+    Keystroke {
+        id: "to the middle of the window",
+        keys: "M",
+    },
+    Keystroke {
+        id: "to the bottom of the window",
+        keys: "L",
+    },
+    Keystroke {
+        id: "to the matching bracket",
+        keys: "%",
+    },
+    Keystroke {
+        id: "up to the first non-blank of a line",
+        keys: "jj-",
+    },
+    Keystroke {
+        id: "down to the first non-blank of a line",
+        keys: "+",
+    },
+    Keystroke {
+        id: "to the first non-blank with an underscore",
+        keys: "jj_",
+    },
+    Keystroke {
+        id: "forward a big word",
+        keys: "W",
+    },
+    Keystroke {
+        id: "back a big word",
+        keys: "WWB",
+    },
+    Keystroke {
+        id: "to the end of a big word",
+        keys: "E",
+    },
+    Keystroke {
+        id: "back to the end of a word",
+        keys: "wwge",
+    },
+    Keystroke {
+        id: "back to the end of a big word",
+        keys: "WWgE",
+    },
+    Keystroke {
+        id: "to a byte offset",
+        keys: "30go",
+    },
+    Keystroke {
+        id: "back after a searched character",
+        keys: "$Tm",
+    },
+    Keystroke {
+        id: "onto the second of a searched character",
+        keys: "2fe",
+    },
+    Keystroke {
+        id: "yank an inner word object",
+        keys: "yiw",
+    },
+    Keystroke {
+        id: "yank an inner big-word object",
+        keys: "yiW",
+    },
+    Keystroke {
+        id: "yank a bracketed object and its brackets",
+        keys: "jj$hya(",
     },
 ];
 
@@ -725,4 +809,98 @@ fn window() -> Geometry {
 /// The key events a terminal reports when `keys` is typed at it, one per character.
 fn keys(keys: &str) -> Vec<KeyEvent> {
     keys.chars().map(typed).collect()
+}
+
+/// The keys a three-key sweep starts a sequence with, which are the operators, the counts and the
+/// register and prefix keys every longer mutating keystroke begins with.
+const STARTERS: &str = "\"123dcy<>=gvVrzq@";
+
+/// The keys a three-key sweep continues a sequence with.
+const FOLLOWERS: &str = "\"2<>dcywgvViIaAoOpPuUxX~$0jkl";
+
+/// Every key a terminal reports as one printable character.
+const PRINTABLE: &str = " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcde\
+fghijklmnopqrstuvwxyz{|}~";
+
+#[test]
+fn no_one_or_two_key_sequence_that_writes_goes_unrefused() {
+    let mut escaped = Vec::new();
+    for first in PRINTABLE.chars() {
+        if let Some(escape) = escape(&format!("{first}")) {
+            escaped.push(escape);
+        }
+        for second in PRINTABLE.chars() {
+            if let Some(escape) = escape(&format!("{first}{second}")) {
+                escaped.push(escape);
+            }
+        }
+    }
+
+    assert_eq!(Vec::<String>::new(), escaped);
+}
+
+#[test]
+fn no_three_key_sequence_of_an_operator_and_its_target_that_writes_goes_unrefused() {
+    let mut escaped = Vec::new();
+    for first in STARTERS.chars() {
+        for second in FOLLOWERS.chars() {
+            for third in FOLLOWERS.chars() {
+                if let Some(escape) = escape(&format!("{first}{second}{third}")) {
+                    escaped.push(escape);
+                }
+            }
+        }
+    }
+
+    assert_eq!(Vec::<String>::new(), escaped);
+}
+
+#[test]
+fn a_refusal_winds_the_panel_back_to_where_the_engine_stands() -> Result<()> {
+    let mut panel = panel(Policy::ReadOnly);
+    panel.press_all(keys("vjdjy"))?;
+    let mut engine = Engine::laid_out_in(TRANSCRIPT, window());
+    engine.press_all(keys("vjjy"))?;
+
+    assert_eq!(TRANSCRIPT, panel.text());
+    assert_eq!(
+        Reading::of_engine(&mut engine),
+        Reading::of_panel(&mut panel)
+    );
+
+    Ok(())
+}
+
+/// # Returns
+///
+/// What `case` did that a read-only panel promises nothing does, and [`None`] where it either
+/// wrote nothing with the policy taken out or was refused with the policy in place. A case the
+/// engine answers with an error is one this editor does not measure yet rather than one that
+/// writes, and is passed over.
+fn escape(case: &str) -> Option<String> {
+    let mut free = panel(Policy::Unrestricted);
+    free.press_all(keys(case)).ok()?;
+    if TRANSCRIPT == free.text() && VimMode::Insert != free.mode() {
+        return None;
+    }
+
+    let mut locked = panel(Policy::ReadOnly);
+    let mut said = false;
+    for key in keys(case) {
+        locked.press(key).ok()?;
+        if TRANSCRIPT != locked.text() {
+            return Some(format!("`{case}` changed the transcript"));
+        }
+        said |= locked.refusal().is_some();
+    }
+    if VimMode::Insert == locked.mode() {
+        return Some(format!(
+            "`{case}` left the panel where every key would write"
+        ));
+    }
+    if !said {
+        return Some(format!("`{case}` was dropped without a word"));
+    }
+
+    None
 }
