@@ -664,8 +664,8 @@ fn grapheme_offset(line: &str, characters: usize) -> usize {
 /// # Returns
 ///
 /// Whether `action` is a motion with no operator applied to it, which is the only shape of action
-/// whose answer is a place a cursor can be moved to. An operator applied to the same motion spans
-/// a range instead, and is modalkit's to run.
+/// a chain of screen motions carries its column across. An operator applied to the same motion
+/// leaves the cursor at the near end of what it took, which ends the chain as any other edit does.
 fn bare(action: &EditorAction, context: &EditContext) -> bool {
     match action {
         EditorAction::Edit(operation, _) => EditAction::Motion == context.resolve(operation),
