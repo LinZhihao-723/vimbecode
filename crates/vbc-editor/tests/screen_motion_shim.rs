@@ -314,7 +314,7 @@ fn a_motion_counted_in_characters_is_never_handed_to_the_shim() {
 
 #[test]
 fn an_engine_built_without_a_shim_has_nothing_for_a_screen_motion_to_reach() {
-    let mut engine = Engine::bypassing_the_shim(PROSE);
+    let mut engine = Engine::bypassing_the_shim(PROSE, &laid_out(ROOMY_COLUMNS));
     engine
         .press_all("gjg$".chars().map(typed))
         .expect("the screen motions run");
@@ -471,7 +471,7 @@ fn replay(case: &Case, with_shim: bool) -> (Result<Outcome, Error>, Vec<(ScreenM
     let mut engine = if with_shim {
         Engine::laid_out_in(&case.buffer, geometry_of(case))
     } else {
-        Engine::bypassing_the_shim(&case.buffer)
+        Engine::bypassing_the_shim(&case.buffer, &geometry_of(case))
     };
     let outcome = engine
         .press_all(keys(&case.keys))
