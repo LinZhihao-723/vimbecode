@@ -69,8 +69,17 @@
 //! Winding the keys back to where the engine stands after a refusal gets its own case, because the
 //! transcript alone cannot show the difference: a panel wound back to a mode the engine is not in
 //! leaves the transcript exactly as it was and reads every key after it in the wrong table.
+//!
+//! The window every case above is laid out in is narrow, but it is wrapped the one way a vim
+//! manual wraps its examples, and a panel that answers a screen motion by counting characters
+//! agrees with an editor doing the same. So the display motions are typed again under the settings
+//! that decide where a screen line ends -- `'breakindent'`, `'showbreak'`, `'ambiwidth'` and the
+//! tab stop -- at a transcript indented with tabs and holding characters whose width
+//! `'ambiwidth'` decides. Each motion is required to answer as an editor laid out the same way
+//! does, and to land somewhere different under at least two of those settings, so a wrapping that
+//! wrapped nothing differently cannot pass.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::num::NonZeroUsize;
 
 use anyhow::Result;
@@ -80,6 +89,8 @@ use vbc_editor::chat::policy::{Panel, Policy, REFUSAL};
 use vbc_editor::engine::{typed, Engine, Held, Position};
 use vbc_editor::keys::{Bindings, Edge};
 use vbc_editor::screen::Geometry;
+use vbc_layout::line::Options;
+use vbc_layout::width::{AmbiWidth, Metrics};
 
 /// One keystroke typed at a panel, named by what it is meant to do to the transcript.
 struct Keystroke {
@@ -524,6 +535,92 @@ fghijklmnopqrstuvwxyz{|}~";
 /// came for.
 const READABLE: &str = "hjklwWbBeE0^$-+_G%HMLgvV\"123fFtT;,yY";
 
+/// The transcript the display motions are typed at when the window is not laid out the way a vim
+/// manual draws its examples. Its lines are indented with tabs so that a tab stop decides where
+/// its text starts, one of them holds characters whose width `'ambiwidth'` decides, and all of
+/// them are far longer than the window is wide so that every one of them wraps several times over.
+const WRAPPED: &str = "User: why does \u{00a7}\u{00b1} render at two cells here and one there\n\
+\tclaude: because 'ambiwidth' says so, and the wrap moves with it\n\
+\t\tclaude: the continuation is indented too once 'breakindent' is set\n";
+
+/// The ways the window every display-motion case is wrapped in, which are the settings that decide
+/// where a screen line ends and where the next one starts.
+const WRAPPINGS: [Wrapping; 5] = [
+    Wrapping {
+        id: "the settings a vim manual draws its examples with",
+        break_indent: false,
+        show_break: "",
+        ambiwidth: AmbiWidth::Single,
+        tab_stop: 8,
+    },
+    Wrapping {
+        id: "`breakindent`",
+        break_indent: true,
+        show_break: "",
+        ambiwidth: AmbiWidth::Single,
+        tab_stop: 8,
+    },
+    Wrapping {
+        id: "`showbreak`",
+        break_indent: false,
+        show_break: "+++ ",
+        ambiwidth: AmbiWidth::Single,
+        tab_stop: 8,
+    },
+    Wrapping {
+        id: "`breakindent` and `showbreak` together",
+        break_indent: true,
+        show_break: "> ",
+        ambiwidth: AmbiWidth::Single,
+        tab_stop: 4,
+    },
+    Wrapping {
+        id: "ambiguous characters two cells wide",
+        break_indent: false,
+        show_break: "",
+        ambiwidth: AmbiWidth::Double,
+        tab_stop: 2,
+    },
+];
+
+/// The keystrokes counted in screen lines rather than in the transcript's own lines, which are the
+/// ones the way a window wraps decides the answer to.
+const DISPLAY_MOTIONS: [Keystroke; 6] = [
+    Keystroke {
+        id: "down a screen line",
+        keys: "gj",
+    },
+    Keystroke {
+        id: "down two screen lines and up one",
+        keys: "gjgjgk",
+    },
+    Keystroke {
+        id: "to the end of the screen line",
+        keys: "g$",
+    },
+    Keystroke {
+        id: "to the start of the screen line below",
+        keys: "gjg0",
+    },
+    Keystroke {
+        id: "to the end of the screen line below",
+        keys: "gjg$",
+    },
+    Keystroke {
+        id: "down a screen line from the tab-indented line",
+        keys: "jgj",
+    },
+];
+
+/// One way of wrapping the window a display motion is measured in.
+struct Wrapping {
+    id: &'static str,
+    break_indent: bool,
+    show_break: &'static str,
+    ambiwidth: AmbiWidth,
+    tab_stop: usize,
+}
+
 /// The keys a reader reaches for that no terminal reports as a printable character.
 const NAMED_READABLE: [&str; 3] = ["<Enter>", "<Esc>", "<C-V>"];
 
@@ -888,6 +985,57 @@ fn no_three_key_sequence_of_an_operator_and_its_target_that_writes_goes_unrefuse
 }
 
 #[test]
+fn a_panel_answers_the_display_motions_as_an_editor_does_however_the_window_wraps() -> Result<()> {
+    let mut answers = BTreeMap::new();
+    for wrapping in &WRAPPINGS {
+        let geometry = laid_out(wrapping);
+        for case in DISPLAY_MOTIONS {
+            let mut panel = Panel::laid_out_in(WRAPPED, geometry.clone());
+            for key in keys(case.keys) {
+                panel.press(key)?;
+                assert_eq!(
+                    None,
+                    panel.refusal(),
+                    "`{}`, which would {}, was refused with `{}` wrapping",
+                    case.keys,
+                    case.id,
+                    wrapping.id
+                );
+            }
+            let mut engine = Engine::laid_out_in(WRAPPED, geometry.clone());
+            engine.press_all(keys(case.keys))?;
+            let read = Reading::of_panel(&mut panel);
+
+            assert_eq!(
+                Reading::of_engine(&mut engine),
+                read,
+                "`{}`, which would {}, answered differently from the editor with `{}` wrapping",
+                case.keys,
+                case.id,
+                wrapping.id
+            );
+            answers
+                .entry(case.keys)
+                .or_insert_with(BTreeSet::new)
+                .insert(read.cursor);
+        }
+    }
+
+    for case in DISPLAY_MOTIONS {
+        assert_ne!(
+            1,
+            answers[case.keys].len(),
+            "`{}`, which would {}, lands in the same place however the window wraps, so wrapping \
+             it differently says nothing",
+            case.keys,
+            case.id
+        );
+    }
+
+    Ok(())
+}
+
+#[test]
 fn a_refusal_winds_the_panel_back_to_where_the_engine_stands() -> Result<()> {
     let mut panel = panel(Policy::ReadOnly);
     panel.press_all(keys("vjdjy"))?;
@@ -941,6 +1089,24 @@ fn window() -> Geometry {
         NonZeroUsize::new(COLUMNS).expect("the window is not zero columns wide"),
         NonZeroUsize::new(ROWS).expect("the window is not zero rows tall"),
     )
+}
+
+/// # Returns
+///
+/// The window a display-motion case is measured in, wrapped as `wrapping` says.
+///
+/// # Panics
+///
+/// Panics if [`COLUMNS`] or [`ROWS`] is zero, or if a wrapping's tab stop is, none of which is.
+fn laid_out(wrapping: &Wrapping) -> Geometry {
+    let tab_stop = NonZeroUsize::new(wrapping.tab_stop).expect("a tab stop is not zero");
+    let options = Options::new()
+        .with_break_indent(wrapping.break_indent)
+        .with_show_break(wrapping.show_break.to_owned());
+
+    window()
+        .with_metrics(Metrics::new(wrapping.ambiwidth, tab_stop))
+        .with_options(options)
 }
 
 /// # Returns
