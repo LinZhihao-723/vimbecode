@@ -111,7 +111,11 @@ mod tests {
         vec![
             Block::new(Kind::Message(Role::User), "make it compile".to_owned()),
             Block::new(Kind::Message(Role::Assistant), "one line to add".to_owned()),
-            Block::diff("fn main() {}\n", "fn main() {\n    todo!();\n}\n"),
+            Block::diff(
+                "src/main.rs".to_owned(),
+                "fn main() {}\n",
+                "fn main() {\n    todo!();\n}\n",
+            ),
         ]
     }
 }

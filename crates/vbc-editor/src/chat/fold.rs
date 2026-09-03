@@ -778,7 +778,7 @@ mod tests {
                 },
                 "fn main() {}".to_owned(),
             ),
-            Block::diff("one\n", "two\n"),
+            Block::diff("notes.txt".to_owned(), "one\n", "two\n"),
             Block::new(Kind::Message(Role::Assistant), "it holds".to_owned()),
         ]
         .into_iter()

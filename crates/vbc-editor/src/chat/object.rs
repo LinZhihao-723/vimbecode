@@ -340,7 +340,7 @@ fn whole(kind: &block::Kind) -> Option<Kind> {
         block::Kind::Message(_) => Some(Kind::Message),
         block::Kind::Code { .. } => Some(Kind::Code),
         block::Kind::ToolResult => Some(Kind::ToolResult),
-        block::Kind::ToolCall { .. } | block::Kind::Thinking | block::Kind::Diff => None,
+        block::Kind::ToolCall { .. } | block::Kind::Thinking | block::Kind::Diff { .. } => None,
     }
 }
 
@@ -1095,7 +1095,11 @@ mod tests {
             Block::new(BlockKind::Message(Role::Assistant), NESTED.to_owned()),
             Block::new(BlockKind::Message(Role::Assistant), clustered()),
             Block::new(BlockKind::Thinking, "a fence is bytes\n".to_owned()),
-            Block::diff("fn main() {}\n", "fn main() {\n    todo!();\n}\n"),
+            Block::diff(
+                "src/main.rs".to_owned(),
+                "fn main() {}\n",
+                "fn main() {\n    todo!();\n}\n",
+            ),
         ]
         .into_iter()
         .collect()

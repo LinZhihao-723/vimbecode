@@ -23,6 +23,10 @@
 //! diffing of one may cost what the block holds: rendering costs the window it is asked for and
 //! diffing costs bounded memory, both measured rather than argued.
 //!
+//! What a reader carries away is that slice and none of what was drawn around it, which is what
+//! [`yank`] is for: a code block, a message, what a tool answered, or a diff written back out as
+//! the patch a reader means to apply.
+//!
 //! What a transcript is read with is the editor's own machinery, and what it is not read with is
 //! the editor's permission to write. A record of an exchange that already happened has no edits to
 //! make to it, so the keystrokes that would make one are refused rather than run, which is what
@@ -36,3 +40,4 @@ pub mod object;
 pub mod policy;
 pub mod selection;
 pub mod transcript;
+pub mod yank;
