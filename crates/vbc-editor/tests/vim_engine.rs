@@ -205,6 +205,11 @@ fn the_events_an_application_loop_delivers_land_where_the_same_keys_would() -> a
         dropped_keys: 0,
     }))?;
 
+    assert_ne!(
+        engine_outcome(&mut Engine::new(PROSE)),
+        engine_outcome(&mut delivered),
+        "the events left the engine where an engine handed nothing stands"
+    );
     assert_eq!(
         engine_outcome(&mut typed_at),
         engine_outcome(&mut delivered)
