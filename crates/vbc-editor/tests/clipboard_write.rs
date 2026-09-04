@@ -5,7 +5,9 @@
 //! writer that keeps everything it is handed, which is a question about this process and has an
 //! answer on any machine; the text those bytes come back as is checked against `Get-Clipboard`,
 //! which is a question about Windows and can only be asked where there is a Windows to ask. The
-//! second half is skipped, loudly, where there is not.
+//! second half is skipped, loudly, where there is no Windows -- and fails, rather than skipping,
+//! where there is one whose clipboard will not answer, because those two are not the same result
+//! and only one of them is nobody's fault.
 //!
 //! The corpus is what earlier fidelity work did not cover. That work stopped at seventy-eight
 //! bytes and spelled every accented character precomposed, so a code path that truncates, that
@@ -24,11 +26,13 @@
 use std::env;
 use std::ffi::OsString;
 use std::fs;
-use std::io::Write;
+use std::io::{ErrorKind, Write};
 use std::path::{Path, PathBuf};
 use std::process::{self, Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, MutexGuard};
+use std::thread;
+use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, bail, Result};
 use vbc_editor::clipboard::clip::{self, Clip, Error};
@@ -50,11 +54,21 @@ const CLIP: &str = "clip.exe";
 const POWERSHELL: &str = "powershell.exe";
 const PATH_TRANSLATOR: &str = "wslpath";
 
-/// The text the oracle is probed with, to tell a machine with no Windows from a Windows whose
-/// clipboard cannot be opened. The probe asks whether there is a clipboard at all and not whether
-/// it is faithful, so that a fidelity this machine does not have makes the tests red rather than
-/// making them skip.
+/// The text the oracle is probed with, which is ASCII and holds no line ending, so that what the
+/// probe asks is whether this machine has a clipboard at all rather than whether it is faithful.
+/// A fidelity this machine does not have makes the tests red; only the absence of a Windows makes
+/// them skip.
 const SENTINEL: &str = "vimbecode clipboard probe";
+
+/// How long a Windows that is here but will not open its clipboard is waited out for, and how long
+/// is left between asking again.
+///
+/// A clipboard some other process is holding is a thing that clears on its own, and one held open
+/// with a null window denies every process on the station for as long as it lasts. Waiting is what
+/// can be done about the first. What must not be done about either is passing: a machine with a
+/// Windows that will not answer has not checked the round trip, and says so.
+const PROBE_BUDGET: Duration = Duration::from_secs(30);
+const PROBE_GAP: Duration = Duration::from_secs(1);
 
 /// Plain ASCII, which is the case that survives every encoding and therefore proves nothing on its
 /// own.
@@ -139,6 +153,33 @@ impl Drop for Directory {
     }
 }
 
+/// What handing bytes straight to the real writer did, with the reason kept apart from the answer
+/// so that a writer which is not here is told from a writer which would not take them.
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum Written {
+    /// The writer took the bytes.
+    Taken,
+
+    /// There is no writer on this machine, which is what a machine with no Windows looks like.
+    NoWriter,
+
+    /// There is one, and this is what it did instead of taking them.
+    Refused(String),
+}
+
+/// What asking this machine for a clipboard came back with.
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum Probed {
+    /// The sentinel went onto the clipboard and came back off it.
+    Answered,
+
+    /// There is no Windows here to ask, and this is how that was found out.
+    NoWindows(String),
+
+    /// There is a Windows here, and this is what stopped the sentinel making the round trip.
+    Trouble(String),
+}
+
 /// What Windows says is on the clipboard.
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum Held {
@@ -161,19 +202,22 @@ struct Oracle {
 }
 
 impl Oracle {
-    /// Opens the oracle, if this machine has a Windows clipboard that answers at all.
+    /// Opens the oracle, on a machine that has a Windows to open one against.
     ///
-    /// A locked workstation is a Windows whose clipboard cannot be opened for as long as it stays
-    /// locked, which is not something a test can do anything about, so it is told apart from a
-    /// machine with no Windows and skipped the same way.
+    /// There are two things this can find, and only one of them is a skip. A machine with no
+    /// Windows cannot be asked what a Windows clipboard does, and skips. A machine that has one
+    /// which will not answer has not asked either, and that is a failure rather than a skip: the
+    /// clipboard on this station can be held open by another process for as long as an hour, and
+    /// a suite that goes quiet for that hour reports a round trip it never made.
     ///
     /// # Returns
     ///
-    /// The oracle, on success, or `None` if there is no clipboard to ask.
+    /// The oracle, on success, or `None` where there is no Windows on this machine.
     ///
     /// # Errors
     ///
-    /// Returns an error if the oracle's script could not be laid down.
+    /// Returns an error if the oracle's script could not be laid down, or if this machine has a
+    /// Windows whose clipboard would not answer within [`PROBE_BUDGET`].
     fn open() -> Result<Option<Self>> {
         let directory = Directory::create()?;
         let script = directory.join("oracle.ps1");
@@ -187,6 +231,7 @@ impl Oracle {
         };
         let answer = directory.join("answer.txt");
         let Some(answer_for_windows) = windows_path(&answer)? else {
+            eprintln!("skipped: {PATH_TRANSLATOR} named no Windows path, so Windows is not here");
             return Ok(None);
         };
 
@@ -197,28 +242,52 @@ impl Oracle {
             answer_for_windows,
         };
 
-        match Clip::windows().put(SENTINEL) {
-            Ok(()) => {}
-            Err(Error::Spawn { .. }) => {
-                eprintln!("skipped: {CLIP} is not on this machine");
-                return Ok(None);
+        let deadline = Instant::now() + PROBE_BUDGET;
+        let trouble = loop {
+            match oracle.probe() {
+                Probed::Answered => return Ok(Some(oracle)),
+                Probed::NoWindows(said) => {
+                    eprintln!("skipped: {said}");
+                    return Ok(None);
+                }
+                Probed::Trouble(said) if deadline <= Instant::now() => break said,
+                Probed::Trouble(_) => thread::sleep(PROBE_GAP),
             }
-            Err(error) => {
-                eprintln!("skipped: {CLIP} is here but would not take a yank: {error}");
-                return Ok(None);
+        };
+
+        bail!(
+            "this machine has a {CLIP} and a clipboard that would not answer it for \
+             {PROBE_BUDGET:?}: {trouble}. These tests skip where there is no Windows to ask and \
+             fail where there is one that will not answer, because a suite that passes without \
+             having asked is worth less than one that says it could not"
+        )
+    }
+
+    /// Asks whether this machine has a clipboard that takes text and hands it back.
+    ///
+    /// The sentinel is encoded here rather than by the write path, because a gate that runs
+    /// through the code it guards is a gate that code can switch off: an encoder that emits
+    /// big-endian units fails this probe, and every test the probe stands in front of then passes
+    /// by never running.
+    ///
+    /// # Returns
+    ///
+    /// What the machine came back with.
+    fn probe(&self) -> Probed {
+        match hand_to_writer(&utf16le(SENTINEL)) {
+            Written::Taken => {}
+            Written::NoWriter => {
+                return Probed::NoWindows(format!("{CLIP} is not on this machine"));
+            }
+            Written::Refused(said) => {
+                return Probed::Trouble(format!("{CLIP} would not take the probe: {said}"));
             }
         }
 
-        match oracle.read() {
-            Ok(Held::Text(text)) if text.contains(SENTINEL) => Ok(Some(oracle)),
-            Ok(held) => {
-                eprintln!("skipped: this machine's clipboard does not answer: {held:?}");
-                Ok(None)
-            }
-            Err(error) => {
-                eprintln!("skipped: this machine's clipboard could not be asked: {error}");
-                Ok(None)
-            }
+        match self.read() {
+            Ok(Held::Text(text)) if SENTINEL == text => Probed::Answered,
+            Ok(held) => Probed::Trouble(format!("the clipboard answered with {held:?}")),
+            Err(error) => Probed::Trouble(format!("the clipboard could not be asked: {error}")),
         }
     }
 
@@ -365,31 +434,63 @@ fn stand_in(capture: &Path) -> Clip {
     Clip::of(SHELL.into(), vec![CLIP_STUB.into(), capture.into()])
 }
 
-/// Hands bytes to the real writer without encoding them, which is how the encoding the write path
-/// does not use is put to Windows.
+/// # Returns
 ///
-/// # Errors
+/// The UTF-16LE bytes a text is spelled by, written out here rather than taken from the write
+/// path, so that the probe standing in front of the real-clipboard tests shares no code with what
+/// those tests are checking.
+fn utf16le(text: &str) -> Vec<u8> {
+    text.encode_utf16().flat_map(u16::to_le_bytes).collect()
+}
+
+/// Hands bytes to the real writer without encoding them, which is how an encoding the write path
+/// does not use is put to Windows, and how the probe reaches the clipboard without it.
 ///
-/// Returns an error if the writer could not be run, or refused the bytes.
-fn put_raw(bytes: &[u8]) -> Result<()> {
-    let mut child = Command::new(CLIP)
+/// # Returns
+///
+/// What the writer did with them.
+fn hand_to_writer(bytes: &[u8]) -> Written {
+    let started = Command::new(CLIP)
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
-        .spawn()?;
-    let mut input = child
-        .stdin
-        .take()
-        .ok_or_else(|| anyhow!("{CLIP} was started without its input pipe"))?;
-    input.write_all(bytes)?;
+        .spawn();
+    let mut child = match started {
+        Ok(child) => child,
+        Err(error) if ErrorKind::NotFound == error.kind() => return Written::NoWriter,
+        Err(error) => return Written::Refused(error.to_string()),
+    };
+
+    let Some(mut input) = child.stdin.take() else {
+        let _ = child.kill();
+        let _ = child.wait();
+
+        return Written::Refused(format!("{CLIP} was started without its input pipe"));
+    };
+    let written = input.write_all(bytes);
     drop(input);
 
-    let status = child.wait()?;
-    if !status.success() {
-        bail!("{CLIP} refused the bytes: {status}");
+    match child.wait() {
+        Ok(status) if !status.success() => Written::Refused(format!("{CLIP} exited {status}")),
+        Ok(_) => match written {
+            Ok(()) => Written::Taken,
+            Err(error) => Written::Refused(error.to_string()),
+        },
+        Err(error) => Written::Refused(error.to_string()),
     }
+}
 
-    Ok(())
+/// Hands bytes to the real writer, on a machine the probe has already found a writer on.
+///
+/// # Errors
+///
+/// Returns an error if the writer has gone, or did not take the bytes.
+fn put_raw(bytes: &[u8]) -> Result<()> {
+    match hand_to_writer(bytes) {
+        Written::Taken => Ok(()),
+        Written::NoWriter => bail!("{CLIP} went missing between the probe and the test"),
+        Written::Refused(said) => bail!("{CLIP} did not take the bytes: {said}"),
+    }
 }
 
 /// # Returns
