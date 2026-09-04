@@ -54,8 +54,8 @@ jobs:
 
       # The layout soak is minutes of search rather than seconds, so it is the one test the run
       # above skips and this is where it is paid for: on every pull request, once. `layout_fuzz.rs`
-      # reads this workflow and requires the step, by this name and with these flags, so the soak
-      # cannot be dropped without a test going red.
+      # reads this workflow and requires this job to run the command below unconditionally, down to
+      # the test's own name and these flags, so the soak cannot be dropped without a test going red.
       - name: "Run the layout soak, which the default test run skips"
         run: |
           cargo test -p vbc-layout --test layout_fuzz -- \
