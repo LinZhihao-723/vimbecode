@@ -573,7 +573,10 @@ impl Keys {
                 let _discarded = self.take();
                 let repeated = self.repeated.clone();
                 self.forget();
-                let Some(repeated) = repeated.filter(|_| !self.repeating) else {
+                if self.repeating {
+                    return;
+                }
+                let Some(repeated) = repeated else {
                     return;
                 };
                 self.count = count.or(repeated.count);
