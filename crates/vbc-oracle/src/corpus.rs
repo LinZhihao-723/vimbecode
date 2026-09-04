@@ -86,6 +86,9 @@ pub enum Tag {
     /// The case's text contains regional-indicator flags.
     Flag,
 
+    /// The case is laid out with `'linebreak'` set.
+    Linebreak,
+
     /// The case's text contains decomposed (NFD) clusters.
     Nfd,
 
@@ -662,33 +665,39 @@ mod tests {
     };
 
     /// The number of cases the repository's corpus holds.
-    const TOTAL_CASE_COUNT: usize = 75;
+    const TOTAL_CASE_COUNT: usize = 163;
 
     /// The number of cases carrying each tag, which is also what the pull request reports.
-    const TAG_BREAKDOWN: [(Tag, usize); 14] = [
+    const TAG_BREAKDOWN: [(Tag, usize); 15] = [
         (Tag::Ambiwidth, 2),
-        (Tag::Ascii, 25),
-        (Tag::Breakindent, 7),
-        (Tag::Cjk, 14),
-        (Tag::Code, 14),
+        (Tag::Ascii, 62),
+        (Tag::Breakindent, 25),
+        (Tag::Cjk, 20),
+        (Tag::Code, 20),
         (Tag::Combining, 10),
-        (Tag::Emoji, 13),
+        (Tag::Emoji, 19),
         (Tag::Flag, 3),
+        (Tag::Linebreak, 8),
         (Tag::Nfd, 9),
-        (Tag::Nowrap, 2),
-        (Tag::Showbreak, 7),
-        (Tag::Tab, 5),
-        (Tag::Wrap, 27),
-        (Tag::WordMotion, 30),
+        (Tag::Nowrap, 10),
+        (Tag::Showbreak, 24),
+        (Tag::Tab, 32),
+        (Tag::Wrap, 77),
+        (Tag::WordMotion, 60),
     ];
 
     /// The text shapes the word-motion grid crosses every motion with.
-    const WORD_MOTION_SCENARIOS: [&str; 5] = [
+    const WORD_MOTION_SCENARIOS: [&str; 10] = [
         "cjk-latin",
         "zwj-family",
         "combining",
         "snake-case",
         "kebab-case",
+        "latin1-keyword",
+        "latin-extended",
+        "cjk-punctuation",
+        "emoji-run",
+        "punctuation-run",
     ];
 
     /// The word motions of the grid, each with the identifier prefix its cases are named by.
@@ -922,6 +931,7 @@ tags = ["ascii"]
                     Tag::Combining | Tag::Nfd => contains_combining_mark(&case.buffer),
                     Tag::Emoji => contains_emoji(&case.buffer),
                     Tag::Flag => contains_regional_indicator(&case.buffer),
+                    Tag::Linebreak => case.options.linebreak,
                     Tag::Nowrap => !case.options.wrap,
                     Tag::Showbreak => !case.options.showbreak.is_empty(),
                     Tag::Tab => case.buffer.contains('\t'),
@@ -956,6 +966,13 @@ tags = ["ascii"]
                 assert!(
                     case.tags.contains(&Tag::Showbreak),
                     "the case `{}` sets 'showbreak' but is not tagged `showbreak`",
+                    case.id
+                );
+            }
+            if case.options.linebreak {
+                assert!(
+                    case.tags.contains(&Tag::Linebreak),
+                    "the case `{}` sets 'linebreak' but is not tagged `linebreak`",
                     case.id
                 );
             }
