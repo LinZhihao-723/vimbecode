@@ -6,34 +6,44 @@
 //! addressed in any coordinate but the source's.
 //!
 //! Rendering is a projection over a window of that source. A block is asked for a [`RowWindow`] --
-//! a display row to start at and a number of rows to draw -- and lays out the logical lines from
-//! its own start down to the bottom of that window, the way [`vbc_layout::anchor`]'s mapping walks
-//! out from an anchor: a line at a time, each thrown away once its rows have been counted, nothing
-//! remembered between calls and nothing below the window touched at all. What a block holds past
-//! the window therefore costs nothing, which is what lets a transcript hold the whole of what
-//! `cargo` wrote and still draw a frame in the time a frame has.
+//! a display row to start at and a number of rows to draw -- and walks down to that row the way
+//! [`vbc_layout::anchor`]'s mapping walks out from an anchor: a logical line at a time, nothing
+//! remembered between calls and nothing below the window touched at all. What it lays out is the
+//! window and only the window. The lines above it are counted rather than drawn, and a line of
+//! plain text wrapped at the column it runs out of is not even counted a row at a time: the rows
+//! it takes are its length over the width, so stepping over it is reading where it ends.
 //!
-//! What that costs is the rows down to the bottom of the window and nothing else, which is the
-//! same walk an anchored mapping pays for and is why the length of the block does not enter into
-//! it. Measured in release at eighty columns, twenty rows off the top of a block cost 37 µs and
-//! 24,017 bytes at a hundred lines, at a thousand, at ten thousand and at a hundred thousand
-//! alike. Twenty rows further down cost the rows above them as well: 0.9 ms at row 1,000, 89 ms at
-//! row 100,000, in a block of either length. A caller drawing a panel therefore asks each block
-//! for the rows it shows of that block rather than for a window into the middle of a long one.
+//! So a window costs the rows it was asked for wherever it is drawn from. Measured in release at
+//! eighty columns, twenty rows of a hundred-thousand-line block ask the allocator for 121,800 bytes
+//! in 1,364 calls off the top of it, at row 50,000 and at row 99,000 alike, and for the same off
+//! the top of a hundred-line one; the three take 42 µs, 282 µs and 526 µs, the difference being the
+//! nine megabytes the last of them reads the line ends of on its way down. Laying those lines out
+//! instead cost 46 ms and 91 ms and asked for 228 MB and 452 MB. This is what lets a transcript
+//! hold the whole of what `cargo` wrote and still draw a frame in the time a frame has, and
+//! `chat_cost.rs` measures it rather than taking it on trust.
 //!
 //! A rendered row carries the byte offset of the source it starts at, which is what lets the
 //! source behind a run of rows be recovered exactly -- separators included, which no row's own
 //! text holds -- and is what a selection over rendered rows will be turned into a range of the
 //! source with.
 
-use std::ops::Range;
+use std::ops::{Range, RangeInclusive};
 
 use vbc_layout::anchor::Wrapping;
 use vbc_layout::buffer::LINE_SEPARATOR;
-use vbc_layout::line::{self, DisplayRow};
+use vbc_layout::line::{self, DisplayRow, Options};
 
 use crate::chat::{ansi, diff};
 use crate::style::{self, Span, StyledRow};
+
+/// The bytes a line whose rows are its length over the width may be written from: the printable
+/// ASCII, each of which is one column wide and a grapheme cluster of its own, and none of which is
+/// a tab or a control character. Every one of them is greater than [`SEPARATOR`], so the first byte
+/// outside this range either ends the line or rules the line out.
+const PLAIN: RangeInclusive<u8> = 0x20..=0x7e;
+
+/// The byte a logical line ends on, which is [`LINE_SEPARATOR`] as it is written in the source.
+const SEPARATOR: u8 = LINE_SEPARATOR as u8;
 
 /// Who a message was said by.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -120,10 +130,15 @@ impl RowWindow {
 
 /// One block of a transcript: what it is, the source it was built from, and the spans styling that
 /// source.
+///
+/// Whether the source is written from plain bytes alone is read off it when the block is built,
+/// beside the runs its spans are resolved into, because that is the last moment either can change:
+/// a block is what was said, and what was said does not change afterwards.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Block {
     kind: Kind,
     body: style::Block,
+    plain: bool,
 }
 
 impl Block {
@@ -134,10 +149,7 @@ impl Block {
     /// An unstyled block of `source`.
     #[must_use]
     pub fn new(kind: Kind, source: String) -> Self {
-        Self {
-            kind,
-            body: style::Block::new(source),
-        }
+        Self::of(kind, style::Block::new(source))
     }
 
     /// Factory function.
@@ -147,10 +159,7 @@ impl Block {
     /// A block of `source` styled by `spans`, in the order they are given.
     #[must_use]
     pub fn with_spans(kind: Kind, source: String, spans: Vec<Span>) -> Self {
-        Self {
-            kind,
-            body: style::Block::with_spans(source, spans),
-        }
+        Self::of(kind, style::Block::with_spans(source, spans))
     }
 
     /// Factory function.
@@ -163,10 +172,7 @@ impl Block {
     /// A block of the text of `raw`, styled by the renditions its escapes selected.
     #[must_use]
     pub fn from_ansi(kind: Kind, raw: &str) -> Self {
-        Self {
-            kind,
-            body: ansi::parse(raw),
-        }
+        Self::of(kind, ansi::parse(raw))
     }
 
     /// Factory function.
@@ -177,10 +183,18 @@ impl Block {
     /// the text `new` it wrote.
     #[must_use]
     pub fn diff(path: String, old: &str, new: &str) -> Self {
-        Self {
-            kind: Kind::Diff { path },
-            body: diff::compute(old, new),
-        }
+        Self::of(Kind::Diff { path }, diff::compute(old, new))
+    }
+
+    /// Factory function.
+    ///
+    /// # Returns
+    ///
+    /// A block of `kind` drawn from `body`.
+    fn of(kind: Kind, body: style::Block) -> Self {
+        let plain = is_plain(body.source());
+
+        Self { kind, body, plain }
     }
 
     #[must_use]
@@ -208,10 +222,9 @@ impl Block {
 
     /// Lays out the window `window` asks for and applies the block's spans to the rows in it.
     ///
-    /// The walk starts at the block's first row and stops at the window's last, so what it costs
-    /// is the rows down to the bottom of the window and never the block: twenty rows off the top
-    /// of a hundred-line block and off the top of a hundred-thousand-line one both cost 37 µs and
-    /// 24,017 bytes, which `chat_cost.rs` measures rather than asserts.
+    /// Only the lines the window draws are laid out. The lines above it are counted rather than
+    /// laid out, so a window deep in a block builds the rows it was asked for and no others
+    /// however far down it sits.
     ///
     /// # Returns
     ///
@@ -219,8 +232,7 @@ impl Block {
     /// ends inside the window and none at all where it ends above it.
     #[must_use]
     pub fn render(&self, window: RowWindow, wrapping: &Wrapping) -> Rendered {
-        let source = self.body.source();
-        let end = source.len();
+        let end = self.body.source().len();
         let wanted = window.rows;
         let mut rows: Vec<RenderedRow> = Vec::new();
         let mut above = window.start;
@@ -229,16 +241,12 @@ impl Block {
         let mut index = 0;
 
         while offset <= end && drawn < wanted {
-            let text = line_at(source, offset);
-            let laid_out = line::lay_out(
-                index,
-                text,
-                wrapping.width(),
-                wrapping.metrics(),
-                wrapping.options(),
-            );
+            let (text, counted) = self.counted_line(offset, index, wrapping);
 
-            if above < laid_out.len() {
+            if counted <= above {
+                above -= counted;
+            } else {
+                let laid_out = laid_out(text, index, wrapping);
                 let taken = (laid_out.len() - above).min(wanted - drawn);
                 let mut at = offset + bytes_of(&laid_out[..above]);
                 for styled in self.body.style_rows(at, &laid_out[above..above + taken]) {
@@ -248,8 +256,6 @@ impl Block {
                 }
                 drawn += taken;
                 above = 0;
-            } else {
-                above -= laid_out.len();
             }
 
             offset += text.len() + LINE_SEPARATOR.len_utf8();
@@ -260,6 +266,67 @@ impl Block {
             start: window.start,
             rows,
         }
+    }
+
+    /// Counts the display rows the whole of the block is drawn in.
+    ///
+    /// Counting is not drawing: a line whose rows can be read off its length is never laid out at
+    /// all, and one that has to be laid out is thrown away again as soon as its rows have been
+    /// counted, so the count holds no row and the memory it takes does not follow the block. In
+    /// release at eighty columns, counting a hundred-thousand-line block asks the allocator for
+    /// nothing at all and takes 1.0 ms, where drawing it to count its rows asked for 1.2 GB in 13.6
+    /// million calls and took 507 ms.
+    ///
+    /// # Returns
+    ///
+    /// The number of display rows the block is drawn in, which is at least one because its first
+    /// logical line is drawn even where the block is empty.
+    #[must_use]
+    pub fn row_count(&self, wrapping: &Wrapping) -> usize {
+        let end = self.body.source().len();
+        let mut counted = 0;
+        let mut offset = 0;
+        let mut index = 0;
+
+        while offset <= end {
+            let (text, rows) = self.counted_line(offset, index, wrapping);
+            counted += rows;
+            offset += text.len() + LINE_SEPARATOR.len_utf8();
+            index += 1;
+        }
+
+        counted
+    }
+
+    /// Reads a logical line of the block and the number of display rows it is drawn in, laying it
+    /// out only where it has to be.
+    ///
+    /// A line of [`PLAIN`] bytes wrapped at the column it runs out of breaks there and nowhere
+    /// else, and its bytes are its columns, so the rows it takes are its length over the width and
+    /// there is nothing to lay out. A block written from those bytes throughout says so, which is
+    /// what leaves a walk over such a block reading nothing but the ends of its lines; a block that
+    /// carries anything else is asked line by line, so one tab in a hundred thousand lines slows
+    /// the ninety-nine thousand plain ones rather than laying them out. Every line that is not
+    /// plain -- one carrying a tab, a control character or a cluster of more than one byte -- and
+    /// every line at all under `'linebreak'`, `'showbreak'` or `'breakindent'` is laid out and the
+    /// layout thrown away again.
+    ///
+    /// # Returns
+    ///
+    /// The logical line starting at `offset`, its separator excluded, and the number of display
+    /// rows it is drawn in, which is one for an empty line.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `offset` is not a byte offset of the block's source, or falls inside one of its
+    /// characters.
+    fn counted_line(&self, offset: usize, index: usize, wrapping: &Wrapping) -> (&str, usize) {
+        let text = line_at(self.body.source(), offset);
+        if breaks_at_the_column(wrapping.options()) && (self.plain || is_plain(text)) {
+            return (text, text.len().div_ceil(wrapping.width().get()).max(1));
+        }
+
+        (text, laid_out(text, index, wrapping).len())
     }
 }
 
@@ -356,6 +423,36 @@ fn bytes_of(rows: &[DisplayRow]) -> usize {
     rows.iter().map(|row| row.text().len()).sum()
 }
 
+/// # Returns
+///
+/// The display rows the logical line `text`, which is the line numbered `index`, is drawn in.
+fn laid_out(text: &str, index: usize, wrapping: &Wrapping) -> Vec<DisplayRow> {
+    line::lay_out(
+        index,
+        text,
+        wrapping.width(),
+        wrapping.metrics(),
+        wrapping.options(),
+    )
+}
+
+/// # Returns
+///
+/// Whether every byte of `text` is one a line of [`PLAIN`] bytes may be written from, the
+/// separator between its logical lines included.
+fn is_plain(text: &str) -> bool {
+    text.bytes()
+        .all(|byte| PLAIN.contains(&byte) || SEPARATOR == byte)
+}
+
+/// # Returns
+///
+/// Whether `options` wrap a line at the column it runs out of and nowhere else, which is what
+/// leaves a plain line's rows to be read off its length.
+fn breaks_at_the_column(options: &Options) -> bool {
+    !options.break_indent() && !options.line_break() && options.show_break().is_empty()
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeSet;
@@ -388,6 +485,13 @@ mod tests {
     const CLUSTERS: &str = "\u{4e2d}\u{6587} e\u{301} \u{1f468}\u{200d}\u{1f469}\u{200d}\u{1f467} \
                             end\n\u{884c}\u{884c}";
 
+    /// A source of the bytes whose columns are not their length: a tab, a carriage return, a bell
+    /// and a delete, each of which vim draws in more columns than it is written in.
+    const CONTROLS: &str = "a\tb\rc\u{7}d\u{7f}e\n\tindented";
+
+    /// The markers a continuation row is decorated with where the options ask for one.
+    const SHOW_BREAK: &str = "> ";
+
     #[test]
     fn every_kind_of_block_round_trips_through_a_render() {
         for block in fixtures() {
@@ -410,6 +514,46 @@ mod tests {
                 "a block of {:?} was not drawn from its whole source",
                 block.kind()
             );
+        }
+    }
+
+    #[test]
+    fn a_window_anywhere_in_a_block_draws_the_rows_the_whole_of_it_draws_there() {
+        for block in fixtures() {
+            for wrapping in wrappings() {
+                let whole = block.render(whole(&block), &wrapping);
+                let all = whole.rows();
+                for start in 0..2 + all.len() {
+                    for wanted in [0, 1, 2, 3, 1 + all.len()] {
+                        let drawn = block.render(RowWindow::new(start, wanted), &wrapping);
+                        let end = (start + wanted).min(all.len());
+                        let wanted_rows = all.get(start.min(all.len())..end).unwrap_or_default();
+
+                        assert_eq!(
+                            wanted_rows,
+                            drawn.rows(),
+                            "a window of {wanted} rows at row {start} of a block of {:?} drew \
+                             something other than those rows of the whole of it",
+                            block.kind()
+                        );
+                        assert_eq!(start, drawn.start());
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn counting_the_rows_of_a_block_agrees_with_laying_the_whole_of_it_out() {
+        for block in fixtures() {
+            for wrapping in wrappings() {
+                assert_eq!(
+                    block.render(whole(&block), &wrapping).rows().len(),
+                    block.row_count(&wrapping),
+                    "a block of {:?} was counted as a different number of rows than it drew",
+                    block.kind()
+                );
+            }
         }
     }
 
@@ -776,7 +920,42 @@ mod tests {
                 "a separator at the end\n".to_owned(),
             ),
             Block::new(Kind::Message(Role::Assistant), CLUSTERS.to_owned()),
+            Block::new(Kind::ToolResult, CONTROLS.to_owned()),
         ]
+    }
+
+    /// # Returns
+    ///
+    /// The wrappings the fixtures are drawn under, which vary the width a row holds and every
+    /// option that moves where a line breaks, because a count read off a line's length is only
+    /// right where the line breaks at the column it runs out of.
+    fn wrappings() -> Vec<Wrapping> {
+        let options = vec![
+            Options::new(),
+            Options::new().with_line_break(true),
+            Options::new().with_show_break(SHOW_BREAK.to_owned()),
+            Options::new()
+                .with_break_indent(true)
+                .with_break_indent_min(1),
+            Options::new()
+                .with_line_break(true)
+                .with_show_break(SHOW_BREAK.to_owned())
+                .with_break_indent(true)
+                .with_break_indent_min(1),
+        ];
+
+        let mut wrappings = Vec::new();
+        for width in [1, 2, 3, WIDTH, 9, UNWRAPPED] {
+            for options in &options {
+                wrappings.push(Wrapping::new(
+                    NonZeroUsize::new(width).expect("a fixture is drawn in at least one column"),
+                    Metrics::default(),
+                    options.clone(),
+                ));
+            }
+        }
+
+        wrappings
     }
 
     /// # Returns

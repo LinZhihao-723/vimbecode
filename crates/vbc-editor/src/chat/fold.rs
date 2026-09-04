@@ -564,15 +564,16 @@ impl<'transcript> View<'transcript> {
     /// Counts the rows the entry `entry` is drawn in.
     ///
     /// A closed fold is one row however much it covers. A block is as many rows as its own source
-    /// is drawn in, which costs that block: that is what a reader walking upward pays at the
-    /// boundary they cross, and is why walking downward asks for a row at a time instead.
+    /// is drawn in, which is counted rather than drawn: nothing the count walks over is laid out
+    /// where its length says how many rows it takes, and nothing it walks over is kept. That is
+    /// what a reader walking upward pays at the boundary they cross, and is why walking downward
+    /// asks for a row at a time instead.
     ///
-    /// Measured in release at eighty columns, as the fastest of nine runs: one step upward across
-    /// an entry boundary costs 57 µs above an open hundred-line block and 88 ms above an open
-    /// hundred-thousand-line one, while the same step above a closed fold costs 33 ns at either
-    /// length, and a step downward and a twenty-row render stay flat at both lengths. So a fold
-    /// costs nothing to walk over however much it hides, and a block a reader has opened costs
-    /// what it holds to arrive at from below.
+    /// Measured in release at eighty columns, counting an open hundred-thousand-line block asks the
+    /// allocator for nothing at all and takes 1.0 ms, where drawing the block to count the rows it
+    /// came back with asked for 1.2 GB in 13.6 million calls and took 507 ms. The same step above a
+    /// closed fold costs nothing at either length, so a fold costs nothing to walk over however
+    /// much it hides.
     ///
     /// # Returns
     ///
@@ -581,12 +582,10 @@ impl<'transcript> View<'transcript> {
     pub fn rows(&self, entry: usize, wrapping: &Wrapping) -> usize {
         match self.entries.get(entry) {
             Some(Entry::Summary(_)) => 1,
-            Some(Entry::Body(block)) => self.transcript.block(*block).map_or(0, |block| {
-                block
-                    .render(RowWindow::new(0, usize::MAX), wrapping)
-                    .rows()
-                    .len()
-            }),
+            Some(Entry::Body(block)) => self
+                .transcript
+                .block(*block)
+                .map_or(0, |block| block.row_count(wrapping)),
             None => 0,
         }
     }
