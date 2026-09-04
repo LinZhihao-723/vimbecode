@@ -242,12 +242,18 @@ impl Gutter {
 /// is worth on its own.
 const COMPOSED: [&str; 2] = ["vbc_layout::buffer", "vbc_layout::viewport"];
 
-/// The whole-text layout the workspace still holds, and the source holding it. The block renderer
-/// walks its source from the top on every frame, and the bound it walks to is measured one line
-/// above the loop, which is what kept this scan from reading the walk as a repetition over a text.
-/// Recording it rather than passing over it means the next such layout fails this rule, and means
-/// that fixing this one fails it too until the line below is struck out.
-const STANDING_LAYOUTS: [(&str, &str); 1] = [("crates/vbc-editor/src/chat/block.rs", "lay_out")];
+/// The whole-text layouts the workspace still holds, and the sources holding them. The block
+/// renderer held the one this list was written for: it laid every logical line above a window out
+/// on the way down to it. It no longer does -- the lines above a window are counted, and a line
+/// whose rows are its length is not even counted a row at a time -- so the entry is struck out and
+/// the next such layout fails this rule again.
+///
+/// What the scan reads is a layout call written inside a repetition, so a call one function deep is
+/// a call it does not see: `Block::counted_line` lays a line out where its rows cannot be read off
+/// its length, and the walks that call it are repetitions over a whole text. `chat_cost.rs` is what
+/// holds those walks to what they cost, by measuring them; following a call would be this scan's
+/// own next step.
+const STANDING_LAYOUTS: [(&str, &str); 0] = [];
 
 /// The module the workspace keeps apart from its binaries on purpose. The vocabulary a layout is
 /// checked in is the language the fuzz search reads a layout in, and the fourth rule here forbids
