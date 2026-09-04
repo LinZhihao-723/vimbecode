@@ -16,6 +16,9 @@ use vbc_layout::invariants::{
 };
 use vbc_layout::line;
 
+// The harness is shared with the invariant search, which is written against every part of it and
+// is where a part of it falling out of use is caught; this target searches with it and no more.
+#[allow(dead_code)]
 #[path = "fuzz/harness.rs"]
 mod harness;
 
