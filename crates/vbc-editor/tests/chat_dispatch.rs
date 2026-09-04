@@ -509,7 +509,7 @@ fn the_scan_for_a_second_reader_and_a_second_selection_reads_every_crate() {
 #[test]
 fn the_panel_draws_the_blocks_that_were_said_and_the_row_a_closed_fold_is() {
     let panel = Panel::new(said());
-    let drawn = panel.rows(Placed::new(0, 0), usize::from(ROWS));
+    let drawn = panel.rows(Placed::top(0), usize::from(ROWS));
     let rows: Vec<String> = drawn
         .iter()
         .map(|row| match row {
@@ -539,9 +539,10 @@ fn the_panel_draws_the_blocks_that_were_said_and_the_row_a_closed_fold_is() {
 fn a_window_deep_in_the_panel_asks_the_allocator_for_what_one_off_its_top_asks_for() {
     let short = panelled(SHORT);
     let long = panelled(LONG);
-    let (_, off_the_top) = counted(|| long.rows(Placed::new(1, 0), WINDOW));
-    let (_, deep) = counted(|| long.rows(Placed::new(1, DEEP), WINDOW));
-    let (rows, over_the_short) = counted(|| short.rows(Placed::new(1, 0), WINDOW));
+    let below = walked(&long, 1, DEEP);
+    let (_, off_the_top) = counted(|| long.rows(Placed::top(1), WINDOW));
+    let (_, deep) = counted(|| long.rows(below, WINDOW));
+    let (rows, over_the_short) = counted(|| short.rows(Placed::top(1), WINDOW));
 
     assert_eq!(WINDOW, rows.len());
     assert_eq!(
@@ -557,7 +558,7 @@ fn a_window_deep_in_the_panel_asks_the_allocator_for_what_one_off_its_top_asks_f
 #[test]
 fn a_window_deep_in_the_panel_draws_the_rows_it_was_asked_for() {
     let long = panelled(LONG);
-    let deep = long.rows(Placed::new(1, DEEP), WINDOW);
+    let deep = long.rows(walked(&long, 1, DEEP), WINDOW);
     let rows: Vec<String> = deep
         .iter()
         .map(|row| match row {
@@ -654,6 +655,27 @@ fn said() -> Transcript {
     ]
     .into_iter()
     .collect()
+}
+
+/// Steps `rows` rows down the entry `entry` of `panel`, which is what a reader scrolling to it
+/// does and is not what the window drawn from there is measured for.
+///
+/// # Returns
+///
+/// The position of that row.
+///
+/// # Panics
+///
+/// Panics if the panel is drawn in fewer rows than that.
+fn walked(panel: &Panel, entry: usize, rows: usize) -> Placed {
+    let mut at = Placed::top(entry);
+    for _ in 0..rows {
+        at = panel
+            .below(at)
+            .expect("the panel is drawn in that many rows");
+    }
+
+    at
 }
 
 /// # Returns

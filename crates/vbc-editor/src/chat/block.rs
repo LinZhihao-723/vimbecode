@@ -444,6 +444,77 @@ impl Block {
         RowAnchor::new(at.offset, at.line, above)
     }
 
+    /// Steps one display row down from `anchor`.
+    ///
+    /// What that costs is the logical line the anchor names rather than the block around it, so a
+    /// reader walking downward pays a line a row wherever in the block they stand.
+    ///
+    /// # Returns
+    ///
+    /// Where the row below `anchor` begins, or `None` where `anchor` names the block's last row or
+    /// a row past its end.
+    #[must_use]
+    pub fn below(&self, anchor: RowAnchor, wrapping: &Wrapping) -> Option<RowAnchor> {
+        let end = self.body.source().len();
+        if end < anchor.offset {
+            return None;
+        }
+
+        let (text, counted) = self.counted_line(anchor.offset, anchor.line, wrapping);
+        if anchor.row + 1 < counted {
+            return Some(RowAnchor::new(anchor.offset, anchor.line, anchor.row + 1));
+        }
+
+        let following = anchor.offset + text.len() + LINE_SEPARATOR.len_utf8();
+
+        (following <= end).then(|| RowAnchor::new(following, anchor.line + 1, 0))
+    }
+
+    /// Steps one display row up from `anchor`.
+    ///
+    /// What that costs is the logical line above the one the anchor names rather than the block
+    /// around it, so a reader walking upward pays a line a row wherever in the block they stand.
+    ///
+    /// # Returns
+    ///
+    /// Where the row above `anchor` begins, or `None` where `anchor` names the block's first row.
+    #[must_use]
+    pub fn above(&self, anchor: RowAnchor, wrapping: &Wrapping) -> Option<RowAnchor> {
+        if 0 < anchor.row {
+            return Some(RowAnchor::new(anchor.offset, anchor.line, anchor.row - 1));
+        }
+
+        let ended = anchor.offset.checked_sub(LINE_SEPARATOR.len_utf8())?;
+        let line = anchor.line.checked_sub(1)?;
+        let start = self.body.source()[..ended]
+            .rfind(LINE_SEPARATOR)
+            .map_or(0, |at| at + LINE_SEPARATOR.len_utf8());
+        let (_, counted) = self.counted_line(start, line, wrapping);
+
+        Some(RowAnchor::new(start, line, counted - 1))
+    }
+
+    /// Reaches the block's last display row without walking the rows above it.
+    ///
+    /// What that costs is the block's last logical line, together with a read of the source to
+    /// number it, rather than the layout of everything above that line.
+    ///
+    /// # Returns
+    ///
+    /// Where the block's last display row begins, which is its first row where the block is drawn
+    /// in one row.
+    #[must_use]
+    pub fn bottom(&self, wrapping: &Wrapping) -> RowAnchor {
+        let source = self.body.source();
+        let start = source
+            .rfind(LINE_SEPARATOR)
+            .map_or(0, |at| at + LINE_SEPARATOR.len_utf8());
+        let line = source[..start].matches(LINE_SEPARATOR).count();
+        let (_, counted) = self.counted_line(start, line, wrapping);
+
+        RowAnchor::new(start, line, counted - 1)
+    }
+
     /// Draws the rows `window` asks for from `anchor` downward.
     ///
     /// # Returns
@@ -911,6 +982,55 @@ mod tests {
                     walked,
                     "stepping a row at a time through a block of {:?} walked rows the whole of it \
                      does not draw",
+                    block.kind()
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn stepping_a_row_at_a_time_either_way_reaches_the_anchor_of_every_row_of_a_block() {
+        for block in fixtures() {
+            for wrapping in wrappings() {
+                let all = block.render(whole(&block), &wrapping).rows().len();
+                let anchors: Vec<RowAnchor> =
+                    (0..all).map(|row| block.anchor(row, &wrapping)).collect();
+
+                let mut walked = vec![RowAnchor::top()];
+                while let Some(below) =
+                    block.below(*walked.last().expect("the walk began somewhere"), &wrapping)
+                {
+                    walked.push(below);
+                }
+
+                assert_eq!(
+                    anchors,
+                    walked,
+                    "stepping down a block of {:?} a row at a time reached anchors other than the \
+                     rows it is drawn in",
+                    block.kind()
+                );
+                assert_eq!(
+                    anchors.last().copied(),
+                    Some(block.bottom(&wrapping)),
+                    "the last row of a block of {:?} is not the row reached by walking down it",
+                    block.kind()
+                );
+
+                let mut back = vec![block.bottom(&wrapping)];
+                while let Some(above) = block.above(
+                    *back.last().expect("the walk back began somewhere"),
+                    &wrapping,
+                ) {
+                    back.push(above);
+                }
+                back.reverse();
+
+                assert_eq!(
+                    anchors,
+                    back,
+                    "stepping up a block of {:?} a row at a time reached anchors other than the \
+                     rows it is drawn in",
                     block.kind()
                 );
             }

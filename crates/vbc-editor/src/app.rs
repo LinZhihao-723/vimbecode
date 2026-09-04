@@ -251,7 +251,7 @@ impl App {
             notice: None,
             panel,
             focus: Focus::Text,
-            top: Placed::new(0, 0),
+            top: Placed::top(0),
             revision: u64::MAX,
             path: None,
             saved: String::new(),
@@ -303,7 +303,7 @@ impl App {
     #[must_use]
     pub fn with_transcript(mut self, transcript: Transcript) -> Self {
         self.panel = Panel::new(transcript).sharing(self.engine.register_file().clone());
-        self.top = Placed::new(0, 0);
+        self.top = Placed::top(0);
 
         self
     }
