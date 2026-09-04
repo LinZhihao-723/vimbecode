@@ -52,6 +52,15 @@ jobs:
       - name: "Run the tests"
         run: "cargo test --all"
 
+      # The layout soak is minutes of search rather than seconds, so it is the one test the run
+      # above skips and this is where it is paid for: on every pull request, once. `layout_fuzz.rs`
+      # reads this workflow and requires this job to run the command below unconditionally, down to
+      # the test's own name and these flags, so the soak cannot be dropped without a test going red.
+      - name: "Run the layout soak, which the default test run skips"
+        run: |
+          cargo test -p vbc-layout --test layout_fuzz -- \
+            --include-ignored --exact the_reference_layout_survives_a_hundred_thousand_cases
+
       # The baseline records the state vim ends every corpus case in, and only the vim installed
       # above is an authority for those states, so this is where they are checked strictly.
       - name: "Check the corpus baseline"
