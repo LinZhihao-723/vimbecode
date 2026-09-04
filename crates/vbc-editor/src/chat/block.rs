@@ -5,31 +5,65 @@
 //! styling it, and the spans name byte ranges of that source, so nothing a block draws is
 //! addressed in any coordinate but the source's.
 //!
-//! Rendering is a projection over a window of that source. A block is asked for a [`RowWindow`] --
-//! a display row to start at and a number of rows to draw -- and walks down to that row the way
+//! Rendering is a projection over a window of that source. A block is asked for a [`RowWindow`],
+//! which names where to start and how many rows to draw, and draws out from there the way
 //! [`vbc_layout::anchor`]'s mapping walks out from an anchor: a logical line at a time, nothing
 //! remembered between calls and nothing below the window touched at all. What it keeps is the
-//! window and only the window. The lines above it are counted rather than kept, and a line of
-//! plain text wrapped at the column it runs out of is not even counted a row at a time: the rows
-//! it takes are its length over the width, so stepping over it is reading where it ends.
+//! window and only the window.
 //!
-//! So a window of a block whose lines are read that way costs the rows it was asked for wherever
-//! it is drawn from. Measured in release at eighty columns, twenty rows of a hundred-thousand-line
-//! block ask the allocator for 121,800 bytes in 1,364 calls off the top of it, at row 50,000 and at
-//! row 99,000 alike, and for the same off the top of a hundred-line one; the three take 42 µs,
-//! 282 µs and 526 µs, the difference being the nine megabytes the last of them reads the line ends
-//! of on its way down. Laying those lines out instead cost 46 ms and 91 ms and asked for 228 MB
-//! and 452 MB.
+//! A window names its start as a position rather than as an ordinal. A [`RowAnchor`] says which
+//! logical line the window begins inside and which of that line's rows it begins at, so the block
+//! above that line is not read at all, let alone laid out, and what a window costs is the rows it
+//! draws whatever the content is written from and whatever the wrapping options ask for. A reader
+//! scrolling by a row moves the anchor [`Rendered::next`] hands back rather than counting rows
+//! again, so a keystroke costs a screenful however far down a block the screenful sits.
 //!
-//! A line whose rows cannot be read off its length -- one carrying a tab, a control character or a
-//! cluster of more than one byte, and every line at all under `'linebreak'`, `'showbreak'` or
-//! `'breakindent'` -- is laid out to be counted and thrown away again. A walk over such a block
-//! therefore still holds one line at a time, which is what keeps a frame's memory bounded, but it
-//! asks the allocator for what it steps over: twenty rows at row 99,000 of a hundred thousand
-//! tab-indented lines ask for 467 MB in 1.3 million calls and take 102 ms. Bounding that as well
-//! needs either a row index, which [`vbc_layout::anchor`] exists to do without, or a [`RowWindow`]
-//! naming where it starts rather than which row it starts at. `chat_cost.rs` measures both what
-//! holds here and what does not, rather than taking either on trust.
+//! What goes unread is the block above the anchor's own logical line, not that line above the
+//! anchor. Where every line is shorter than a screenful those are the same thing; where one of
+//! them is not, they are not, which is what the paragraph on long lines below is about.
+//!
+//! A window may still name the row it starts at, which is what a caller holding an ordinal has,
+//! and that window is walked down to before it is drawn. Where the lines above it are plain text
+//! wrapped at the column it runs out of the walk is cheap -- the rows such a line takes are its
+//! length over the width, so stepping over it is reading where it ends -- and where they are not,
+//! the walk lays out every line it steps over to count it. That walk is [`Block::anchor`], written
+//! apart from the drawing so that what it costs is spent by a caller that asks for it rather than
+//! by every frame.
+//!
+//! A line is not always shorter than the window drawn into it either: a minified document arrives
+//! as one logical line of megabytes, and laying it out whole to draw twenty rows of it costs the
+//! line rather than the rows. So a line is laid out only as far as the window reaches into it,
+//! and what a window into such a line costs is where it reaches rather than how long the line is.
+//!
+//! Where it reaches is still counted from the line's own first row, because a line can only be
+//! laid out from its start: a continuation row's decoration, the tab stops its text is measured
+//! against and the word it may not be broken inside are all read from there. So a window anchored
+//! deep inside one logical line lays out that line's rows above it, throws them away again, and
+//! costs them. Bounding that as well needs a layout that can be resumed from a byte of a line
+//! rather than only from the first of it, which [`vbc_layout::line`] does not offer; until it
+//! does, what is bounded is the block above a window and the line below it, not the line above it.
+//!
+//! Measured in release at eighty columns, an anchored window of twenty rows of a
+//! hundred-thousand-line block asks the allocator for the same bytes in the same number of calls
+//! and takes the same time at row 0, at row 50,000 and at row 99,000: 121,800 bytes in 1,364 calls
+//! and 42 µs of printable ASCII, 125,180 in 1,394 and 42 µs of tab-indented lines, 76,960 in 824
+//! and 25 µs of CJK, 83,720 in 824 and 29 µs of emoji, and 131,040 in 1,264 and 41 µs of
+//! box-drawing characters, and the same under each of the options that move where a line breaks.
+//! The window numbered by row 99,000 of those same blocks costs the walk down to it instead: it
+//! asks for 121,800 bytes and 499 µs where the lines above it are read off their lengths, and for
+//! 467 MB in 1.3 million calls and 93 ms, 245 MB and 59 ms, 258 MB and 68 ms, and 466 MB and
+//! 101 ms where they are laid out to be counted. Twenty rows off the top of a sixteen-megabyte
+//! logical line ask for 196,816 bytes in 2,063 calls and take 65 µs, which is what the same rows
+//! of a one-megabyte line cost, where laying either of those lines out whole asked for 2.6 GB and
+//! 160 MB and took 2.0 s and 64 ms. Anchored at row 100, at row 1,000 and at row 3,000 of either
+//! of those two lines, twenty rows ask for 1.1 MB, 9.0 MB and 20.7 MB and take 227 µs, 1.6 ms and
+//! 4.5 ms: the rows of the line above the window, laid out to reach it and thrown away again. The
+//! two lines ask for exactly the same at each of those rows, which is the length of the line
+//! below the window not being read.
+//!
+//! `chat_cost.rs` measures all of this rather than taking it on trust, over content that is not
+//! only printable ASCII and under wrapping options that are not only vim's defaults, because those
+//! were the one configuration the earlier bound held in.
 //!
 //! A rendered row carries the byte offset of the source it starts at, which is what lets the
 //! source behind a run of rows be recovered exactly -- separators included, which no row's own
@@ -53,6 +87,23 @@ const PLAIN: RangeInclusive<u8> = 0x20..=0x7e;
 
 /// The byte a logical line ends on, which is [`LINE_SEPARATOR`] as it is written in the source.
 const SEPARATOR: u8 = LINE_SEPARATOR as u8;
+
+/// The rows past the last one a window asks for that a prefix of a logical line has to be drawn in
+/// before the rows above them are the rows the whole line is drawn in there. Wrapping places a row
+/// from the row before it and from no more of the text than the row after it can hold, so a prefix
+/// that reaches two rows further has settled every row the window keeps.
+const PROBE_ROWS: usize = 2;
+
+/// The bytes a column of a display row is guessed to be written in, which is what the first prefix
+/// of a logical line is measured by. Text a column of which takes more bytes than that -- anything
+/// but the printable ASCII -- leaves the prefix short of the rows it was meant to reach, and a
+/// prefix that falls short is doubled rather than trusted, so the guess decides how many prefixes
+/// are laid out rather than which rows come back.
+const PROBE_BYTES_PER_COLUMN: usize = 1;
+
+/// The characters a logical line's indent is written from, which a prefix of the line reaches past
+/// so that a continuation row of it carries the decoration the whole line gives it.
+const BLANK: [char; 2] = [' ', '\t'];
 
 /// Who a message was said by.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -101,31 +152,137 @@ pub enum Kind {
     },
 }
 
-/// The display rows of a block a caller is asking to be drawn: the row of the block to start at,
-/// and how many rows to draw from there.
+/// Where a window of a block begins: the logical line it starts inside, named by the byte offset
+/// that line starts at and the index it is numbered by, and the display row of that line the
+/// window starts at.
+///
+/// An anchor is a position rather than an ordinal, which is what lets a window be reached without
+/// counting the rows of the block above the line it names. The rows of that line above it are
+/// counted all the same, because a line is laid out from its first row and from nowhere else.
+///
+/// Nothing here checks that the offset starts a logical line or that the index numbers it: an
+/// anchor is the caller's own position, handed to it by whatever drew the rows around it, and a
+/// caller naming a position the block does not hold draws from where it named rather than from
+/// anywhere else.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct RowAnchor {
+    offset: usize,
+    line: usize,
+    row: usize,
+}
+
+impl RowAnchor {
+    /// Factory function.
+    ///
+    /// # Returns
+    ///
+    /// The anchor of the display row `row` of the logical line starting at byte `offset`, which is
+    /// the line numbered `line`.
+    #[must_use]
+    pub fn new(offset: usize, line: usize, row: usize) -> Self {
+        Self { offset, line, row }
+    }
+
+    /// Factory function.
+    ///
+    /// # Returns
+    ///
+    /// The anchor of the first row of a block.
+    #[must_use]
+    pub fn top() -> Self {
+        Self::new(0, 0, 0)
+    }
+
+    #[must_use]
+    pub fn offset(&self) -> usize {
+        self.offset
+    }
+
+    #[must_use]
+    pub fn line(&self) -> usize {
+        self.line
+    }
+
+    #[must_use]
+    pub fn row(&self) -> usize {
+        self.row
+    }
+}
+
+/// Where a window of a block starts.
+///
+/// A window names its start either as a position or as an ordinal, and the two cost different
+/// things: a position is drawn from where it names, and an ordinal is a row the block has to be
+/// walked down to before anything can be drawn.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Start {
+    /// The row of the block the window starts at, counted from its first.
+    Row(usize),
+
+    /// Where in the block's source the window starts.
+    At(RowAnchor),
+}
+
+/// The display rows of a block a caller is asking to be drawn: where to start, and how many rows
+/// to draw from there.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct RowWindow {
-    start: usize,
+    start: Start,
     rows: usize,
 }
 
 impl RowWindow {
     /// Factory function.
     ///
+    /// A window named by a row is reached by counting the rows above it, so drawing one costs what
+    /// the block above it costs as well as the rows it draws. [`RowWindow::at`] names the same
+    /// window as a position and costs the block above it nothing.
+    ///
     /// # Returns
     ///
     /// A window of `rows` display rows starting at the block's row `start`.
     #[must_use]
     pub fn new(start: usize, rows: usize) -> Self {
-        Self { start, rows }
+        Self {
+            start: Start::Row(start),
+            rows,
+        }
+    }
+
+    /// Factory function.
+    ///
+    /// # Returns
+    ///
+    /// A window of `rows` display rows starting where `anchor` names.
+    #[must_use]
+    pub fn at(anchor: RowAnchor, rows: usize) -> Self {
+        Self {
+            start: Start::At(anchor),
+            rows,
+        }
     }
 
     /// # Returns
     ///
-    /// The row of the block the window starts at.
+    /// The row of the block the window starts at, or `None` where the window names a position
+    /// rather than a row.
     #[must_use]
-    pub fn start(&self) -> usize {
-        self.start
+    pub fn start(&self) -> Option<usize> {
+        match self.start {
+            Start::Row(row) => Some(row),
+            Start::At(_) => None,
+        }
+    }
+
+    /// # Returns
+    ///
+    /// Where the window starts, or `None` where the window names a row rather than a position.
+    #[must_use]
+    pub fn anchor(&self) -> Option<RowAnchor> {
+        match self.start {
+            Start::Row(_) => None,
+            Start::At(anchor) => Some(anchor),
+        }
     }
 
     /// # Returns
@@ -231,10 +388,14 @@ impl Block {
 
     /// Lays out the window `window` asks for and applies the block's spans to the rows in it.
     ///
-    /// Only the lines the window draws are kept. The lines above it are counted rather than kept,
-    /// so a window deep in a block holds the rows it was asked for and one line beside them
-    /// however far down it sits, and where the lines above it are counted without being laid out
-    /// it asks the allocator for nothing at all on its way down.
+    /// Only the lines the window draws are kept, and only as much of each of them as the window
+    /// reaches, so a window holds the rows it was asked for however far down a block it sits and
+    /// however long the line it sits inside runs on below it.
+    ///
+    /// What it costs is the rows it draws, together with the rows of its own logical line above
+    /// it, once the window names where it starts, and the rows of the whole block above it as well
+    /// once the window names which row it starts at: an anchored window is drawn from the first
+    /// row of the line it names, and a numbered one is walked down to first.
     ///
     /// # Returns
     ///
@@ -242,38 +403,105 @@ impl Block {
     /// ends inside the window and none at all where it ends above it.
     #[must_use]
     pub fn render(&self, window: RowWindow, wrapping: &Wrapping) -> Rendered {
+        let anchor = match window.start {
+            Start::Row(row) => self.anchor(row, wrapping),
+            Start::At(anchor) => anchor,
+        };
+
+        self.drawn(window, anchor, wrapping)
+    }
+
+    /// Walks down to the block's row `row`, counting the rows above it rather than drawing them.
+    ///
+    /// This is the cost an anchor exists to be spent once rather than every frame: a caller that
+    /// keeps the anchor it was handed and moves it with [`Rendered::next`] never walks again,
+    /// while one that names a row walks the block above that row each time it draws.
+    ///
+    /// # Returns
+    ///
+    /// Where the block's row `row` begins, which is past the end of the source where the block is
+    /// drawn in fewer rows than that.
+    #[must_use]
+    pub fn anchor(&self, row: usize, wrapping: &Wrapping) -> RowAnchor {
+        let end = self.body.source().len();
+        let mut above = row;
+        let mut at = RowAnchor::top();
+
+        while at.offset <= end {
+            let (text, counted) = self.counted_line(at.offset, at.line, wrapping);
+            if above < counted {
+                return RowAnchor::new(at.offset, at.line, above);
+            }
+
+            above -= counted;
+            at = RowAnchor::new(
+                at.offset + text.len() + LINE_SEPARATOR.len_utf8(),
+                at.line + 1,
+                0,
+            );
+        }
+
+        RowAnchor::new(at.offset, at.line, above)
+    }
+
+    /// Draws the rows `window` asks for from `anchor` downward.
+    ///
+    /// # Returns
+    ///
+    /// The window as it is drawn.
+    fn drawn(&self, window: RowWindow, anchor: RowAnchor, wrapping: &Wrapping) -> Rendered {
         let end = self.body.source().len();
         let wanted = window.rows;
         let mut rows: Vec<RenderedRow> = Vec::new();
-        let mut above = window.start;
-        let mut drawn = 0;
-        let mut offset = 0;
-        let mut index = 0;
+        let mut at = anchor;
+        let mut next = None;
 
-        while offset <= end && drawn < wanted {
-            let (text, counted) = self.counted_line(offset, index, wrapping);
+        while at.offset <= end && rows.len() < wanted {
+            let below = wanted - rows.len();
+            let rest = &self.body.source()[at.offset..];
+            let reached = at.row.saturating_add(below);
+            let (laid_out, length) = laid_out_to(rest, at.line, wrapping, reached);
+            let following = length.map(|length| {
+                RowAnchor::new(
+                    at.offset + length + LINE_SEPARATOR.len_utf8(),
+                    at.line + 1,
+                    0,
+                )
+            });
 
-            if counted <= above {
-                above -= counted;
-            } else {
-                let laid_out = laid_out(text, index, wrapping);
-                let taken = (laid_out.len() - above).min(wanted - drawn);
-                let mut at = offset + bytes_of(&laid_out[..above]);
-                for styled in self.body.style_rows(at, &laid_out[above..above + taken]) {
-                    let length = styled.row().text().len();
-                    rows.push(RenderedRow { start: at, styled });
-                    at += length;
-                }
-                drawn += taken;
-                above = 0;
+            if laid_out.len() <= at.row {
+                let ended = following.expect("a line drawn in fewer rows than were asked for ends");
+                at = RowAnchor::new(ended.offset, ended.line, at.row - laid_out.len());
+                continue;
             }
 
-            offset += text.len() + LINE_SEPARATOR.len_utf8();
-            index += 1;
+            let taken = (laid_out.len() - at.row).min(below);
+            let mut start = at.offset + bytes_of(&laid_out[..at.row]);
+            for styled in self
+                .body
+                .style_rows(start, &laid_out[at.row..at.row + taken])
+            {
+                let length = styled.row().text().len();
+                rows.push(RenderedRow { start, styled });
+                start += length;
+            }
+
+            let past = at.row + taken;
+            next = Some(match following {
+                Some(following) if laid_out.len() <= past => following,
+                _ => RowAnchor::new(at.offset, at.line, past),
+            });
+
+            let Some(following) = following else {
+                break;
+            };
+            at = following;
         }
 
         Rendered {
-            start: window.start,
+            start: window.start(),
+            anchor,
+            next: next.filter(|below| below.offset <= end),
             rows,
         }
     }
@@ -379,11 +607,13 @@ impl RenderedRow {
     }
 }
 
-/// A window of a block as it is drawn: the rows it was asked for, top to bottom, and the row of
-/// the block the window began at.
+/// A window of a block as it is drawn: the rows it was asked for, top to bottom, and where the
+/// window began and ended.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Rendered {
-    start: usize,
+    start: Option<usize>,
+    anchor: RowAnchor,
+    next: Option<RowAnchor>,
     rows: Vec<RenderedRow>,
 }
 
@@ -396,10 +626,29 @@ impl Rendered {
     /// # Returns
     ///
     /// The row of the block the window began at, which is the row the first of these rows is
-    /// wherever any were drawn at all.
+    /// wherever any were drawn at all, or `None` where the window named a position rather than a
+    /// row.
     #[must_use]
-    pub fn start(&self) -> usize {
+    pub fn start(&self) -> Option<usize> {
         self.start
+    }
+
+    /// # Returns
+    ///
+    /// Where the window began, which is where it was anchored and is where the first of these
+    /// rows is wherever any were drawn at all.
+    #[must_use]
+    pub fn anchor(&self) -> RowAnchor {
+        self.anchor
+    }
+
+    /// # Returns
+    ///
+    /// Where the row below the last of these rows begins, which is what a reader scrolling by a
+    /// row anchors on next, or `None` where the window drew nothing or the block ends with it.
+    #[must_use]
+    pub fn next(&self) -> Option<RowAnchor> {
+        self.next
     }
 
     /// # Returns
@@ -448,6 +697,69 @@ fn laid_out(text: &str, index: usize, wrapping: &Wrapping) -> Vec<DisplayRow> {
     )
 }
 
+/// Lays out as much of the logical line starting `rest` as it takes to reach its row `wanted`.
+///
+/// A line is not always shorter than the window drawn into it: what a tool answers is whatever it
+/// wrote, and a minified document arrives as one line of several megabytes. Laying such a line out
+/// whole to draw twenty rows of it costs the line rather than the rows, and so does looking for
+/// where it ends, so a prefix of `rest` is read and laid out instead and doubled until it either
+/// reaches the end of the line or is drawn in more rows than were asked for. Wrapping is greedy
+/// and reads no further ahead than the row it is placing, so every row of a prefix but its last
+/// two is the row the whole line is drawn in there, and the last two are thrown away.
+///
+/// # Returns
+///
+/// The display rows the line is drawn in, which are `wanted` of them where the line is drawn in
+/// more than that, paired with the length of the line where the whole of it was read and `None`
+/// where only a prefix was.
+fn laid_out_to(
+    rest: &str,
+    index: usize,
+    wrapping: &Wrapping,
+    wanted: usize,
+) -> (Vec<DisplayRow>, Option<usize>) {
+    let indent = if wrapping.options().break_indent() {
+        rest.len() - rest.trim_start_matches(BLANK).len()
+    } else {
+        0
+    };
+    let mut probe = wanted
+        .saturating_add(PROBE_ROWS)
+        .saturating_mul(wrapping.width().get())
+        .saturating_mul(PROBE_BYTES_PER_COLUMN)
+        .max(indent.saturating_add(1));
+
+    loop {
+        let head = &rest[..boundary(rest, probe)];
+        if let Some(at) = head.find(LINE_SEPARATOR) {
+            return (laid_out(&head[..at], index, wrapping), Some(at));
+        }
+        if head.len() == rest.len() {
+            return (laid_out(rest, index, wrapping), Some(rest.len()));
+        }
+
+        let mut rows = laid_out(head, index, wrapping);
+        if wanted.saturating_add(PROBE_ROWS) <= rows.len() {
+            rows.truncate(wanted);
+            return (rows, None);
+        }
+
+        probe = probe.saturating_mul(2);
+    }
+}
+
+/// # Returns
+///
+/// The greatest byte offset of `text` no further than `at` that starts one of its characters.
+fn boundary(text: &str, at: usize) -> usize {
+    let mut cut = at.min(text.len());
+    while !text.is_char_boundary(cut) {
+        cut -= 1;
+    }
+
+    cut
+}
+
 /// # Returns
 ///
 /// Whether every byte of `text` is one a line of [`PLAIN`] bytes may be written from, the
@@ -478,7 +790,7 @@ mod tests {
 
     use crate::style::{Span, StyledSegment};
 
-    use super::{Block, Kind, Rendered, RenderedRow, Role, RowWindow};
+    use super::{Block, Kind, Rendered, RenderedRow, Role, RowAnchor, RowWindow};
 
     /// The width the fixtures wrap at, narrow enough that most of them take several rows.
     const WIDTH: usize = 5;
@@ -548,8 +860,82 @@ mod tests {
                              something other than those rows of the whole of it",
                             block.kind()
                         );
-                        assert_eq!(start, drawn.start());
+                        assert_eq!(Some(start), drawn.start());
                     }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_window_anchored_where_a_row_is_draws_what_the_window_numbered_by_that_row_draws() {
+        for block in fixtures() {
+            for wrapping in wrappings() {
+                let all = block.render(whole(&block), &wrapping).rows().len();
+                for start in 0..2 + all {
+                    for wanted in [0, 1, 2, 3, 1 + all] {
+                        let numbered = block.render(RowWindow::new(start, wanted), &wrapping);
+                        let anchor = block.anchor(start, &wrapping);
+                        let anchored = block.render(RowWindow::at(anchor, wanted), &wrapping);
+
+                        assert_eq!(
+                            numbered.rows(),
+                            anchored.rows(),
+                            "a window of {wanted} rows anchored at {anchor:?} of a block of {:?} \
+                             drew something other than the window numbered by row {start}",
+                            block.kind()
+                        );
+                        assert_eq!(None, anchored.start());
+                        assert_eq!(anchor, anchored.anchor());
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn stepping_by_the_anchor_below_a_window_walks_the_rows_the_whole_block_draws() {
+        for block in fixtures() {
+            for wrapping in wrappings() {
+                let all = block.render(whole(&block), &wrapping);
+                let mut walked = Vec::new();
+                let mut at = Some(RowAnchor::top());
+                while let Some(anchor) = at {
+                    let drawn = block.render(RowWindow::at(anchor, 1), &wrapping);
+                    walked.extend(drawn.rows().iter().cloned());
+                    at = drawn.next();
+                }
+
+                assert_eq!(
+                    all.rows(),
+                    walked,
+                    "stepping a row at a time through a block of {:?} walked rows the whole of it \
+                     does not draw",
+                    block.kind()
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_window_into_a_line_longer_than_the_window_draws_the_rows_the_whole_line_draws() {
+        let long: String = std::iter::repeat_n(CLUSTERS.replace('\n', " "), 64).collect();
+        for source in [format!("{long}\n{long}"), format!(" \t {long}")] {
+            let block = Block::new(Kind::ToolResult, source);
+            for wrapping in wrappings() {
+                let all = block.render(whole(&block), &wrapping);
+                let rows = all.rows();
+                for start in [0, 1, 2, 3, rows.len() / 2, rows.len().saturating_sub(1)] {
+                    let anchor = block.anchor(start, &wrapping);
+                    let drawn = block.render(RowWindow::at(anchor, 3), &wrapping);
+                    let end = (start + 3).min(rows.len());
+
+                    assert_eq!(
+                        rows.get(start.min(rows.len())..end).unwrap_or_default(),
+                        drawn.rows(),
+                        "a window at row {start} of a block of one long line drew something other \
+                         than those rows of the whole of it"
+                    );
                 }
             }
         }
@@ -816,7 +1202,7 @@ mod tests {
         let wrapping = wrapping(UNWRAPPED);
 
         let rendered = block.render(RowWindow::new(1, 3), &wrapping);
-        assert_eq!(1, rendered.start());
+        assert_eq!(Some(1), rendered.start());
         assert_eq!(vec![4..7, 8..13, 14..18], sources(&rendered));
         assert_eq!(
             Some("two\nthree\nfour"),

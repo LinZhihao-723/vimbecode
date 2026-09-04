@@ -24,15 +24,38 @@
 //! it steps over, and reading them is memory bandwidth rather than layout: what it must not do is
 //! lay them out.
 //!
-//! That is required of the window over [`plain`], whose lines are the printable ASCII whose rows a
-//! width divides out of a length. It is not what a block of [`tabbed`] lines can promise: a tab's
-//! columns are not its bytes, so every line above such a window is laid out to be counted, and the
-//! bytes that costs follow the row the window starts at. What that walk must still do is throw each
-//! line away again, which is the difference between a frame that holds a line of a block and one
-//! that holds all of it, so the tabbed fixture is measured in what it holds at once rather than in
-//! what it asks for. Leaving it unmeasured is how the shape of the fast path went unstated: every
-//! fixture here was printable ASCII drawn under vim's own defaults, which is the one case in which
-//! a line's rows are its length over the width.
+//! That is required of a *numbered* window over [`Content::Plain`], whose lines are the printable
+//! ASCII whose rows a width divides out of a length. It is not what a numbered window over any
+//! other content can promise: a tab's columns are not its bytes, so every line above such a window
+//! is laid out to be counted, and the bytes that costs follow the row the window starts at. What
+//! that walk must still do is throw each line away again, which is the difference between a frame
+//! that holds a line of a block and one that holds all of it, so a numbered window over
+//! [`Content::Tabbed`] is measured in what it holds at once rather than in what it asks for.
+//!
+//! An *anchored* window promises the same thing over every content and under every wrapping
+//! option, because it is drawn from where it names rather than walked down to. That is measured
+//! here over five contents -- printable ASCII, tab-indented lines, CJK, emoji and box-drawing
+//! characters -- under vim's defaults and under each of `'showbreak'`, `'breakindent'` and
+//! `'linebreak'`, in the bytes it asks for, the calls it asks in and the time it takes, at rows 0,
+//! 50,000 and 99,000 of a hundred-thousand-line block. Measuring only printable ASCII under vim's
+//! defaults is how the shape of the fast path went unstated: that is the one case in which a
+//! line's rows are its length over the width, and the whole of the earlier bound rested on it.
+//!
+//! A window is bounded by where its line ends as well as by where the block does. A tool result
+//! holding a minified document is one logical line of megabytes, and laying that line out to draw
+//! twenty rows of it costs the line rather than the rows, so [`ENORMOUS`] and the line sixteen
+//! times its length are drawn from and required to cost the same.
+//!
+//! What that bounds is the line below the window, not the line above it. A line is laid out from
+//! its first row and from nowhere else, so a window anchored deep inside one lays out the rows of
+//! that line above it, throws them away again, and costs them: twenty rows at row 3,000 of either
+//! of those two lines ask for a hundred times what twenty rows off the top of them ask for. That
+//! is measured rather than left to be found, because it is the same shape as every bound this file
+//! has had to widen -- flat along the axis the fixtures varied and not along the one they fixed.
+//! [`ENORMOUS_DEPTHS`] varies it: the two lines must still ask for exactly the same at each of
+//! those rows, which is the length of the line below the window going unread, and what each asks
+//! for must stay inside [`PER_ROW_INSIDE_A_LINE`] for every row of the line above it, which is
+//! that line being read once rather than over and over.
 //!
 //! Counting the rows of an entry is measured the same way. A reader arriving at a block from below
 //! has to know how many rows it is drawn in, and the count used to be taken by drawing the whole
@@ -57,6 +80,30 @@
 //! Four thousand lines diffed against four thousand with nothing in common cost 56 ms and 2.4 MB;
 //! twenty thousand against twenty thousand cost 10 ms and 11 MB past the bound, and 3.6 ms with one
 //! line inserted, which the common head and tail match off to a middle of one line either side.
+//!
+//! An anchored window of twenty rows asks for the same bytes in the same calls and takes the same
+//! time at rows 0, 50,000 and 99,000 of each of the five contents: 121,800 bytes in 1,364 calls
+//! and 42 µs of printable ASCII, 125,180 in 1,394 and 42 µs of tab-indented lines, 76,960 in 824
+//! and 25 µs of CJK, 83,720 in 824 and 29 µs of emoji, and 131,040 in 1,264 and 41 µs of
+//! box-drawing characters. The numbered window at row 99,000 of the same four blocks that are not
+//! printable ASCII asks for 467 MB in 1.3 million calls and 93 ms, 245 MB in 1.1 million and
+//! 59 ms, 258 MB in 1.1 million and 68 ms, and 466 MB in 1.2 million and 101 ms. Under
+//! `'showbreak'`, `'breakindent'`, `'linebreak'` and all three at once the anchored window of the
+//! tab-indented block asks for 125,340, 125,580, 125,180 and 125,940 bytes and takes 42 µs, 45 µs,
+//! 56 µs and 57 µs, wherever it is anchored.
+//!
+//! Twenty rows off the top of a sixteen-megabyte logical line ask for 196,816 bytes in 2,063 calls
+//! and take 65 µs, which is what twenty rows off the top of a one-megabyte one ask for and take;
+//! at row 100 of either they ask for 1,142,384 bytes in 3,268 calls and take 200 µs. Laying those
+//! two lines out whole asked for 160 MB in 1.3 million calls and 2.6 GB in 21 million, and took
+//! 64 ms and 2.0 s.
+//!
+//! Deeper inside either of those lines the rows of the line above the window are what it costs. At
+//! rows 100, 1,000 and 3,000 twenty rows ask for 1.1 MB, 9.0 MB and 20.7 MB of printable ASCII and
+//! of tab-indented lines alike, 1.0, 8.3 and 28.6 MB of CJK, 2.2, 17.4 and 41.8 MB of emoji and
+//! 2.3, 18.5 and 65.3 MB of box-drawing characters, and take 227 µs, 1.6 ms and 4.5 ms of the
+//! first of those; the sixteen-megabyte line asks for the same as the one-megabyte one at every
+//! one of them, to the byte and to the call.
 
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
@@ -65,7 +112,7 @@ use std::num::NonZeroUsize;
 use std::ops::Range;
 use std::time::{Duration, Instant};
 
-use vbc_editor::chat::block::{Block, Kind, Role, RowWindow};
+use vbc_editor::chat::block::{Block, Kind, Rendered, Role, RowAnchor, RowWindow};
 use vbc_editor::chat::diff;
 use vbc_editor::chat::fold::{Folds, View};
 use vbc_editor::chat::transcript::Transcript;
@@ -99,6 +146,69 @@ const LONG_ROWS: usize = ROWS_PER_LINE * LONG + 1;
 /// 3,700 times as much at the third of these as at the first.
 const STARTS: [usize; 3] = [0, 50_000, 99_000];
 
+/// The logical lines the rows of [`STARTS`] begin at, which is what an anchored window names them
+/// by. That they are those rows is checked rather than assumed, both by the count of rows a line
+/// of every fixture is drawn in and by walking a short block down to each of them.
+const ANCHORED_LINES: [usize; 3] = [0, 25_000, 49_500];
+
+/// The wide characters a line of [`Content::Cjk`] is filled with, and how many of them fill one.
+const CJK_FILLER: &str = "\u{4e2d}\u{6587}\u{5b57}\u{7b26}";
+const CJK_FILLERS: usize = 11;
+
+/// The box-drawing characters a line of [`Content::Boxes`] is filled with, which is the shape a
+/// tool draws a tree in, and how many of them fill one.
+const BOX_FILLER: &str = "\u{251c}\u{2500}\u{253c}\u{2500}\u{2524}\u{2500}";
+const BOX_FILLERS: usize = 14;
+
+/// The emoji a line of [`Content::Emoji`] is filled with: one written in a single code point,
+/// repeated, and one joined out of five, which is the cluster a width cannot be read off a length
+/// for.
+const EMOJI: &str = "\u{1f680}";
+const EMOJIS: usize = 42;
+const JOINED_EMOJI: &str = "\u{1f468}\u{200d}\u{1f469}\u{200d}\u{1f467}";
+
+/// The bytes of the logical line that is longer than any window drawn into it, which is the shape
+/// a minified document arrives in.
+const ENORMOUS: usize = 1 << 20;
+
+/// The factor by which the longer of the two enormous lines is longer than [`ENORMOUS`]. A render
+/// that laid a line out to draw a window into it costs this many times as much on the longer.
+const ENORMOUS_FACTOR: usize = 16;
+
+/// The rows into an enormous logical line a window is drawn from. A window is anchored inside a
+/// line as well as at the top of one, so the rows above it inside its own line are drawn from too.
+const ENORMOUS_STARTS: [usize; 3] = [0, 1, 100];
+
+/// The memory a window into an enormous logical line may ask for. Laying either line out whole
+/// asks for tens of times the line, so a window that costs the rows it draws misses this by orders
+/// of magnitude rather than by a margin.
+const ENORMOUS_MEMORY: usize = 4 << 20;
+
+/// The rows into an enormous logical line a window is anchored at where the rows of that line
+/// above it are what it costs rather than the rows it draws. [`ENORMOUS_STARTS`] stops at the row
+/// where that cost is still a rounding error, which is the one place a window inside a long line
+/// looks like a window anywhere else; these are the rows where it does not.
+const ENORMOUS_DEPTHS: [usize; 3] = [100, 1_000, 3_000];
+
+/// The bytes a window anchored inside an enormous logical line may ask for per row of that line
+/// above it, beyond what a window off the top of the same line asks for. A line is laid out from
+/// its first row, so what a window inside one asks for follows the rows above it; what it may not
+/// do is follow them more than a bounded number of times over, which is what a render that laid
+/// the line out again for every row of it would.
+const PER_ROW_INSIDE_A_LINE: usize = 32 << 10;
+
+/// The columns the rendered output is compared at. A width of one wraps every cluster onto a row of
+/// its own, and one wider than any fixture wraps nothing at all.
+const MATRIX_WIDTHS: [usize; 6] = [1, 2, 3, 7, 13, COLUMNS];
+
+/// The rows of a fixture the comparison draws a window from. A short fixture is drawn from every
+/// row of it and a long one from this many, spread evenly down it.
+const MATRIX_STARTS: usize = 8;
+
+/// The bytes of the one logical line the comparison holds, which is long enough that a window into
+/// it is drawn from a prefix of it rather than from the whole.
+const MATRIX_LINE: usize = 4_096;
+
 /// The number of runs a timing takes the fastest of, which is what keeps a machine's own noise out
 /// of the ratio.
 const RUNS: usize = 9;
@@ -114,6 +224,11 @@ const MARGIN: u32 = 4;
 /// and 8 in debug, against the 2,200 it was when those lines were laid out instead. What the walk
 /// may not do is build anything, which is what the allocations either side of this are for.
 const DEPTH_MARGIN: u32 = 32;
+
+/// The factor by which an anchored window drawn deep in a block may cost more in time than one
+/// drawn off its top. An anchored window reads nothing above where it is anchored, so unlike
+/// [`DEPTH_MARGIN`] this is a margin for a shared machine's own noise rather than for work.
+const ANCHORED_MARGIN: u32 = 4;
 
 /// The memory counting the rows of the long block may ask for, which it was measured to take none
 /// of at all, against the 1.2 GB drawing it to count them asked for.
@@ -391,6 +506,302 @@ fn a_window_deep_in_a_block_of_tabs_holds_a_line_of_it_at_a_time() {
 }
 
 #[test]
+fn a_line_of_every_fixture_is_drawn_in_the_rows_the_anchored_measurements_take_it_to_be() {
+    for content in Content::ALL {
+        let short = content.block(SHORT);
+        for options in option_sets() {
+            let wrapping = wrapping_under(&options);
+
+            assert_eq!(
+                ROWS_PER_LINE * SHORT + 1,
+                short.row_count(&wrapping),
+                "a line of the {content:?} fixture is not drawn in {ROWS_PER_LINE} rows under \
+                 {options:?}, so the lines an anchor names are not the rows the measurements say"
+            );
+            for line in [0, 1, SHORT / 2, SHORT - 1] {
+                assert_eq!(
+                    short.anchor(ROWS_PER_LINE * line, &wrapping),
+                    anchored(&short, line),
+                    "line {line} of the {content:?} fixture is not row {} under {options:?}",
+                    ROWS_PER_LINE * line
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn an_anchored_window_deep_in_a_block_costs_what_one_anchored_at_its_top_costs() {
+    for content in Content::ALL {
+        let long = content.block(LONG);
+        for options in option_sets() {
+            let wrapping = wrapping_under(&options);
+            let top = anchored(&long, ANCHORED_LINES[0]);
+            let (_, off_the_top) = counted(|| long.render(RowWindow::at(top, WINDOW), &wrapping));
+            let fastest = timed_at(&long, top, &wrapping);
+
+            for line in ANCHORED_LINES {
+                let anchor = anchored(&long, line);
+                let (rendered, deep) =
+                    counted(|| long.render(RowWindow::at(anchor, WINDOW), &wrapping));
+                let elapsed = timed_at(&long, anchor, &wrapping);
+                let (bytes, calls) = deep;
+                let (top_bytes, top_calls) = off_the_top;
+
+                assert_eq!(
+                    WINDOW,
+                    rendered.rows().len(),
+                    "the window anchored at line {line} of the {content:?} fixture under \
+                     {options:?} did not fill"
+                );
+                assert_eq!(
+                    off_the_top,
+                    deep,
+                    "drawing {WINDOW} rows anchored at row {} of a {LONG}-line {content:?} block \
+                     under {options:?} asked for {bytes} bytes in {calls} calls, and drawing the \
+                     same rows off its top asked for {top_bytes} in {top_calls}, so an anchored \
+                     render follows where it is anchored rather than the rows it was asked for",
+                    ROWS_PER_LINE * line
+                );
+                assert!(
+                    elapsed < fastest * ANCHORED_MARGIN,
+                    "drawing {WINDOW} rows anchored at row {} of a {LONG}-line {content:?} block \
+                     under {options:?} took {elapsed:?} and drawing the same rows off its top took \
+                     {fastest:?}",
+                    ROWS_PER_LINE * line
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn an_anchored_window_of_a_long_block_costs_what_one_of_a_short_block_costs() {
+    for content in Content::ALL {
+        let short = content.block(SHORT);
+        let long = content.block(LONG);
+        for options in option_sets() {
+            let wrapping = wrapping_under(&options);
+            let anchor = RowAnchor::top();
+
+            let (rows, of_short) =
+                counted(|| short.render(RowWindow::at(anchor, WINDOW), &wrapping));
+            let (same, of_long) = counted(|| long.render(RowWindow::at(anchor, WINDOW), &wrapping));
+            let of_short_time = timed_at(&short, anchor, &wrapping);
+            let of_long_time = timed_at(&long, anchor, &wrapping);
+
+            assert_eq!(
+                rows, same,
+                "the {content:?} blocks did not draw the same rows under {options:?}, so the \
+                 measurement compares two things"
+            );
+            assert_eq!(
+                of_short, of_long,
+                "drawing {WINDOW} rows of a {SHORT}-line {content:?} block under {options:?} asked \
+                 for {of_short:?} and drawing the same rows of a {LONG}-line one asked for \
+                 {of_long:?}, so the render follows the block"
+            );
+            assert!(
+                of_long_time < of_short_time * MARGIN,
+                "drawing {WINDOW} rows of a {SHORT}-line {content:?} block under {options:?} took \
+                 {of_short_time:?} and drawing the same rows of a {LONG}-line one took \
+                 {of_long_time:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn scrolling_an_anchored_window_by_a_row_costs_the_same_wherever_the_window_is() {
+    for content in Content::ALL {
+        let long = content.block(LONG);
+        for options in option_sets() {
+            let wrapping = wrapping_under(&options);
+            let top = anchored(&long, ANCHORED_LINES[0]);
+            let (_, off_the_top) = counted(|| scrolled(&long, top, &wrapping));
+            let quickest = fastest(|| scrolled(&long, top, &wrapping));
+
+            for line in ANCHORED_LINES {
+                let anchor = anchored(&long, line);
+                let (rendered, deep) = counted(|| scrolled(&long, anchor, &wrapping));
+                let elapsed = fastest(|| scrolled(&long, anchor, &wrapping));
+
+                assert!(
+                    elapsed < quickest * ANCHORED_MARGIN,
+                    "scrolling a {WINDOW}-row window by one row at row {} of a {LONG}-line \
+                     {content:?} block under {options:?} took {elapsed:?}, and scrolling the same \
+                     window off its top took {quickest:?}",
+                    ROWS_PER_LINE * line
+                );
+                assert_eq!(
+                    WINDOW,
+                    rendered.rows().len(),
+                    "the window scrolled a row below line {line} of the {content:?} fixture under \
+                     {options:?} did not fill"
+                );
+                assert_eq!(
+                    off_the_top,
+                    deep,
+                    "scrolling a {WINDOW}-row window by one row at row {} of a {LONG}-line \
+                     {content:?} block under {options:?} asked for {deep:?}, and scrolling the \
+                     same window off its top asked for {off_the_top:?}, so a keystroke costs the \
+                     scroll rather than the screen",
+                    ROWS_PER_LINE * line
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn a_window_into_an_enormous_logical_line_costs_what_one_into_a_short_line_costs() {
+    for content in Content::ALL {
+        let short = content.one_line(ENORMOUS);
+        let long = content.one_line(ENORMOUS_FACTOR * ENORMOUS);
+        for options in option_sets() {
+            let wrapping = wrapping_under(&options);
+
+            for start in ENORMOUS_STARTS {
+                let anchor = RowAnchor::new(0, 0, start);
+                let (rows, of_short) =
+                    counted(|| short.render(RowWindow::at(anchor, WINDOW), &wrapping));
+                let (same, of_long) =
+                    counted(|| long.render(RowWindow::at(anchor, WINDOW), &wrapping));
+                let of_short_time = timed_at(&short, anchor, &wrapping);
+                let of_long_time = timed_at(&long, anchor, &wrapping);
+                let (bytes, _) = of_long;
+
+                assert_eq!(
+                    WINDOW,
+                    rows.rows().len(),
+                    "the window at row {start} of one {ENORMOUS}-byte {content:?} line under \
+                     {options:?} did not fill"
+                );
+                assert_eq!(
+                    rows, same,
+                    "the two {content:?} lines did not draw the same rows at row {start} under \
+                     {options:?}, so the measurement compares two things"
+                );
+                assert_eq!(
+                    of_short, of_long,
+                    "drawing {WINDOW} rows at row {start} of one {ENORMOUS}-byte {content:?} line \
+                     under {options:?} asked for {of_short:?} and drawing the same rows of a line \
+                     {ENORMOUS_FACTOR} times as long asked for {of_long:?}, so the render lays out \
+                     the line rather than the window"
+                );
+                assert!(
+                    of_long_time < of_short_time * ANCHORED_MARGIN,
+                    "drawing {WINDOW} rows at row {start} of one {ENORMOUS}-byte {content:?} line \
+                     under {options:?} took {of_short_time:?} and drawing the same rows of a line \
+                     {ENORMOUS_FACTOR} times as long took {of_long_time:?}, so the render reads \
+                     the line rather than the window"
+                );
+                assert!(
+                    bytes < ENORMOUS_MEMORY,
+                    "drawing {WINDOW} rows at row {start} of one {content:?} logical line of \
+                     {} bytes under {options:?} asked for {bytes} bytes",
+                    ENORMOUS_FACTOR * ENORMOUS
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn a_window_inside_an_enormous_logical_line_costs_the_rows_of_that_line_above_it() {
+    for content in Content::ALL {
+        let short = content.one_line(ENORMOUS);
+        let long = content.one_line(ENORMOUS_FACTOR * ENORMOUS);
+        for options in option_sets() {
+            let wrapping = wrapping_under(&options);
+            let top = RowAnchor::top();
+            let (_, off_the_top) = counted(|| long.render(RowWindow::at(top, WINDOW), &wrapping));
+            let (top_bytes, _) = off_the_top;
+
+            for depth in ENORMOUS_DEPTHS {
+                let anchor = RowAnchor::new(0, 0, depth);
+                let (rows, of_short) =
+                    counted(|| short.render(RowWindow::at(anchor, WINDOW), &wrapping));
+                let (same, of_long) =
+                    counted(|| long.render(RowWindow::at(anchor, WINDOW), &wrapping));
+                let (bytes, calls) = of_long;
+
+                assert_eq!(
+                    WINDOW,
+                    rows.rows().len(),
+                    "the window at row {depth} of one {ENORMOUS}-byte {content:?} line under \
+                     {options:?} did not fill"
+                );
+                assert_eq!(
+                    rows, same,
+                    "the two {content:?} lines did not draw the same rows at row {depth} under \
+                     {options:?}, so the measurement compares two things"
+                );
+                assert_eq!(
+                    of_short, of_long,
+                    "drawing {WINDOW} rows at row {depth} of one {ENORMOUS}-byte {content:?} line \
+                     under {options:?} asked for {of_short:?} and drawing the same rows of a line \
+                     {ENORMOUS_FACTOR} times as long asked for {of_long:?}, so a window inside a \
+                     line reads the length of the line below it"
+                );
+                assert!(
+                    bytes < top_bytes + depth * PER_ROW_INSIDE_A_LINE,
+                    "drawing {WINDOW} rows at row {depth} of one {content:?} logical line of {} \
+                     bytes under {options:?} asked for {bytes} bytes in {calls} calls, against the \
+                     {top_bytes} the same rows off the top of that line asked for, so the rows of \
+                     the line above the window are read more times over than once",
+                    ENORMOUS_FACTOR * ENORMOUS
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn an_anchored_window_draws_the_rows_the_whole_block_draws_there_at_every_width_and_option() {
+    for source in matrix_sources() {
+        let block = Block::new(Kind::ToolResult, source.clone());
+        for width in MATRIX_WIDTHS {
+            for options in option_sets() {
+                let wrapping = Wrapping::new(
+                    NonZeroUsize::new(width).expect("a fixture is drawn in at least one column"),
+                    Metrics::default(),
+                    options.clone(),
+                );
+                let whole = block.render(RowWindow::new(0, 2 * source.len() + 2), &wrapping);
+                let all = whole.rows();
+                let step = 1 + all.len() / MATRIX_STARTS;
+
+                for start in (0..2 + all.len()).step_by(step) {
+                    for wanted in [0, 1, 2, 3, WINDOW] {
+                        let end = (start + wanted).min(all.len());
+                        let expected = all.get(start.min(all.len())..end).unwrap_or_default();
+                        let numbered = block.render(RowWindow::new(start, wanted), &wrapping);
+                        let anchor = block.anchor(start, &wrapping);
+                        let drawn = block.render(RowWindow::at(anchor, wanted), &wrapping);
+
+                        assert_eq!(
+                            expected,
+                            numbered.rows(),
+                            "a numbered window of {wanted} rows at row {start} of {source:?} at \
+                             {width} columns under {options:?} drew something other than those \
+                             rows of the whole of it"
+                        );
+                        assert_eq!(
+                            expected,
+                            drawn.rows(),
+                            "a window of {wanted} rows anchored at {anchor:?} of {source:?} at \
+                             {width} columns under {options:?} drew something other than those \
+                             rows of the whole of it"
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn diffing_four_thousand_lines_against_four_thousand_takes_bounded_memory() {
     let old = lines(0..DIFFED);
     let new = lines(DIFFED..2 * DIFFED);
@@ -496,6 +907,82 @@ unsafe impl GlobalAlloc for Counting {
     }
 }
 
+/// What the lines of a measured block are written from.
+///
+/// The contents differ in the one thing that decides whether a line's rows can be read off its
+/// length: [`Content::Plain`] is the printable ASCII a width divides out of a length, and every
+/// other content has to be laid out to be counted. Every one of them is drawn in
+/// [`ROWS_PER_LINE`] rows a line at [`COLUMNS`] columns under every option, and every line of one
+/// is written in the same number of bytes as every other, so a window drawn deep in a block of
+/// them draws the same bytes as one drawn off its top and there is nothing but where it is
+/// anchored left for a measurement to follow.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Content {
+    /// The printable ASCII whose rows are its length over the width.
+    Plain,
+
+    /// The same lines indented with a tab, which is what a build tool writes.
+    Tabbed,
+
+    /// CJK, whose clusters are two columns wide and three bytes long.
+    Cjk,
+
+    /// Emoji, one of them joined out of five code points.
+    Emoji,
+
+    /// The box-drawing characters a tool draws a tree with.
+    Boxes,
+}
+
+impl Content {
+    /// Every content a window is measured over.
+    const ALL: [Self; 5] = [
+        Self::Plain,
+        Self::Tabbed,
+        Self::Cjk,
+        Self::Emoji,
+        Self::Boxes,
+    ];
+
+    /// # Returns
+    ///
+    /// A block of `lines` lines of this content, each of them long enough to wrap once.
+    fn block(self, lines: usize) -> Block {
+        Block::new(
+            Kind::Message(Role::Assistant),
+            (0..lines).map(|number| self.line(number)).collect(),
+        )
+    }
+
+    /// # Returns
+    ///
+    /// A block of one logical line of this content, at least `bytes` bytes long, which is the
+    /// shape a minified document arrives in.
+    fn one_line(self, bytes: usize) -> Block {
+        let line = self.line(0);
+        let text = line.trim_end_matches('\n');
+        let repeated = bytes.div_ceil(text.len());
+
+        Block::new(Kind::ToolResult, text.repeat(repeated))
+    }
+
+    /// # Returns
+    ///
+    /// The line numbered `number` of this content, its separator included.
+    fn line(self, number: usize) -> String {
+        match self {
+            Self::Plain => format!(
+                "line {number:06} of a block whose lines are long enough to wrap once over the \
+                 columns it is drawn in\n"
+            ),
+            Self::Tabbed => format!("\t{}", Self::Plain.line(number)),
+            Self::Cjk => format!("{}\n", CJK_FILLER.repeat(CJK_FILLERS)),
+            Self::Emoji => format!("{}{JOINED_EMOJI}\n", EMOJI.repeat(EMOJIS)),
+            Self::Boxes => format!("{}\n", BOX_FILLER.repeat(BOX_FILLERS)),
+        }
+    }
+}
+
 /// Runs `measure` and reads off what it asked the allocator for.
 ///
 /// The counters are the running thread's own, so a measurement is not disturbed by whatever the
@@ -551,11 +1038,109 @@ fn timed(block: &Block, start: usize) -> Duration {
     fastest
 }
 
+/// Times an anchored window of `block`.
+///
+/// # Returns
+///
+/// The fastest of [`RUNS`] renders.
+fn timed_at(block: &Block, anchor: RowAnchor, wrapping: &Wrapping) -> Duration {
+    let window = RowWindow::at(anchor, WINDOW);
+
+    fastest(|| block.render(window, wrapping))
+}
+
+/// Runs `render` [`RUNS`] times, which is what keeps a machine's own noise out of a ratio.
+///
+/// # Returns
+///
+/// The fastest of those runs.
+fn fastest<ValueType>(mut render: impl FnMut() -> ValueType) -> Duration {
+    let mut quickest = Duration::MAX;
+    for _ in 0..RUNS {
+        let started = Instant::now();
+        let value = render();
+        quickest = quickest.min(started.elapsed());
+        black_box(&value);
+    }
+
+    quickest
+}
+
+/// Draws a window of `block` anchored at `anchor` and then the window one row below it, which is
+/// what a reader pressing `C-e` asks for.
+///
+/// # Returns
+///
+/// The window a row below `anchor`.
+fn scrolled(block: &Block, anchor: RowAnchor, wrapping: &Wrapping) -> Rendered {
+    let drawn = block.render(RowWindow::at(anchor, WINDOW), wrapping);
+    let below = block.render(RowWindow::at(anchor, 1), wrapping);
+    let next = below.next().expect("a row below the window was drawn");
+    black_box(&drawn);
+
+    block.render(RowWindow::at(next, WINDOW), wrapping)
+}
+
+/// Finds where the logical line `line` of `block` begins by reading where the lines above it end,
+/// which is what a caller holding a position in a transcript already has and is not what a window
+/// anchored there is measured for.
+///
+/// # Returns
+///
+/// The anchor of the first display row of that line.
+fn anchored(block: &Block, line: usize) -> RowAnchor {
+    let offset = block
+        .source()
+        .split_inclusive('\n')
+        .take(line)
+        .map(str::len)
+        .sum();
+
+    RowAnchor::new(offset, line, 0)
+}
+
+/// # Returns
+///
+/// The wrapping options a window is measured under: vim's own defaults, then each of the options
+/// that moves where a line breaks, then all of them together. A line's rows are its length over
+/// the width under the first of these and under none of the others.
+fn option_sets() -> Vec<Options> {
+    vec![
+        Options::new(),
+        Options::new().with_show_break("> ".to_owned()),
+        Options::new()
+            .with_break_indent(true)
+            .with_break_indent_min(1),
+        Options::new().with_line_break(true),
+        Options::new()
+            .with_show_break("> ".to_owned())
+            .with_break_indent(true)
+            .with_break_indent_min(1)
+            .with_line_break(true),
+    ]
+}
+
+/// # Returns
+///
+/// The sources the rendered output is compared over: one of each content, the control characters
+/// and escapes a tool writes, and one logical line longer than any window drawn into it.
+fn matrix_sources() -> Vec<String> {
+    let mut sources: Vec<String> = Content::ALL
+        .iter()
+        .map(|content| (0..4).map(|number| content.line(number)).collect())
+        .collect();
+    sources.push("a\tb\rc\u{7}d\u{7f}e\n\tindented\n\n  trailing  ".to_owned());
+    sources.push(Content::Plain.one_line(MATRIX_LINE).source().to_owned());
+    sources.push(Content::Cjk.one_line(MATRIX_LINE).source().to_owned());
+
+    sources
+}
+
 /// # Returns
 ///
 /// A block of `count` lines, each of them long enough to wrap once.
 fn plain(count: usize) -> Block {
-    Block::new(Kind::Message(Role::Assistant), text(0..count))
+    Content::Plain.block(count)
 }
 
 /// # Returns
@@ -565,13 +1150,7 @@ fn plain(count: usize) -> Block {
 /// in the one thing that decides whether a walk over a block lays out the lines it steps over or
 /// only reads where each of them ends.
 fn tabbed(count: usize) -> Block {
-    Block::new(
-        Kind::Message(Role::Assistant),
-        text(0..count)
-            .lines()
-            .map(|line| format!("\t{line}\n"))
-            .collect(),
-    )
+    Content::Tabbed.block(count)
 }
 
 /// # Returns
@@ -587,23 +1166,6 @@ fn coloured(count: usize) -> Block {
 
 /// # Returns
 ///
-/// The lines numbered by `range`, each of them long enough to wrap once at [`COLUMNS`] columns and
-/// all of them of one length, so that a window drawn deep in a block of them draws the same number
-/// of bytes as one drawn off its top and there is nothing but the row it starts at left for a
-/// measurement to follow.
-fn text(range: Range<usize>) -> String {
-    range
-        .map(|number| {
-            format!(
-                "line {number:06} of a block whose lines are long enough to wrap once over the \
-                 columns it is drawn in\n"
-            )
-        })
-        .collect()
-}
-
-/// # Returns
-///
 /// The lines numbered by `range`, short enough that what a diff of them takes is the alignment's
 /// rather than the text's.
 fn lines(range: Range<usize>) -> String {
@@ -614,9 +1176,16 @@ fn lines(range: Range<usize>) -> String {
 ///
 /// A wrapping drawing rows [`COLUMNS`] columns wide under vim's own defaults.
 fn wrapping() -> Wrapping {
+    wrapping_under(&Options::new())
+}
+
+/// # Returns
+///
+/// A wrapping drawing rows [`COLUMNS`] columns wide under `options`.
+fn wrapping_under(options: &Options) -> Wrapping {
     Wrapping::new(
         NonZeroUsize::new(COLUMNS).expect("the measured width is not zero"),
         Metrics::default(),
-        Options::new(),
+        options.clone(),
     )
 }
