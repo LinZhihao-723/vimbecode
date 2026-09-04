@@ -101,6 +101,7 @@ use modalkit::key::TerminalKey;
 use vbc_layout::position::LogicalPosition;
 use vbc_layout::width::graphemes;
 
+use crate::clipboard;
 use crate::event::{Event, KeyEvent};
 use crate::indent::{indent_of, resting_column, Shift};
 use crate::keys::{Bindings, Keys};
@@ -118,7 +119,7 @@ const READ_BACK: [char; 38] = [
 /// The registers standing for the desktop's clipboards, which a plain put never reads. Writing one
 /// of them leaves the unnamed register as it stood, so that what another window copied is never
 /// what `p` comes back with.
-const CLIPBOARDS: [char; 2] = ['*', '+'];
+const CLIPBOARDS: [char; 2] = [clipboard::ALIAS, clipboard::REGISTER];
 
 /// The identifier modalkit files the one text an engine edits under.
 const ONLY_TEXT: &str = "vimbecode";
@@ -210,6 +211,7 @@ pub struct Held {
 #[derive(Clone, Default)]
 pub struct Registers {
     held: Rc<Cell<RegisterStore>>,
+    fills: Rc<Cell<u64>>,
 }
 
 impl Registers {
@@ -246,6 +248,21 @@ impl Registers {
         let mut file = self.held.take();
         let _ = file.put(&slot(name), cell, flags);
         self.held.set(file);
+        self.fills.set(self.fills.get() + 1);
+    }
+
+    /// # Returns
+    ///
+    /// The number of times the editor has itself filled a register of this file, which moves
+    /// whenever [`Registers::fill`] is called and stays as it was over an edit modalkit ran.
+    ///
+    /// What it is for is telling a reader of one register that it need not read it. A register
+    /// holds as much as was yanked into it, so a caller that compared what it holds after every
+    /// keystroke would make a keystroke cost the yank; this costs nothing and answers the only
+    /// question such a caller has.
+    #[must_use]
+    pub fn fills(&self) -> u64 {
+        self.fills.get()
     }
 
     /// # Returns
@@ -630,6 +647,27 @@ impl Engine {
     #[must_use]
     pub fn unbound(&self) -> Option<&[TerminalKey]> {
         self.keys.unbound()
+    }
+
+    /// # Returns
+    ///
+    /// The name of the register the keys typed so far address, and [`None`] where they address the
+    /// unnamed one.
+    ///
+    /// A register named but not yet used is what a caller reads this for: it is the last moment at
+    /// which the keystroke that will use it can be told from every other keystroke.
+    #[must_use]
+    pub fn named_register(&self) -> Option<char> {
+        self.keys.named_register()
+    }
+
+    /// # Returns
+    ///
+    /// The register a put would read out of, were `key` the next key typed, and [`None`] where it
+    /// would complete no put or would put from the unnamed register.
+    #[must_use]
+    pub fn pasted_register(&self, key: KeyEvent) -> Option<char> {
+        self.keys.pasted_register(key.into())
     }
 
     /// # Returns
