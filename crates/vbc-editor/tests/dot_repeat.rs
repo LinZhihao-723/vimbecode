@@ -291,6 +291,43 @@ const RETYPED: [Retyped; 8] = [
     },
 ];
 
+/// The repeats an undo is typed behind, which is how a repeat says whether it is one thing to
+/// take back or several. Each ends in the undos it is taken back by.
+const UNDONE: [Case; 8] = [
+    Case {
+        id: "one undo behind a repeated delete",
+        keys: "dw.u",
+    },
+    Case {
+        id: "two undos behind a repeated delete",
+        keys: "dw.uu",
+    },
+    Case {
+        id: "three undos behind a repeated delete, which is one more than there is to take back",
+        keys: "dw.uuu",
+    },
+    Case {
+        id: "an undo behind a repeated change",
+        keys: "ciwfoo<Esc>w.u",
+    },
+    Case {
+        id: "an undo behind a repeat carrying a count",
+        keys: "3dd.u",
+    },
+    Case {
+        id: "an undo behind a repeat carrying a new count",
+        keys: "dw3.u",
+    },
+    Case {
+        id: "an undo behind a repeated opened line",
+        keys: "o- <Esc>.u",
+    },
+    Case {
+        id: "an undo behind a repeated put",
+        keys: "yyjp.u",
+    },
+];
+
 /// The repeats typed at a text of wide characters, and the keys each is told from by leaving
 /// something they do not.
 const CELLED: [(&str, &str); 6] = [
@@ -535,16 +572,79 @@ fn an_undo_leaves_the_cursor_where_vim_does_not() -> Result<()> {
     Ok(())
 }
 
+#[test]
+fn an_undo_behind_a_repeat_takes_back_what_vims_takes_back() -> Result<()> {
+    let vim = VimDriver::new()?;
+
+    for case in UNDONE {
+        let mut app = holding(PROSE);
+        press(&mut app, WIDE, case.keys);
+        let undone = vim_landed(&vim, PROSE, case.keys, WIDE)?;
+        let kept = case.keys.trim_end_matches('u');
+
+        assert_eq!(
+            undone.text,
+            landed(&app).text,
+            "`{}` took back something other than what vim's undo took back",
+            case.id
+        );
+        assert_ne!(
+            vim_landed(&vim, PROSE, kept, WIDE)?.text,
+            undone.text,
+            "vim answers `{}` where it answers the same keys with no undo behind them, so the \
+             case cannot tell an undo that took something back from one that did not",
+            case.id
+        );
+    }
+
+    Ok(())
+}
+
+/// The one thing an undo behind a repeat that wrote what was already there is not held to vim by,
+/// named rather than passed over.
+///
+/// A repeat is one thing for an undo to take back wherever it left the text other than it was, as
+/// `dw.u`, `ciwfoo<Esc>w.u`, `3dd.u` and `yyjp.u` each show. A change that rewrote a word to the
+/// text it already held files no undo point here, though, so the undo behind one reaches past it
+/// to the change in front. That is a divergence in the undo and not in the repeat: the very same
+/// keys typed by hand, with no repeat among them, are answered the same way. Fixing the undo makes
+/// this case fail, which is where it is to be struck off.
+#[test]
+fn an_undo_behind_a_change_that_wrote_what_was_there_reaches_past_it() -> Result<()> {
+    let vim = VimDriver::new()?;
+    let mut repeated = holding(PROSE);
+    let mut retyped = holding(PROSE);
+    press(&mut repeated, WIDE, "ciwfoo<Esc>.u");
+    press(&mut retyped, WIDE, "ciwfoo<Esc>ciwfoo<Esc>u");
+
+    assert_eq!(
+        landed(&retyped).text,
+        landed(&repeated).text,
+        "the undo behind the repeat took back something other than what the undo behind the same \
+         keys typed by hand took back"
+    );
+    assert_eq!(
+        "foo bbb ccc ddd eee fff ggg hhh\nsecond line here\nthird line\nfourth\nfifth\n",
+        vim_landed(&vim, PROSE, "ciwfoo<Esc>ciwfoo<Esc>u", WIDE)?.text
+    );
+    assert_eq!(
+        "aaa bbb ccc ddd eee fff ggg hhh\nsecond line here\nthird line\nfourth\nfifth\n",
+        landed(&repeated).text
+    );
+
+    Ok(())
+}
+
 /// The one thing an insert carrying a count is not held to vim by, named rather than passed over.
 ///
 /// A count in front of an inserting command writes what was typed that many times, and vim leaves
 /// the cursor at the end of the last copy where this editor leaves it at the end of the first. An
 /// `o` carrying one parts further: vim writes a copy into each of the lines it opens and this
 /// editor writes every copy into the first and leaves the rest empty. Both are divergences in the
-/// insert rather than in the repeat --
-/// they are there whether or not a repeat types the count, as the keys typed by hand below show
-/// -- and both are reached by a count typed in front of `.`, which is why they are written down
-/// here. Fixing the insert makes this case fail, which is where it is to be struck off.
+/// insert rather than in the repeat -- they are there whether or not a repeat types the count, as
+/// the keys typed by hand below show -- and both are reached by a count typed in front of `.`,
+/// which is why they are written down here. Fixing the insert makes this case fail, which is
+/// where it is to be struck off.
 #[test]
 fn an_insert_carrying_a_count_leaves_what_vim_does_not() -> Result<()> {
     let vim = VimDriver::new()?;
