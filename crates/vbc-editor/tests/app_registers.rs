@@ -32,11 +32,10 @@
 //! every way an application can be built -- the panel it is built holding before any transcript
 //! replaces it, every ordering of the builders, a transcript replaced by another, a file opened
 //! off the disk -- and requires the crossing of each, so a constructor that forgets the register
-//! file fails here however green the component tests are. The other
-//! reads the source that builds the application and requires that it builds exactly one register
-//! file: every engine and every panel it constructs beyond the first is handed that one, which is
-//! the property a constructor written next year is held to without anyone remembering to add it
-//! below.
+//! file fails here however green the component tests are. The other reads the source that builds
+//! the application and requires that it builds exactly one register file: every engine and every
+//! panel it constructs beyond the first is handed that one, which is the property a constructor
+//! written next year is held to without anyone remembering to add it below.
 
 use std::fs;
 use std::path::{Path, PathBuf};
