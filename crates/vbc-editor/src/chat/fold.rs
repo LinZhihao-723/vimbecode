@@ -26,12 +26,19 @@
 //! A reader walking down the rows walks the folded transcript, where a closed fold is one row
 //! however much it covers, and the rows a block is drawn in are the rows the block itself draws,
 //! asked for a window at a time so that what is folded away below costs nothing to skip.
+//!
+//! Where a reader stands is named by the entry they are in and by where in that entry's source the
+//! row they are on begins, rather than by how many rows down it is. A row number has to be walked
+//! down to before anything can be drawn, and a walk lays out every line it steps over that is not
+//! plain, so a panel that scrolled by counting rows spent the scroll on every frame. Naming the
+//! position instead is what leaves a frame costing the screenful it draws and a scroll costing the
+//! one logical line it steps onto, however deep in a transcript either happens.
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use vbc_layout::anchor::Wrapping;
 
-use crate::chat::block::{Block, Kind, RenderedRow, RowWindow};
+use crate::chat::block::{Block, Kind, RenderedRow, RowAnchor, RowWindow};
 use crate::chat::transcript::Transcript;
 
 /// What is written before the summary of a fold, and the character repeated once per depth after
@@ -370,11 +377,16 @@ impl Entry {
     }
 }
 
-/// Where a reader is in a folded transcript: which entry, and which row of that entry.
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+/// Where a reader is in a folded transcript: which entry, and where in that entry's own source the
+/// row they are on begins.
+///
+/// The row is named by an anchor rather than by an ordinal, which is what lets a panel scrolled
+/// deep into a block be drawn without the block above it being laid out first. A summary is drawn
+/// in one row, so a position on one is anchored at [`RowAnchor::top`].
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Position {
     entry: usize,
-    row: usize,
+    at: RowAnchor,
 }
 
 impl Position {
@@ -382,10 +394,20 @@ impl Position {
     ///
     /// # Returns
     ///
-    /// The position of the row `row` of the entry `entry`.
+    /// The position of the row of the entry `entry` that begins where `at` names.
     #[must_use]
-    pub fn new(entry: usize, row: usize) -> Self {
-        Self { entry, row }
+    pub fn new(entry: usize, at: RowAnchor) -> Self {
+        Self { entry, at }
+    }
+
+    /// Factory function.
+    ///
+    /// # Returns
+    ///
+    /// The position of the first row of the entry `entry`.
+    #[must_use]
+    pub fn top(entry: usize) -> Self {
+        Self::new(entry, RowAnchor::top())
     }
 
     #[must_use]
@@ -394,8 +416,8 @@ impl Position {
     }
 
     #[must_use]
-    pub fn row(&self) -> usize {
-        self.row
+    pub fn at(&self) -> RowAnchor {
+        self.at
     }
 }
 
@@ -468,6 +490,11 @@ impl<'transcript> View<'transcript> {
         &self.entries
     }
 
+    /// Steps one row down the folded transcript.
+    ///
+    /// What that costs is the logical line the step lands on rather than the block it lands in, so
+    /// a reader scrolling downward pays a line a row however deep in a block they stand.
+    ///
     /// # Returns
     ///
     /// The position one row below `at`, which is the top of the next entry wherever `at` is the
@@ -476,44 +503,55 @@ impl<'transcript> View<'transcript> {
     pub fn down(&self, at: Position, wrapping: &Wrapping) -> Option<Position> {
         let entry = self.entries.get(at.entry)?;
         if let Entry::Body(block) = entry {
-            let below = RowWindow::new(at.row + 1, 1);
-            let drawn = self
+            let below = self
                 .transcript
                 .block(*block)
-                .is_some_and(|block| !block.render(below, wrapping).rows().is_empty());
-            if drawn {
-                return Some(Position::new(at.entry, at.row + 1));
+                .and_then(|block| block.below(at.at, wrapping));
+            if let Some(below) = below {
+                return Some(Position::new(at.entry, below));
             }
         }
 
-        (at.entry + 1 < self.entries.len()).then(|| Position::new(at.entry + 1, 0))
+        (at.entry + 1 < self.entries.len()).then(|| Position::top(at.entry + 1))
     }
 
+    /// Steps one row up the folded transcript.
+    ///
+    /// What that costs is the logical line the step lands on rather than the block it lands in,
+    /// and a step onto the last row of the entry above costs that entry's last line together with
+    /// a read of its source rather than the layout of the whole of it.
+    ///
     /// # Returns
     ///
     /// The position one row above `at`, which is the last row of the entry above wherever `at` is
     /// the first row of its own, or `None` where `at` is the first row of the first entry.
     #[must_use]
     pub fn up(&self, at: Position, wrapping: &Wrapping) -> Option<Position> {
-        if 0 < at.row {
-            return Some(Position::new(at.entry, at.row - 1));
+        if let Some(Entry::Body(block)) = self.entries.get(at.entry) {
+            let above = self
+                .transcript
+                .block(*block)
+                .and_then(|block| block.above(at.at, wrapping));
+            if let Some(above) = above {
+                return Some(Position::new(at.entry, above));
+            }
         }
 
         let above = at.entry.checked_sub(1)?;
 
-        Some(Position::new(
-            above,
-            self.rows(above, wrapping).saturating_sub(1),
-        ))
+        Some(Position::new(above, self.bottom(above, wrapping)))
     }
 
     /// Counts the rows the entry `entry` is drawn in.
     ///
     /// A closed fold is one row however much it covers. A block is as many rows as its own source
     /// is drawn in, which is counted rather than drawn: nothing the count walks over is laid out
-    /// where its length says how many rows it takes, and nothing it walks over is kept. That is
-    /// what a reader walking upward pays at the boundary they cross, and is why walking downward
-    /// asks for a row at a time instead.
+    /// where its length says how many rows it takes, and nothing it walks over is kept.
+    ///
+    /// Nothing a reader does asks for this. Walking, drawing and scrolling are all answered from a
+    /// position rather than from a count, and the count is what those are checked against: a walk
+    /// that skipped or repeated a row visits a different number of them than the entries are
+    /// counted as.
     ///
     /// Measured in release at eighty columns, counting an open hundred-thousand-line block of plain
     /// lines asks the allocator for nothing at all and takes 1.0 ms; counting one of tab-indented
@@ -559,13 +597,13 @@ impl<'transcript> View<'transcript> {
 
             match entry {
                 Entry::Summary(summary) => {
-                    if 0 == at.row {
+                    if 0 == at.at.row() {
                         drawn.push(Row::Summary(summary));
                     }
                 }
                 Entry::Body(block) => {
                     if let Some(source) = self.transcript.block(*block) {
-                        let window = RowWindow::new(at.row, rows - drawn.len());
+                        let window = RowWindow::at(at.at, rows - drawn.len());
                         drawn.extend(source.render(window, wrapping).rows().iter().map(|row| {
                             Row::Body {
                                 block: *block,
@@ -576,10 +614,24 @@ impl<'transcript> View<'transcript> {
                 }
             }
 
-            at = Position::new(at.entry + 1, 0);
+            at = Position::top(at.entry + 1);
         }
 
         drawn
+    }
+
+    /// # Returns
+    ///
+    /// Where the last row of the entry `entry` begins, which is the first row of a summary and of
+    /// an entry the view does not hold.
+    fn bottom(&self, entry: usize, wrapping: &Wrapping) -> RowAnchor {
+        let Some(Entry::Body(block)) = self.entries.get(entry) else {
+            return RowAnchor::top();
+        };
+
+        self.transcript
+            .block(*block)
+            .map_or_else(RowAnchor::top, |block| block.bottom(wrapping))
     }
 }
 
@@ -861,7 +913,7 @@ mod tests {
         let view = View::of(&folds, &transcript);
         let wrapping = wrapping(NARROW);
 
-        let mut walked = vec![Position::new(0, 0)];
+        let mut walked = vec![Position::top(0)];
         while let Some(next) =
             view.down(*walked.last().expect("the walk began somewhere"), &wrapping)
         {
@@ -873,7 +925,7 @@ mod tests {
             .sum();
         assert_eq!(rows, walked.len());
         assert!(
-            walked.iter().any(|at| 0 < at.row()),
+            walked.iter().any(|at| 0 < at.at().row()),
             "no block of the fixture wrapped, so nothing walked within one"
         );
 
@@ -909,16 +961,16 @@ mod tests {
             whole
         );
 
-        let below = view.render(Position::new(1, 0), 2, &wrapping);
+        let below = view.render(Position::top(1), 2, &wrapping);
         assert_eq!(whole[1..3], texts(&below));
         assert_eq!(
             Vec::<String>::new(),
-            texts(&view.render(Position::new(9, 0), 4, &wrapping)),
+            texts(&view.render(Position::top(9), 4, &wrapping)),
             "a render past the end of the view drew something"
         );
         assert_eq!(
             Vec::<String>::new(),
-            texts(&view.render(Position::new(0, 0), 0, &wrapping))
+            texts(&view.render(Position::top(0), 0, &wrapping))
         );
     }
 
@@ -930,8 +982,8 @@ mod tests {
 
         assert_eq!(&[] as &[Fold], folds.folds());
         assert_eq!(&[] as &[Entry], view.entries());
-        assert_eq!(None, view.down(Position::new(0, 0), &wrapping(UNWRAPPED)));
-        assert_eq!(None, view.up(Position::new(0, 0), &wrapping(UNWRAPPED)));
+        assert_eq!(None, view.down(Position::top(0), &wrapping(UNWRAPPED)));
+        assert_eq!(None, view.up(Position::top(0), &wrapping(UNWRAPPED)));
         assert_eq!(0, view.rows(0, &wrapping(UNWRAPPED)));
     }
 
@@ -995,7 +1047,7 @@ mod tests {
             .map(|entry| view.rows(entry, wrapping))
             .sum();
 
-        texts(&view.render(Position::new(0, 0), rows, wrapping))
+        texts(&view.render(Position::top(0), rows, wrapping))
     }
 
     /// # Returns

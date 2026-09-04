@@ -57,8 +57,10 @@
 //! for must stay inside [`PER_ROW_INSIDE_A_LINE`] for every row of the line above it, which is
 //! that line being read once rather than over and over.
 //!
-//! Counting the rows of an entry is measured the same way. A reader arriving at a block from below
-//! has to know how many rows it is drawn in, and the count used to be taken by drawing the whole
+//! Counting the rows of an entry is measured the same way. Nothing a reader does asks for that
+//! count any more -- a reader arriving at a block from below is handed where its last row begins
+//! rather than how many rows it has -- but the count is the oracle the walk over a view is checked
+//! against, so what it costs is still worth knowing: it used to be taken by drawing the whole
 //! block and asking how many rows came back, which holds every row of it at once.
 //!
 //! The diff is measured in the memory it takes to align four thousand lines against four thousand,

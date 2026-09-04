@@ -369,7 +369,7 @@ fn a_yank_of_a_closed_fold_takes_what_it_covers_and_never_the_row_it_is_drawn_in
         .expect("a call to a tool heads a fold of its own");
     let view = View::of(&folds, &transcript);
     let summaries: Vec<&str> = view
-        .render(FoldPosition::new(0, 0), ROWS, &wrapping())
+        .render(FoldPosition::top(0), ROWS, &wrapping())
         .into_iter()
         .filter_map(|row| match row {
             fold::Row::Summary(summary) => Some(summary.text()),
@@ -448,7 +448,7 @@ fn a_yank_across_blocks_of_different_kinds_writes_them_the_way_the_rows_separate
     let mut folds = folded(&transcript);
     folds.apply(fold::Command::OpenAll, 0);
     let drawn: Vec<String> = View::of(&folds, &transcript)
-        .render(FoldPosition::new(0, 0), ROWS, &wrapping())
+        .render(FoldPosition::top(0), ROWS, &wrapping())
         .into_iter()
         .filter_map(|row| match row {
             fold::Row::Body { block, row } if block <= RESULT => {
@@ -557,7 +557,7 @@ fn drawn(transcript: &Transcript, folds: &Folds) -> Vec<String> {
     let width = gutter.width(lines_of(transcript));
 
     View::of(folds, transcript)
-        .render(FoldPosition::new(0, 0), ROWS, &wrapping())
+        .render(FoldPosition::top(0), ROWS, &wrapping())
         .into_iter()
         .map(|row| match row {
             fold::Row::Summary(summary) => summary.text().to_owned(),
@@ -580,7 +580,7 @@ fn numbers(transcript: &Transcript, folds: &Folds) -> Vec<String> {
     let width = gutter.width(lines_of(transcript));
 
     View::of(folds, transcript)
-        .render(FoldPosition::new(0, 0), ROWS, &wrapping())
+        .render(FoldPosition::top(0), ROWS, &wrapping())
         .into_iter()
         .filter_map(|row| match row {
             fold::Row::Summary(_) => None,

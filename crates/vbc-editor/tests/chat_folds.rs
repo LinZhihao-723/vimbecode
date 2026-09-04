@@ -74,7 +74,7 @@ fn fold_state_survives_a_resize_and_a_re_render() {
         ],
         described(&wide)
     );
-    let drawn = wide.render(Position::new(0, 0), SCREEN, &wrapping(COLUMNS));
+    let drawn = wide.render(Position::top(0), SCREEN, &wrapping(COLUMNS));
 
     let narrow = View::of(&folds, &transcript);
     assert_eq!(
@@ -82,7 +82,7 @@ fn fold_state_survives_a_resize_and_a_re_render() {
         narrow.entries(),
         "the folds were drawn differently once the panel was resized"
     );
-    let redrawn = narrow.render(Position::new(0, 0), SCREEN, &wrapping(NARROW));
+    let redrawn = narrow.render(Position::top(0), SCREEN, &wrapping(NARROW));
     assert_ne!(
         texts(&drawn),
         texts(&redrawn),
@@ -203,15 +203,15 @@ fn a_closed_fold_is_one_row_and_stepping_down_steps_past_the_whole_of_it() {
     );
     assert_eq!(1, closed.rows(1, &wrapping));
 
-    let below = closed.rows(0, &wrapping) - 1;
+    let below = last_row_of(&closed, 0, &wrapping);
     let onto = closed
-        .down(Position::new(0, below), &wrapping)
+        .down(below, &wrapping)
         .expect("a row follows the block the fold begins after");
-    assert_eq!(Position::new(1, 0), onto);
+    assert_eq!(Position::top(1), onto);
     let past = closed
         .down(onto, &wrapping)
         .expect("a row follows the closed fold");
-    assert_eq!(Position::new(2, 0), past);
+    assert_eq!(Position::top(2), past);
     assert_eq!(
         Some(&Entry::Body(ANSWERED)),
         closed.entries().get(past.entry()),
@@ -222,7 +222,7 @@ fn a_closed_fold_is_one_row_and_stepping_down_steps_past_the_whole_of_it() {
     folds.apply(Command::OpenAll, ASKED);
     let opened = View::of(&folds, &transcript);
     let onto = opened
-        .down(Position::new(0, below), &wrapping)
+        .down(last_row_of(&opened, 0, &wrapping), &wrapping)
         .expect("a row follows the block the fold begins after");
     let inside = opened
         .down(onto, &wrapping)
@@ -319,7 +319,7 @@ fn a_fold_whose_content_changed_while_closed_stays_closed_and_says_what_it_now_h
     let before = View::of(&folds, &running);
     assert_eq!(
         vec!["+---- 3 lines: result running 4 tests"],
-        summaries(&before.render(Position::new(0, 0), SCREEN, &wrapping(COLUMNS)))
+        summaries(&before.render(Position::top(0), SCREEN, &wrapping(COLUMNS)))
             .into_iter()
             .filter(|text| text.contains("result"))
             .collect::<Vec<String>>()
@@ -352,7 +352,7 @@ fn a_fold_whose_content_changed_while_closed_stays_closed_and_says_what_it_now_h
     let closed = View::of(&folds, &finished);
     assert_eq!(
         vec!["+-- 13 lines: Task review the anchor"],
-        summaries(&closed.render(Position::new(0, 0), SCREEN, &wrapping(COLUMNS))),
+        summaries(&closed.render(Position::top(0), SCREEN, &wrapping(COLUMNS))),
         "the fold around the tool result did not count what the tool went on to write"
     );
 }
@@ -378,7 +378,7 @@ fn folding_never_alters_the_source_it_folds() {
         for at in ASKED..=ANSWERED {
             folds.apply(command, at);
             let view = View::of(&folds, &transcript);
-            let drawn = view.render(Position::new(0, 0), SCREEN, &wrapping);
+            let drawn = view.render(Position::top(0), SCREEN, &wrapping);
             for row in &drawn {
                 let Row::Body { block, row } = row else {
                     continue;
@@ -408,7 +408,7 @@ fn folding_never_alters_the_source_it_folds() {
 
     folds.apply(Command::OpenAll, ASKED);
     let view = View::of(&folds, &transcript);
-    let drawn = view.render(Position::new(0, 0), SCREEN, &wrapping);
+    let drawn = view.render(Position::top(0), SCREEN, &wrapping);
     for (index, source) in transcript.blocks().iter().enumerate() {
         let shown: String = drawn
             .iter()
@@ -447,7 +447,7 @@ fn the_walk_and_the_render_agree_at_every_width_over_every_fold_left_open() {
             let folds = opened(&transcript, &tags, &heads, left_open);
             let view = View::of(&folds, &transcript);
 
-            let mut walked = vec![Position::new(0, 0)];
+            let mut walked = vec![Position::top(0)];
             while let Some(next) =
                 view.down(*walked.last().expect("the walk began somewhere"), &wrapping)
             {
@@ -473,7 +473,7 @@ fn the_walk_and_the_render_agree_at_every_width_over_every_fold_left_open() {
             let counted: usize = (0..view.entries().len())
                 .map(|entry| view.rows(entry, &wrapping))
                 .sum();
-            let drawn = view.render(Position::new(0, 0), SCREEN, &wrapping);
+            let drawn = view.render(Position::top(0), SCREEN, &wrapping);
             assert_eq!(
                 vec![walked.len(), walked.len()],
                 vec![counted, drawn.len()],
@@ -614,6 +614,24 @@ fn summaries(drawn: &[Row<'_>]) -> Vec<String> {
             Row::Body { .. } => None,
         })
         .collect()
+}
+
+/// Steps down the entry `entry` of `view` until the step below would leave it, which is what a
+/// reader scrolling to its last row does.
+///
+/// # Returns
+///
+/// The position of the last row that entry is drawn in.
+fn last_row_of(view: &View<'_>, entry: usize, wrapping: &Wrapping) -> Position {
+    let mut at = Position::top(entry);
+    while let Some(next) = view.down(at, wrapping) {
+        if next.entry() != entry {
+            break;
+        }
+        at = next;
+    }
+
+    at
 }
 
 /// # Returns

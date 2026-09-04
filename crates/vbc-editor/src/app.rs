@@ -242,7 +242,7 @@ impl App {
             notice: None,
             panel: Panel::new(Transcript::new()),
             focus: Focus::Text,
-            top: Placed::new(0, 0),
+            top: Placed::top(0),
             revision: u64::MAX,
             path: None,
             saved: String::new(),
@@ -294,7 +294,7 @@ impl App {
     #[must_use]
     pub fn with_transcript(mut self, transcript: Transcript) -> Self {
         self.panel = Panel::new(transcript);
-        self.top = Placed::new(0, 0);
+        self.top = Placed::top(0);
 
         self
     }
