@@ -227,7 +227,7 @@ impl App {
     #[must_use]
     pub fn new(text: Buffer) -> Self {
         let mut app = Self {
-            engine: Engine::new(&text.text()),
+            engine: Engine::new(&written(&text)),
             text,
             viewport: Viewport::new(),
             cursor: LogicalPosition {
@@ -256,6 +256,25 @@ impl App {
         app.saved = app.written();
 
         app
+    }
+
+    /// # Returns
+    ///
+    /// This application over the file named `path`, which is the file `:w` writes back.
+    ///
+    /// The read is the write's own inverse, so it takes one line ending off the bytes it read
+    /// rather than every one of them: the write puts exactly one back, and a read that stripped
+    /// them all would let a file whose last lines are empty lose those lines to a `:w` that
+    /// changed nothing.
+    ///
+    /// # Errors
+    ///
+    /// Forwards [`std::fs::read_to_string`]'s return values on failure.
+    pub fn opened(path: PathBuf) -> std::io::Result<Self> {
+        let read = std::fs::read_to_string(&path)?;
+        let text = read.strip_suffix('\n').unwrap_or(&read);
+
+        Ok(Self::new(Buffer::from_text(text)).with_path(path))
     }
 
     /// # Returns
@@ -1345,10 +1364,7 @@ impl App {
     /// The bytes the editor would write the text out as, which is every line of it followed by a
     /// line ending, as vim writes a file with `'endofline'` set.
     fn written(&self) -> String {
-        let mut written = self.text.text();
-        written.push('\n');
-
-        written
+        written(&self.text)
     }
 
     /// Scrolls the window so that it draws the row the cursor rests on.
@@ -1521,6 +1537,23 @@ fn continues<'row>(
         }
         _ => None,
     }
+}
+
+/// # Returns
+///
+/// The bytes `text` is spelled out as: every line of it followed by a line ending, as vim writes a
+/// file with `'endofline'` set.
+///
+/// This is the one spelling the text crosses every boundary in, because the boundaries have to be
+/// each other's inverse. The engine's rope terminates its last line and a [`Buffer`] does not, so a
+/// buffer whose last line is empty spells out as one line fewer than it holds unless the ending is
+/// put back: handing the rope `Buffer::text` and reading it back with the ending taken off drops a
+/// line each time it is done, and `:w` then wrote a file shorter than the one it read.
+fn written(text: &Buffer) -> String {
+    let mut written = text.text();
+    written.push('\n');
+
+    written
 }
 
 /// # Returns

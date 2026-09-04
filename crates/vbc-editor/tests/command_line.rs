@@ -137,6 +137,41 @@ fn a_write_and_quit_command_writes_and_leaves() -> Result<()> {
     Ok(())
 }
 
+/// Validation 1: a `:w` that was asked to change nothing writes back the bytes that were read,
+/// empty last lines and all.
+///
+/// The read and the write are one round trip and only a round trip can check them. A read that
+/// took every trailing line ending off what it read and a write that put one back each read a
+/// file the other could not write: `one\n\n\n` came back as `one\n`, and two lines of somebody's
+/// file went missing on the `:w` of a session that typed nothing.
+#[test]
+fn a_written_file_keeps_the_empty_lines_it_was_read_with() -> Result<()> {
+    let held = TempDir::new()?;
+    for (index, original) in ["one\ntwo\n", "one\n\n\n", "one\n\ntwo\n\n\n", "\n"]
+        .into_iter()
+        .enumerate()
+    {
+        let path = held.path().join(format!("kept{index}.txt"));
+        std::fs::write(&path, original)?;
+        let mut app = App::opened(path.clone())?.with_status(true);
+
+        assert!(
+            !app.modified(),
+            "a file that was read and not touched is reported as modified"
+        );
+
+        typing(&mut app, ":w\r");
+
+        assert_eq!(
+            original,
+            std::fs::read_to_string(&path)?,
+            "`:w` over a text nothing had changed rewrote the file"
+        );
+    }
+
+    Ok(())
+}
+
 /// Validation 1: an application with no file to write to says so rather than writing somewhere of
 /// its own choosing, and `:w` naming a file writes there.
 #[test]
@@ -273,10 +308,7 @@ fn a_search_says_what_it_could_not_find_and_runs_the_way_it_was_started() {
 fn opened(held: &TempDir) -> Result<(App, PathBuf)> {
     let path = held.path().join(FILE);
     std::fs::write(&path, format!("{FIXTURE}\n"))?;
-    let text = std::fs::read_to_string(&path)?;
-    let app = App::new(Buffer::from_text(text.trim_end_matches('\n')))
-        .with_status(true)
-        .with_path(path.clone());
+    let app = App::opened(path.clone())?.with_status(true);
 
     Ok((app, path))
 }
