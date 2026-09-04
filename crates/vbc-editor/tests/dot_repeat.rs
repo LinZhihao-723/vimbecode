@@ -38,9 +38,21 @@
 //! one already asked.
 //!
 //! A cursor is compared as vim reports it, which is a byte offset within its line; the application
-//! reports a grapheme offset, and every text here is one whose characters are one byte and one
-//! cell wide so that the two counts are the same number. Where a grapheme is drawn is the layout
-//! engine's and is held to vim by its own oracles.
+//! reports a grapheme offset, and the texts a cursor is compared over here are ones whose
+//! characters are one byte and one cell wide so that the two counts are the same number. Where a
+//! grapheme is drawn is the layout engine's and is held to vim by its own oracles.
+//!
+//! Such a text is also the one text a screen motion cannot be wrong in, a character column
+//! divided by a window's width being the row a character is drawn on only where a character is a
+//! cell. So a repeat is typed at a text of wide characters as well, where the two editors are
+//! compared over the text they are left holding rather than over the cursor.
+//!
+//! The last thing a repeat is held to is what its own keys leave. Where vim and this editor part
+//! over a command itself -- a text object around a run of whitespace, a `t` whose character is the
+//! one in front of the cursor, a `cw` carrying a count, `~`, an insert carrying a count -- vim
+//! cannot say whether the repeat of it is right, and those are exactly the commands nothing above
+//! reaches. What a repeat answers for there is that it leaves what the keys it records leave when
+//! they are typed by hand, which is asserted for each of them.
 
 use std::collections::BTreeSet;
 
@@ -58,6 +70,15 @@ use vbc_oracle::vim::VimDriver;
 struct Case {
     id: &'static str,
     keys: &'static str,
+}
+
+/// One repeat vim cannot be asked about, in the three ways it is typed: the repeat itself, the
+/// keys it says it types again typed by hand, and the keys in front of it with the repeat left
+/// off.
+struct Retyped {
+    repeat: &'static str,
+    hand: &'static str,
+    bare: &'static str,
 }
 
 /// What a replay left the application holding, in the terms a real vim is compared against.
@@ -87,6 +108,10 @@ const PROSE: &str = "aaa bbb ccc ddd eee fff ggg hhh\nsecond line here\nthird li
 /// The prose the display motions are typed at, whose first and third lines wrap in the window
 /// below and whose second does not.
 const WRAPPED: &str = "alpha beta gamma delta\none two\nepsilon zeta eta theta\ntail";
+
+/// The prose the repeats that ask about a cell rather than a character are typed at, whose
+/// characters take two cells and three bytes apiece.
+const CELLS: &str = "一二三四五六七八九十甲乙丙丁\nabc def\n壱弐参肆伍陸漆捌玖拾\ntail";
 
 /// The rows every terminal here holds, which is more than the texts have lines.
 const ROWS: u16 = 8;
@@ -160,8 +185,12 @@ const CASES: [Case; 14] = [
 ];
 
 /// The repeats of the commands nothing above repeats: the ones that put text back, the ones that
-/// shift it, and the ones made from a visual selection.
-const EDITS: [Case; 7] = [
+/// shift it, the ones made from a visual selection, and the one naming the register it works in.
+const EDITS: [Case; 8] = [
+    Case {
+        id: "a delete and a put through a named register",
+        keys: "\"add\"ap.",
+    },
     Case {
         id: "a linewise selection",
         keys: "Vjd.",
@@ -211,6 +240,68 @@ const IDEMPOTENT: [Case; 2] = [
     },
 ];
 
+/// The repeats vim cannot be asked about, because vim and this editor part over the command being
+/// repeated rather than over repeating it.
+///
+/// Each of these is a divergence the keys carry whether or not a repeat types them: a text object
+/// around a run of whitespace, a `t` whose character is the one in front of the cursor, a `cw`
+/// carrying a count, `~`, and an insert carrying a count, which this editor leaves the cursor at
+/// the end of the first of the copies it wrote rather than the last. What the repeat is
+/// answerable for is that it leaves what its own keys leave, so each is typed both ways.
+const RETYPED: [Retyped; 8] = [
+    Retyped {
+        repeat: "diwj.",
+        hand: "diwjdiw",
+        bare: "diwj",
+    },
+    Retyped {
+        repeat: "dtd.",
+        hand: "dtddtd",
+        bare: "dtd",
+    },
+    Retyped {
+        repeat: "c2wfoo<Esc>.",
+        hand: "c2wfoo<Esc>c2wfoo<Esc>",
+        bare: "c2wfoo<Esc>",
+    },
+    Retyped {
+        repeat: "2cwfoo<Esc>.",
+        hand: "2cwfoo<Esc>2cwfoo<Esc>",
+        bare: "2cwfoo<Esc>",
+    },
+    Retyped {
+        repeat: "~.",
+        hand: "~~",
+        bare: "~",
+    },
+    Retyped {
+        repeat: "2ifoo<Esc>.",
+        hand: "2ifoo<Esc>2ifoo<Esc>",
+        bare: "2ifoo<Esc>",
+    },
+    Retyped {
+        repeat: "ifoo<Esc>2.",
+        hand: "ifoo<Esc>2ifoo<Esc>",
+        bare: "ifoo<Esc>",
+    },
+    Retyped {
+        repeat: "o- <Esc>3.",
+        hand: "o- <Esc>3o- <Esc>",
+        bare: "o- <Esc>",
+    },
+];
+
+/// The repeats typed at a text of wide characters, and the keys each is told from by leaving
+/// something they do not.
+const CELLED: [(&str, &str); 6] = [
+    ("dgj.", "dgj"),
+    ("dgjj.", "dgjj"),
+    ("dgjgj.", "dgjgj"),
+    ("dj.", "dj"),
+    ("dw.", "dw"),
+    ("3x2.", "3x"),
+];
+
 #[test]
 fn a_repeat_leaves_the_application_where_vim_leaves_it() -> Result<()> {
     let vim = VimDriver::new()?;
@@ -251,6 +342,62 @@ fn every_repeat_is_one_the_keys_in_front_of_it_could_not_have_left_behind() -> R
     }
 
     Ok(())
+}
+
+#[test]
+fn a_repeat_over_wide_characters_leaves_the_text_vim_leaves() -> Result<()> {
+    let vim = VimDriver::new()?;
+
+    for columns in [NARROW, WIDE] {
+        for (keys, bare) in CELLED {
+            let mut app = holding(CELLS);
+            press(&mut app, columns, keys);
+            let repeated = vim_landed(&vim, CELLS, keys, columns)?.text;
+
+            assert_eq!(
+                repeated,
+                landed(&app).text,
+                "`{keys}` in a window {columns} columns wide left the program holding text other \
+                 than the text vim left"
+            );
+            assert_ne!(
+                vim_landed(&vim, CELLS, bare, columns)?.text,
+                repeated,
+                "vim answers `{keys}` in a window {columns} columns wide where it answers \
+                 `{bare}`, so the case cannot tell a repeat that ran from one that did nothing"
+            );
+        }
+    }
+
+    Ok(())
+}
+
+#[test]
+fn a_repeat_leaves_what_its_own_keys_leave_when_they_are_typed_again() {
+    for case in RETYPED {
+        let mut repeated = holding(PROSE);
+        let mut retyped = holding(PROSE);
+        let mut bare = holding(PROSE);
+        press(&mut repeated, WIDE, case.repeat);
+        press(&mut retyped, WIDE, case.hand);
+        press(&mut bare, WIDE, case.bare);
+
+        assert_eq!(
+            landed(&retyped),
+            landed(&repeated),
+            "`{}` left something other than what the keys it types again leave when they are \
+             typed by hand",
+            case.repeat
+        );
+        assert_ne!(
+            landed(&bare),
+            landed(&repeated),
+            "`{}` leaves what `{}` leaves, so the case cannot tell a repeat that ran from one \
+             that did nothing at all",
+            case.repeat,
+            case.bare
+        );
+    }
 }
 
 #[test]
@@ -384,6 +531,46 @@ fn an_undo_leaves_the_cursor_where_vim_does_not() -> Result<()> {
     );
     assert_eq!(0, undone_by_vim.column);
     assert_eq!(4, undone.column);
+
+    Ok(())
+}
+
+/// The one thing an insert carrying a count is not held to vim by, named rather than passed over.
+///
+/// A count in front of an inserting command writes what was typed that many times, and vim leaves
+/// the cursor at the end of the last copy where this editor leaves it at the end of the first. An
+/// `o` carrying one parts further: vim writes a copy into each of the lines it opens and this
+/// editor writes every copy into the first and leaves the rest empty. Both are divergences in the
+/// insert rather than in the repeat --
+/// they are there whether or not a repeat types the count, as the keys typed by hand below show
+/// -- and both are reached by a count typed in front of `.`, which is why they are written down
+/// here. Fixing the insert makes this case fail, which is where it is to be struck off.
+#[test]
+fn an_insert_carrying_a_count_leaves_what_vim_does_not() -> Result<()> {
+    let vim = VimDriver::new()?;
+    let mut inserted = holding(PROSE);
+    let mut opened = holding(PROSE);
+    press(&mut inserted, WIDE, "2ifoo<Esc>");
+    press(&mut opened, WIDE, "3o- <Esc>");
+    let inserted_by_vim = vim_landed(&vim, PROSE, "2ifoo<Esc>", WIDE)?;
+
+    assert_eq!(
+        inserted_by_vim.text,
+        landed(&inserted).text,
+        "the counted insert wrote something other than what vim's wrote"
+    );
+    assert_eq!(5, inserted_by_vim.column);
+    assert_eq!(2, landed(&inserted).column);
+    assert_eq!(
+        "aaa bbb ccc ddd eee fff ggg hhh\n- \n- \n- \nsecond line here\nthird line\nfourth\n\
+         fifth\n",
+        vim_landed(&vim, PROSE, "3o- <Esc>", WIDE)?.text
+    );
+    assert_eq!(
+        "aaa bbb ccc ddd eee fff ggg hhh\n- - - \n\n\nsecond line here\nthird line\nfourth\n\
+         fifth\n",
+        landed(&opened).text
+    );
 
     Ok(())
 }
