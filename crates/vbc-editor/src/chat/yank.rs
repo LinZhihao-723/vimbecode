@@ -233,9 +233,18 @@ impl Yank {
 /// editor for the desktop.
 ///
 /// The registers are the file editor's own, so what is filed here is what `p` in the file puts.
+/// A linewise register holds whole lines, the last of them ended as every other one is, because a
+/// put lays the register's bytes down between two lines rather than between two lines and a break
+/// it supplies itself. A structure taken out of a transcript ends where the structure ends and a
+/// code block's last line carries no break of its own, so one is written here or `p` in the middle
+/// of a file joins the last line of what was yanked to the line it was put above.
 pub fn file(registers: &Registers, yank: &Yank) {
+    let mut text = yank.text.clone();
+    if yank.shape == Shape::Linewise && !text.ends_with(LINE_SEPARATOR) {
+        text.push(LINE_SEPARATOR);
+    }
     let held = Held {
-        text: yank.text.clone(),
+        text,
         shape: yank.shape,
     };
     for name in [UNNAMED, YANK, CLIPBOARD] {
@@ -408,7 +417,7 @@ mod tests {
     use crate::chat::transcript::Transcript;
     use crate::engine::{Held, Registers, Shape};
 
-    use super::{file, patch, Structure, Yank, CLIPBOARD, UNNAMED, YANK};
+    use super::{file, patch, Structure, Yank, CLIPBOARD, LINE_SEPARATOR, UNNAMED, YANK};
 
     /// The blocks of the fixture transcript, named by where they sit in it.
     const ASKED: usize = 0;
@@ -611,11 +620,38 @@ mod tests {
         file(&registers, &yank);
 
         let held = Held {
-            text: yank.text().to_owned(),
+            text: format!("{}{LINE_SEPARATOR}", yank.text()),
             shape: yank.shape(),
         };
         for name in [UNNAMED, YANK, CLIPBOARD] {
             assert_eq!(Some(held.clone()), registers.get(name));
+        }
+    }
+
+    #[test]
+    fn a_linewise_yank_is_filed_as_whole_lines_and_a_charwise_one_as_it_was_taken() {
+        let transcript = said();
+        let block = transcript
+            .block(ASKED)
+            .expect("the fixture holds a question");
+        let source = Source::new(block.source(), Metrics::default());
+        for (mode, ended) in [(Mode::Linewise, true), (Mode::Charwise, false)] {
+            let registers = Registers::new();
+            let selection = Selection::new(mode, source, 0);
+            file(
+                &registers,
+                &Yank::selected(block, &selection, Metrics::default()),
+            );
+            let held = registers
+                .get(UNNAMED)
+                .expect("the yank filled the register");
+
+            assert_eq!(
+                ended,
+                held.text.ends_with(LINE_SEPARATOR),
+                "a {mode:?} yank was filed as {:?}",
+                held.text
+            );
         }
     }
 

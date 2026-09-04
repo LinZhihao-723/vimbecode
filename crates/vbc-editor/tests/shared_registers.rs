@@ -13,6 +13,11 @@
 //! register itself would pass against a dispatch no keystroke arrives at, which is the fault this
 //! file exists to catch.
 //!
+//! A put is spelled at more than one place in more than one file, because the last line of a
+//! one-line file is the one place a linewise register carrying no line break of its own reads
+//! right, and it is not where a reader puts a code block. So every structural yank is put at the
+//! end of a file, above a line of one, three times over with a count, and above with `P`.
+//!
 //! Five things are required of the crossing rather than one, because a register is more than the
 //! bytes it holds. The structural yanks all cross, `yad`'s among them, and the patch that arrives
 //! in the file is handed to `git apply` rather than compared against a string, because a patch
@@ -36,6 +41,11 @@ use vbc_editor::engine::{typed, Engine, Registers, Shape};
 /// The file the reader has open behind the transcript, which is what every put here lands in.
 const FILE: &str = "a file the reader left open";
 
+/// The line under it, so that a put lands between two lines of the file rather than only ever
+/// after its last. A linewise put that carried no line break of its own reads right at the end of
+/// a file and joins two lines everywhere else, which is where a reader puts a code block.
+const BELOW: &str = "a line the reader wrote under it";
+
 /// What was asked, and the answer holding the code the reader came for.
 const ASKED: &str = "why does it not build";
 const ANSWERED: &str = concat!(
@@ -52,6 +62,28 @@ const ANSWERED: &str = concat!(
 
 /// The code that answer fenced, which is what `yac` takes out of it.
 const CODE: &str = "fn main() {\n    todo!();\n}";
+
+/// The same answer of the same shape, fencing code that is nothing a column of cells is a good
+/// model of: a tab, characters two columns wide, a cluster of several code points, and a line of
+/// nothing. What crosses is bytes, so what arrives has to be the bytes that were taken.
+const ANSWERED_HARD: &str = concat!(
+    "Here it is:\n",
+    "\n",
+    "```rust\n",
+    "fn main() {\n",
+    "\tlet 名前 = \"\u{1f468}\u{200d}\u{1f469}\u{200d}\u{1f467} e\u{301}\";\n",
+    "\n",
+    "}\n",
+    "```\n",
+    "\n",
+    "That should do it.",
+);
+const CODE_HARD: &str = concat!(
+    "fn main() {\n",
+    "\tlet 名前 = \"\u{1f468}\u{200d}\u{1f469}\u{200d}\u{1f467} e\u{301}\";\n",
+    "\n",
+    "}",
+);
 
 /// What the tool answered, which is the block that folds.
 const WROTE: &str = "   Compiling vimbecode\nerror: a semicolon was expected";
@@ -83,7 +115,7 @@ fn a_code_block_yanked_in_the_panel_is_what_a_put_in_the_file_inserts() -> Resul
     press(&mut panel, "yac")?;
     type_at(&mut engine, "p")?;
 
-    assert_eq!(format!("{FILE}\n{CODE}"), engine.text());
+    assert_eq!(format!("{FILE}\n{CODE}\n"), engine.text());
 
     Ok(())
 }
@@ -95,15 +127,60 @@ fn every_structural_yank_crosses_into_the_file_the_reader_puts_it_in() -> Result
         (INSIDE_THE_CODE, "yam", ANSWERED),
         (THE_CLOSED_FOLD, "yat", WROTE),
     ] {
-        let (mut panel, mut engine) = reading();
-        press(&mut panel, &down(down_to))?;
-        press(&mut panel, keys)?;
+        let two_lines = format!("{FILE}\n{BELOW}");
+        for (put, file, laid) in [
+            ("p", FILE, format!("{FILE}\n{taken}\n")),
+            (
+                "p",
+                two_lines.as_str(),
+                format!("{FILE}\n{taken}\n{BELOW}\n"),
+            ),
+            (
+                "3p",
+                two_lines.as_str(),
+                format!("{FILE}\n{taken}\n{taken}\n{taken}\n{BELOW}\n"),
+            ),
+            (
+                "jP",
+                two_lines.as_str(),
+                format!("{FILE}\n{taken}\n{BELOW}\n"),
+            ),
+        ] {
+            let (mut panel, mut engine) = reading_over(file);
+            press(&mut panel, &down(down_to))?;
+            press(&mut panel, keys)?;
+            type_at(&mut engine, put)?;
+
+            assert_eq!(
+                laid,
+                engine.text(),
+                "`{keys}` in the panel is not what `{put}` in the file put"
+            );
+        }
+    }
+
+    Ok(())
+}
+
+#[test]
+fn a_code_block_of_more_than_printable_ascii_crosses_byte_for_byte() -> Result<()> {
+    let two_lines = format!("{FILE}\n{BELOW}");
+    for (file, laid) in [
+        (FILE, format!("{FILE}\n{CODE_HARD}\n")),
+        (
+            two_lines.as_str(),
+            format!("{FILE}\n{CODE_HARD}\n{BELOW}\n"),
+        ),
+    ] {
+        let (mut panel, mut engine) = reading_answering(ANSWERED_HARD, file);
+        press(&mut panel, &down(INSIDE_THE_CODE))?;
+        press(&mut panel, "yac")?;
         type_at(&mut engine, "p")?;
 
         assert_eq!(
-            format!("{FILE}\n{taken}"),
+            laid,
             engine.text(),
-            "`{keys}` in the panel is not what `p` in the file put"
+            "a code block of tabs, wide characters and clusters did not cross whole"
         );
     }
 
@@ -154,7 +231,7 @@ fn the_black_hole_swallows_what_was_yanked_into_it_on_either_side_of_the_crossin
     type_at(&mut engine, "p")?;
 
     assert_eq!(
-        format!("{FILE}\n{CODE}"),
+        format!("{FILE}\n{CODE}\n"),
         engine.text(),
         "a yank into the black hole reached the register a plain put reads"
     );
@@ -176,7 +253,7 @@ fn a_plain_put_reads_what_was_yanked_rather_than_what_reached_the_clipboard() ->
         "a plain put read the clipboard's register rather than the unnamed one"
     );
     assert_eq!(
-        Some(CODE.to_owned()),
+        Some(format!("{CODE}\n")),
         engine.register('+').map(|held| held.text),
         "what the panel yanked never reached the clipboard's register"
     );
@@ -235,7 +312,7 @@ fn the_two_engines_a_reader_types_at_hold_the_same_registers_and_nobody_elses() 
     press(&mut elsewhere, "yy")?;
 
     assert_eq!(
-        Some(CODE.to_owned()),
+        Some(format!("{CODE}\n")),
         engine.register('"').map(|held| held.text),
         "the panel and the file editor do not read the same registers"
     );
@@ -243,7 +320,7 @@ fn the_two_engines_a_reader_types_at_hold_the_same_registers_and_nobody_elses() 
     type_at(&mut engine, "p")?;
 
     assert_eq!(
-        format!("{FILE}\n{CODE}"),
+        format!("{FILE}\n{CODE}\n"),
         engine.text(),
         "a yank in a panel nobody shares registers with reached the file"
     );
@@ -256,21 +333,37 @@ fn the_two_engines_a_reader_types_at_hold_the_same_registers_and_nobody_elses() 
 /// The transcript panel and the file editor a reader has open, sharing the one register file that
 /// makes a yank in either a put in the other.
 fn reading() -> (Panel, Engine) {
+    reading_over(FILE)
+}
+
+/// # Returns
+///
+/// The same two, the file editor laid over `file` rather than over the one line of [`FILE`], so
+/// that a put lands somewhere other than after the last line of what the reader has open.
+fn reading_over(file: &str) -> (Panel, Engine) {
+    reading_answering(ANSWERED, file)
+}
+
+/// # Returns
+///
+/// The same two again, the transcript answering `answer` rather than [`ANSWERED`], so that what
+/// crosses is something other than the printable ASCII a terminal is a good model of.
+fn reading_answering(answer: &str, file: &str) -> (Panel, Engine) {
     let registers = Registers::new();
-    let panel = Panel::new(said()).sharing(registers.clone());
-    let engine = Engine::new(FILE).sharing(registers);
+    let panel = Panel::new(said(answer)).sharing(registers.clone());
+    let engine = Engine::new(file).sharing(registers);
 
     (panel, engine)
 }
 
 /// # Returns
 ///
-/// The exchange every case is driven over: a question, the answer fencing [`CODE`], what a tool
-/// answered, and the diff the answer wrote.
-fn said() -> Transcript {
+/// The exchange every case is driven over: a question, `answer` fencing the code the reader came
+/// for, what a tool answered, and the diff the answer wrote.
+fn said(answer: &str) -> Transcript {
     [
         Block::new(Kind::Message(Role::User), ASKED.to_owned()),
-        Block::new(Kind::Message(Role::Assistant), ANSWERED.to_owned()),
+        Block::new(Kind::Message(Role::Assistant), answer.to_owned()),
         Block::new(Kind::ToolResult, WROTE.to_owned()),
         Block::diff(PATH.to_owned(), BEFORE, AFTER),
     ]
