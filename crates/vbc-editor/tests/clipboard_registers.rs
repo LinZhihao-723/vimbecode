@@ -273,10 +273,19 @@ fn only_a_put_from_the_clipboard_register_reads_the_desktop() -> Result<()> {
 /// Both halves are asserted because either on its own is passable by a broken editor. One that
 /// blocked the render loop would insert the right text after five seconds; one that pasted the
 /// register's stale contents would keep drawing perfectly.
+///
+/// The register is loaded before the put is asked for, because an empty one cannot tell those two
+/// apart. A put abandoned over a register holding nothing inserts nothing whether the abandonment
+/// emptied it or left it exactly as it stood, so the second half asserts nothing until there is
+/// something for a stale answer to be. The `"+yy` is what puts it there, and what it leaves is a
+/// whole line, which a put would lay down where no reader could miss it.
 #[test]
 fn a_clipboard_that_stalls_neither_stops_the_frames_nor_pastes_anything() -> Result<()> {
     let asked = Arc::new(AtomicU64::new(0));
     let mut app = stood_in(&asked, STALL);
+
+    press(&mut app, "\"+yy");
+
     let before = written(&app);
 
     press(&mut app, "\"+p");
