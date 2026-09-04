@@ -11,7 +11,9 @@
 //! neither half of it fails on its own: a workflow step nobody runs is green, and a filter that
 //! matches no test reports success just as loudly as one that matches. The workflow is therefore
 //! required to run the soak from an unconditional job, by the name and with the flags that really
-//! run it, and the soak is required to be the only test of this crate the default run leaves out.
+//! run it, and the soak is required to be the only test of this crate the default run leaves out
+//! and to be declared in the target that workflow names, since a soak moved into another source
+//! answers to the filter no better than a renamed one.
 
 mod fuzz;
 
@@ -377,7 +379,13 @@ fn excused_by(workflow: &str, excuse: &str) -> String {
 
 /// # Returns
 ///
-/// The name of every test of this crate the default run skips, sorted.
+/// The name of every test of this crate the default run skips, each written under the source that
+/// declares it, sorted.
+///
+/// The source is half of what a name is worth here, because the workflow names a test target as
+/// well as a test: a soak moved into another source of the crate answers to neither the name nor
+/// the target `--exact` is given, and a filter that matches nothing is the silence this gate
+/// exists to break.
 ///
 /// # Panics
 ///
@@ -388,12 +396,34 @@ fn skipped_tests() -> Vec<String> {
         .flat_map(|source| {
             let text = fs::read_to_string(source)
                 .unwrap_or_else(|error| panic!("{} is readable: {error}", source.display()));
-            skipped_in(&text)
+
+            declared_in(source, skipped_in(&text))
         })
         .collect();
     skipped.sort();
 
     skipped
+}
+
+/// # Returns
+///
+/// Each of `tests` written under the source declaring it, which for a source that is a test target
+/// of its own is the target continuous integration names to run it.
+///
+/// # Panics
+///
+/// Panics if `source` is not a named file.
+fn declared_in(source: &Path, tests: Vec<String>) -> Vec<String> {
+    let declaring = source
+        .file_stem()
+        .expect("a source read out of the tree is a named file")
+        .to_string_lossy()
+        .into_owned();
+
+    tests
+        .into_iter()
+        .map(|test| format!("{declaring}::{test}"))
+        .collect()
 }
 
 /// # Returns
@@ -475,7 +505,7 @@ fn the_reference_layout_survives_a_hundred_thousand_cases() {
 
 #[test]
 fn the_default_run_skips_the_soak_and_nothing_else() {
-    assert_eq!(vec![SOAK_TEST.to_owned()], skipped_tests());
+    assert_eq!(vec![format!("{SOAK_TARGET}::{SOAK_TEST}")], skipped_tests());
 }
 
 #[test]
@@ -516,6 +546,10 @@ fn a_test_kept_out_of_the_default_run_is_read_off_its_source() {
 
     assert_eq!(vec!["a_soak".to_owned()], skipped_in(&soak));
     assert_eq!(Vec::<String>::new(), skipped_in(&search));
+    assert_eq!(
+        vec!["another_target::a_soak".to_owned()],
+        declared_in(Path::new("tests/another_target.rs"), skipped_in(&soak))
+    );
 }
 
 #[test]
