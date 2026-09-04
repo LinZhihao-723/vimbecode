@@ -573,6 +573,10 @@ impl App {
     /// The cell of `area` a terminal should rest the cursor in while the transcript has the keys,
     /// or [`None`] where the rows drawn do not hold the byte the cursor rests on, which is what a
     /// panel scrolled away from its cursor has.
+    ///
+    /// A cursor resting on a closed fold rests on the first column of the one row that fold is
+    /// drawn in, as vim's does, because the row is drawn from no byte of the block it stands for
+    /// and there is no byte of it to place the cursor at.
     fn panel_cursor(&self, drawn: &[Drawn], area: Rect) -> Option<Position> {
         let at = self.panel.at();
         let block = self.panel.transcript().block(at.block())?;
@@ -583,19 +587,26 @@ impl App {
             .map_or(0, |separator| separator + 1);
         let grapheme = grapheme_indices(source.get(start..at.offset())?).count();
         for (index, row) in drawn.iter().enumerate() {
-            let Drawn::Body {
-                block: drawn_from,
-                row,
-            } = row
-            else {
-                continue;
-            };
-            let held = row.source();
-            if at.block() != *drawn_from || at.offset() < held.start || held.end < at.offset() {
-                continue;
-            }
+            match row {
+                Drawn::Summary(summary) if at.block() == summary.head() => {
+                    return folded_cell(area, narrowed(index));
+                }
+                Drawn::Summary(_) => {}
+                Drawn::Body {
+                    block: drawn_from,
+                    row,
+                } => {
+                    let held = row.source();
+                    if at.block() != *drawn_from
+                        || at.offset() < held.start
+                        || held.end < at.offset()
+                    {
+                        continue;
+                    }
 
-            return cursor_cell(area, narrowed(index), row.styled().row(), grapheme);
+                    return cursor_cell(area, narrowed(index), row.styled().row(), grapheme);
+                }
+            }
         }
 
         None
@@ -748,6 +759,17 @@ fn blank(cells: &mut Cells, area: Rect, top: u16) {
             cells[(x, y)].reset();
         }
     }
+}
+
+/// # Returns
+///
+/// The cell of `area` the cursor rests in on the row a closed fold is drawn in, which is the
+/// first column of the row `screen_row`, or [`None`] where the area has no such row.
+fn folded_cell(area: Rect, screen_row: u16) -> Option<Position> {
+    (screen_row < area.height).then(|| Position {
+        x: area.x,
+        y: area.y + screen_row,
+    })
 }
 
 /// # Returns

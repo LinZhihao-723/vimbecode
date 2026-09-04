@@ -193,6 +193,44 @@ fn the_panel_draws_the_cursor_where_the_keys_left_it() {
 }
 
 #[test]
+fn the_panel_draws_the_cursor_on_the_row_a_closed_fold_is_drawn_in() {
+    let mut app = reading();
+    for _ in 0..=LAST_OF_THE_ANSWER {
+        app.press(area(), typed('j'));
+    }
+    let mut cells = Cells::empty(area());
+    let on_the_fold = app
+        .draw(&mut cells, area())
+        .expect("the panel draws the cursor on the row the closed fold is");
+    let row = drawn_row(&cells, on_the_fold.y);
+
+    assert_eq!(RAN, app.panel().at().block(), "the cursor left the fold");
+    assert_eq!(
+        u16::try_from(LAST_OF_THE_ANSWER + 1).expect("the fixture is short"),
+        on_the_fold.y
+    );
+    assert_eq!(0, on_the_fold.x);
+    assert!(
+        row.contains("2 lines"),
+        "{row:?} is not the row the closed fold is drawn in"
+    );
+
+    for key in "za".chars() {
+        app.press(area(), typed(key));
+    }
+    let opened = app
+        .draw(&mut cells, area())
+        .expect("the panel draws the cursor once the fold is open");
+
+    assert_eq!(on_the_fold.y, opened.y);
+    assert_eq!(
+        "   Compiling vimbecode",
+        drawn_row(&cells, opened.y),
+        "the row the cursor is on is not the first of what the fold hid"
+    );
+}
+
+#[test]
 fn a_code_block_selected_from_a_keystroke_covers_the_lines_it_was_fenced_around() {
     let mut app = reading();
     for _ in 0..INSIDE_THE_CODE {
@@ -576,6 +614,17 @@ fn reading() -> App {
     assert_eq!(Focus::Transcript, app.focus(), "`<C-T>` reached no panel");
 
     app
+}
+
+/// # Returns
+///
+/// What the row `row` of `cells` was drawn with, trailing blanks left off.
+fn drawn_row(cells: &Cells, row: u16) -> String {
+    let drawn: String = (0..COLUMNS)
+        .map(|column| cells[(column, row)].symbol().to_owned())
+        .collect();
+
+    drawn.trim_end().to_owned()
 }
 
 /// # Returns
