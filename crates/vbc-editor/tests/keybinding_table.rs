@@ -143,6 +143,9 @@ const SHARED: [&str; 98] = [
     "vv", "i", "a", "o",
 ];
 
+/// The change a repeat is reached behind, which is a change the table binds itself.
+const CHANGED: &str = "x";
+
 /// The keys that reach each mode the table binds in, from a machine in normal mode.
 const REACHED: [(VimMode, &str); 4] = [
     (VimMode::Normal, ""),
@@ -596,7 +599,8 @@ fn silent(bindings: &Bindings) -> Vec<String> {
 ///
 /// A sequence of keys reaching every entry `bindings` holds, each typed from normal mode. An
 /// operator is reached twice, once with a motion after it and once typed again, because those are
-/// the two things an operator answers.
+/// the two things an operator answers, and a repeat is reached behind a change, because a repeat
+/// with no change behind it is a key that answers by doing nothing at all.
 ///
 /// # Panics
 ///
@@ -611,6 +615,9 @@ fn reachable(bindings: &Bindings) -> Vec<Vec<TerminalKey>> {
             Some(operator) => operator.clone(),
             None => prelude.chars().map(key).collect(),
         };
+        if let Step::Repeat = binding.step {
+            keys.extend(CHANGED.chars().map(key));
+        }
         keys.extend(filled(&binding.keys));
         if let Step::Operator { .. } = binding.step {
             let mut doubled = keys.clone();
