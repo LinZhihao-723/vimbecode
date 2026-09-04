@@ -1,0 +1,366 @@
+# The layout matrix: one indented paragraph laid out at every width the corpus reads, crossed
+# with the display options that decide where a row breaks and what stands in front of a
+# continuation row. The paragraph is the constant, so a difference between two cases is the
+# width or the option and nothing else.
+#
+# 'breakindent' keeps at least twenty columns for the text beside a repeated indent, so it
+# does nothing at all in the twelve- and twenty-column windows here, and its cases pin that
+# too.
+#
+# Every case ends on `$`, which leaves the cursor on the last continuation row of the
+# paragraph: the column it is drawn in is the one every decoration above it moved.
+
+[[case]]
+id = "matrix-w12-plain"
+description = "The paragraph at 12 columns with no continuation decoration."
+buffer = """
+    the indented sentence that wraps a good many times in a narrow window and runs on past the eightieth column
+short tail
+"""
+keys = "$"
+viewport_width = 12
+tags = ["ascii", "wrap"]
+
+[[case]]
+id = "matrix-w12-breakindent"
+description = "The paragraph at 12 columns with the indent repeated onto every continuation row."
+buffer = """
+    the indented sentence that wraps a good many times in a narrow window and runs on past the eightieth column
+short tail
+"""
+keys = "$"
+viewport_width = 12
+tags = ["ascii", "wrap", "breakindent"]
+options = { breakindent = true }
+
+[[case]]
+id = "matrix-w12-showbreak"
+description = "The paragraph at 12 columns with a marker in front of every continuation row."
+buffer = """
+    the indented sentence that wraps a good many times in a narrow window and runs on past the eightieth column
+short tail
+"""
+keys = "$"
+viewport_width = 12
+tags = ["ascii", "wrap", "showbreak"]
+options = { showbreak = "> " }
+
+[[case]]
+id = "matrix-w12-breakindent-showbreak"
+description = "The paragraph at 12 columns with the repeated indent and the marker together."
+buffer = """
+    the indented sentence that wraps a good many times in a narrow window and runs on past the eightieth column
+short tail
+"""
+keys = "$"
+viewport_width = 12
+tags = ["ascii", "wrap", "breakindent", "showbreak"]
+options = { breakindent = true, showbreak = "> " }
+
+[[case]]
+id = "matrix-w12-linebreak"
+description = "The paragraph at 12 columns with rows ending on a word boundary."
+buffer = """
+    the indented sentence that wraps a good many times in a narrow window and runs on past the eightieth column
+short tail
+"""
+keys = "$"
+viewport_width = 12
+tags = ["ascii", "wrap", "linebreak"]
+options = { linebreak = true }
+
+[[case]]
+id = "matrix-w12-nowrap"
+description = "The paragraph at 12 columns with the window scrolling sideways instead."
+buffer = """
+    the indented sentence that wraps a good many times in a narrow window and runs on past the eightieth column
+short tail
+"""
+keys = "$"
+viewport_width = 12
+tags = ["ascii", "nowrap"]
+options = { wrap = false }
+
+[[case]]
+id = "matrix-w20-plain"
+description = "The paragraph at 20 columns with no continuation decoration."
+buffer = """
+    the indented sentence that wraps a good many times in a narrow window and runs on past the eightieth column
+short tail
+"""
+keys = "$"
+viewport_width = 20
+tags = ["ascii", "wrap"]
+
+[[case]]
+id = "matrix-w20-breakindent"
+description = "The paragraph at 20 columns with the indent repeated onto every continuation row."
+buffer = """
+    the indented sentence that wraps a good many times in a narrow window and runs on past the eightieth column
+short tail
+"""
+keys = "$"
+viewport_width = 20
+tags = ["ascii", "wrap", "breakindent"]
+options = { breakindent = true }
+
+[[case]]
+id = "matrix-w20-showbreak"
+description = "The paragraph at 20 columns with a marker in front of every continuation row."
+buffer = """
+    the indented sentence that wraps a good many times in a narrow window and runs on past the eightieth column
+short tail
+"""
+keys = "$"
+viewport_width = 20
+tags = ["ascii", "wrap", "showbreak"]
+options = { showbreak = "> " }
+
+[[case]]
+id = "matrix-w20-breakindent-showbreak"
+description = "The paragraph at 20 columns with the repeated indent and the marker together."
+buffer = """
+    the indented sentence that wraps a good many times in a narrow window and runs on past the eightieth column
+short tail
+"""
+keys = "$"
+viewport_width = 20
+tags = ["ascii", "wrap", "breakindent", "showbreak"]
+options = { breakindent = true, showbreak = "> " }
+
+[[case]]
+id = "matrix-w20-linebreak"
+description = "The paragraph at 20 columns with rows ending on a word boundary."
+buffer = """
+    the indented sentence that wraps a good many times in a narrow window and runs on past the eightieth column
+short tail
+"""
+keys = "$"
+viewport_width = 20
+tags = ["ascii", "wrap", "linebreak"]
+options = { linebreak = true }
+
+[[case]]
+id = "matrix-w20-nowrap"
+description = "The paragraph at 20 columns with the window scrolling sideways instead."
+buffer = """
+    the indented sentence that wraps a good many times in a narrow window and runs on past the eightieth column
+short tail
+"""
+keys = "$"
+viewport_width = 20
+tags = ["ascii", "nowrap"]
+options = { wrap = false }
+
+[[case]]
+id = "matrix-w24-plain"
+description = "The paragraph at 24 columns with no continuation decoration."
+buffer = """
+    the indented sentence that wraps a good many times in a narrow window and runs on past the eightieth column
+short tail
+"""
+keys = "$"
+viewport_width = 24
+tags = ["ascii", "wrap"]
+
+[[case]]
+id = "matrix-w24-breakindent"
+description = "The paragraph at 24 columns with the indent repeated onto every continuation row."
+buffer = """
+    the indented sentence that wraps a good many times in a narrow window and runs on past the eightieth column
+short tail
+"""
+keys = "$"
+viewport_width = 24
+tags = ["ascii", "wrap", "breakindent"]
+options = { breakindent = true }
+
+[[case]]
+id = "matrix-w24-showbreak"
+description = "The paragraph at 24 columns with a marker in front of every continuation row."
+buffer = """
+    the indented sentence that wraps a good many times in a narrow window and runs on past the eightieth column
+short tail
+"""
+keys = "$"
+viewport_width = 24
+tags = ["ascii", "wrap", "showbreak"]
+options = { showbreak = "> " }
+
+[[case]]
+id = "matrix-w24-breakindent-showbreak"
+description = "The paragraph at 24 columns with the repeated indent and the marker together."
+buffer = """
+    the indented sentence that wraps a good many times in a narrow window and runs on past the eightieth column
+short tail
+"""
+keys = "$"
+viewport_width = 24
+tags = ["ascii", "wrap", "breakindent", "showbreak"]
+options = { breakindent = true, showbreak = "> " }
+
+[[case]]
+id = "matrix-w24-linebreak"
+description = "The paragraph at 24 columns with rows ending on a word boundary."
+buffer = """
+    the indented sentence that wraps a good many times in a narrow window and runs on past the eightieth column
+short tail
+"""
+keys = "$"
+viewport_width = 24
+tags = ["ascii", "wrap", "linebreak"]
+options = { linebreak = true }
+
+[[case]]
+id = "matrix-w24-nowrap"
+description = "The paragraph at 24 columns with the window scrolling sideways instead."
+buffer = """
+    the indented sentence that wraps a good many times in a narrow window and runs on past the eightieth column
+short tail
+"""
+keys = "$"
+viewport_width = 24
+tags = ["ascii", "nowrap"]
+options = { wrap = false }
+
+[[case]]
+id = "matrix-w40-plain"
+description = "The paragraph at 40 columns with no continuation decoration."
+buffer = """
+    the indented sentence that wraps a good many times in a narrow window and runs on past the eightieth column
+short tail
+"""
+keys = "$"
+viewport_width = 40
+tags = ["ascii", "wrap"]
+
+[[case]]
+id = "matrix-w40-breakindent"
+description = "The paragraph at 40 columns with the indent repeated onto every continuation row."
+buffer = """
+    the indented sentence that wraps a good many times in a narrow window and runs on past the eightieth column
+short tail
+"""
+keys = "$"
+viewport_width = 40
+tags = ["ascii", "wrap", "breakindent"]
+options = { breakindent = true }
+
+[[case]]
+id = "matrix-w40-showbreak"
+description = "The paragraph at 40 columns with a marker in front of every continuation row."
+buffer = """
+    the indented sentence that wraps a good many times in a narrow window and runs on past the eightieth column
+short tail
+"""
+keys = "$"
+viewport_width = 40
+tags = ["ascii", "wrap", "showbreak"]
+options = { showbreak = "> " }
+
+[[case]]
+id = "matrix-w40-breakindent-showbreak"
+description = "The paragraph at 40 columns with the repeated indent and the marker together."
+buffer = """
+    the indented sentence that wraps a good many times in a narrow window and runs on past the eightieth column
+short tail
+"""
+keys = "$"
+viewport_width = 40
+tags = ["ascii", "wrap", "breakindent", "showbreak"]
+options = { breakindent = true, showbreak = "> " }
+
+[[case]]
+id = "matrix-w40-linebreak"
+description = "The paragraph at 40 columns with rows ending on a word boundary."
+buffer = """
+    the indented sentence that wraps a good many times in a narrow window and runs on past the eightieth column
+short tail
+"""
+keys = "$"
+viewport_width = 40
+tags = ["ascii", "wrap", "linebreak"]
+options = { linebreak = true }
+
+[[case]]
+id = "matrix-w40-nowrap"
+description = "The paragraph at 40 columns with the window scrolling sideways instead."
+buffer = """
+    the indented sentence that wraps a good many times in a narrow window and runs on past the eightieth column
+short tail
+"""
+keys = "$"
+viewport_width = 40
+tags = ["ascii", "nowrap"]
+options = { wrap = false }
+
+[[case]]
+id = "matrix-w80-plain"
+description = "The paragraph at 80 columns with no continuation decoration."
+buffer = """
+    the indented sentence that wraps a good many times in a narrow window and runs on past the eightieth column
+short tail
+"""
+keys = "$"
+viewport_width = 80
+tags = ["ascii", "wrap"]
+
+[[case]]
+id = "matrix-w80-breakindent"
+description = "The paragraph at 80 columns with the indent repeated onto every continuation row."
+buffer = """
+    the indented sentence that wraps a good many times in a narrow window and runs on past the eightieth column
+short tail
+"""
+keys = "$"
+viewport_width = 80
+tags = ["ascii", "wrap", "breakindent"]
+options = { breakindent = true }
+
+[[case]]
+id = "matrix-w80-showbreak"
+description = "The paragraph at 80 columns with a marker in front of every continuation row."
+buffer = """
+    the indented sentence that wraps a good many times in a narrow window and runs on past the eightieth column
+short tail
+"""
+keys = "$"
+viewport_width = 80
+tags = ["ascii", "wrap", "showbreak"]
+options = { showbreak = "> " }
+
+[[case]]
+id = "matrix-w80-breakindent-showbreak"
+description = "The paragraph at 80 columns with the repeated indent and the marker together."
+buffer = """
+    the indented sentence that wraps a good many times in a narrow window and runs on past the eightieth column
+short tail
+"""
+keys = "$"
+viewport_width = 80
+tags = ["ascii", "wrap", "breakindent", "showbreak"]
+options = { breakindent = true, showbreak = "> " }
+
+[[case]]
+id = "matrix-w80-linebreak"
+description = "The paragraph at 80 columns with rows ending on a word boundary."
+buffer = """
+    the indented sentence that wraps a good many times in a narrow window and runs on past the eightieth column
+short tail
+"""
+keys = "$"
+viewport_width = 80
+tags = ["ascii", "wrap", "linebreak"]
+options = { linebreak = true }
+
+[[case]]
+id = "matrix-w80-nowrap"
+description = "The paragraph at 80 columns with the window scrolling sideways instead."
+buffer = """
+    the indented sentence that wraps a good many times in a narrow window and runs on past the eightieth column
+short tail
+"""
+keys = "$"
+viewport_width = 80
+tags = ["ascii", "nowrap"]
+options = { wrap = false }

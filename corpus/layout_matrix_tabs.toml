@@ -1,0 +1,268 @@
+# The same matrix over a tab indent, whose width is a tab stop rather than a count of spaces.
+# A repeated indent is drawn in the columns the tabs advance by, so 'tabstop' decides both
+# where the first row's text starts and how much of a continuation row the indent takes.
+#
+# Two wrapped paragraphs stand above a short tail and every case ends on `jj$`, which leaves
+# the cursor on that tail: a walk from the top of the window reaches it only by counting the
+# rows the paragraphs are drawn on rather than the two lines they are.
+#
+# 'linebreak' beside a tab is the one combination the layout does not reproduce -- vim
+# measures a word from the column the break character in front of it starts at -- so the two
+# cases crossing them are pinned as divergences rather than left out. Their cursor is left on
+# the wrapped line itself, since a case that disagrees with vim about where the rows are is
+# not one a walk across those rows can be read from.
+
+[[case]]
+id = "matrix-tab-w20-ts8-plain"
+description = "Tab-indented paragraphs at 20 columns with a tabstop of eight and no decoration."
+buffer = """
+		the tab indented sentence that wraps a number of times in a narrow window and runs past the eightieth column
+	another tab indented line that also wraps before it ends
+plain tail
+"""
+keys = "jj$"
+viewport_width = 20
+tags = ["tab", "wrap"]
+
+[[case]]
+id = "matrix-tab-w20-ts8-breakindent"
+description = "Tab-indented paragraphs at 20 columns with a tabstop of eight and the indent repeated."
+buffer = """
+		the tab indented sentence that wraps a number of times in a narrow window and runs past the eightieth column
+	another tab indented line that also wraps before it ends
+plain tail
+"""
+keys = "jj$"
+viewport_width = 20
+tags = ["tab", "wrap", "breakindent"]
+options = { breakindent = true }
+
+[[case]]
+id = "matrix-tab-w20-ts8-showbreak"
+description = "Tab-indented paragraphs at 20 columns with a tabstop of eight and a continuation marker."
+buffer = """
+		the tab indented sentence that wraps a number of times in a narrow window and runs past the eightieth column
+	another tab indented line that also wraps before it ends
+plain tail
+"""
+keys = "jj$"
+viewport_width = 20
+tags = ["tab", "wrap", "showbreak"]
+options = { showbreak = "> " }
+
+[[case]]
+id = "matrix-tab-w20-ts4-plain"
+description = "Tab-indented paragraphs at 20 columns with a tabstop of four and no decoration."
+buffer = """
+		the tab indented sentence that wraps a number of times in a narrow window and runs past the eightieth column
+	another tab indented line that also wraps before it ends
+plain tail
+"""
+keys = "jj$"
+viewport_width = 20
+tags = ["tab", "wrap"]
+options = { tabstop = 4 }
+
+[[case]]
+id = "matrix-tab-w20-ts4-breakindent-showbreak"
+description = "Tab-indented paragraphs at 20 columns with a tabstop of four, the repeated indent and a marker."
+buffer = """
+		the tab indented sentence that wraps a number of times in a narrow window and runs past the eightieth column
+	another tab indented line that also wraps before it ends
+plain tail
+"""
+keys = "jj$"
+viewport_width = 20
+tags = ["tab", "wrap", "breakindent", "showbreak"]
+options = { breakindent = true, showbreak = "> ", tabstop = 4 }
+
+[[case]]
+id = "matrix-tab-w20-ts8-nowrap"
+description = "Tab-indented paragraphs at 20 columns with a tabstop of eight and the window scrolling sideways."
+buffer = """
+		the tab indented sentence that wraps a number of times in a narrow window and runs past the eightieth column
+	another tab indented line that also wraps before it ends
+plain tail
+"""
+keys = "jj$"
+viewport_width = 20
+tags = ["tab", "nowrap"]
+options = { wrap = false }
+
+[[case]]
+id = "matrix-tab-w24-ts8-plain"
+description = "Tab-indented paragraphs at 24 columns with a tabstop of eight and no decoration."
+buffer = """
+		the tab indented sentence that wraps a number of times in a narrow window and runs past the eightieth column
+	another tab indented line that also wraps before it ends
+plain tail
+"""
+keys = "jj$"
+viewport_width = 24
+tags = ["tab", "wrap"]
+
+[[case]]
+id = "matrix-tab-w24-ts8-breakindent"
+description = "Tab-indented paragraphs at 24 columns with a tabstop of eight and the indent repeated."
+buffer = """
+		the tab indented sentence that wraps a number of times in a narrow window and runs past the eightieth column
+	another tab indented line that also wraps before it ends
+plain tail
+"""
+keys = "jj$"
+viewport_width = 24
+tags = ["tab", "wrap", "breakindent"]
+options = { breakindent = true }
+
+[[case]]
+id = "matrix-tab-w24-ts8-showbreak"
+description = "Tab-indented paragraphs at 24 columns with a tabstop of eight and a continuation marker."
+buffer = """
+		the tab indented sentence that wraps a number of times in a narrow window and runs past the eightieth column
+	another tab indented line that also wraps before it ends
+plain tail
+"""
+keys = "jj$"
+viewport_width = 24
+tags = ["tab", "wrap", "showbreak"]
+options = { showbreak = "> " }
+
+[[case]]
+id = "matrix-tab-w24-ts4-plain"
+description = "Tab-indented paragraphs at 24 columns with a tabstop of four and no decoration."
+buffer = """
+		the tab indented sentence that wraps a number of times in a narrow window and runs past the eightieth column
+	another tab indented line that also wraps before it ends
+plain tail
+"""
+keys = "jj$"
+viewport_width = 24
+tags = ["tab", "wrap"]
+options = { tabstop = 4 }
+
+[[case]]
+id = "matrix-tab-w24-ts4-breakindent-showbreak"
+description = "Tab-indented paragraphs at 24 columns with a tabstop of four, the repeated indent and a marker."
+buffer = """
+		the tab indented sentence that wraps a number of times in a narrow window and runs past the eightieth column
+	another tab indented line that also wraps before it ends
+plain tail
+"""
+keys = "jj$"
+viewport_width = 24
+tags = ["tab", "wrap", "breakindent", "showbreak"]
+options = { breakindent = true, showbreak = "> ", tabstop = 4 }
+
+[[case]]
+id = "matrix-tab-w24-ts8-nowrap"
+description = "Tab-indented paragraphs at 24 columns with a tabstop of eight and the window scrolling sideways."
+buffer = """
+		the tab indented sentence that wraps a number of times in a narrow window and runs past the eightieth column
+	another tab indented line that also wraps before it ends
+plain tail
+"""
+keys = "jj$"
+viewport_width = 24
+tags = ["tab", "nowrap"]
+options = { wrap = false }
+
+[[case]]
+id = "matrix-tab-w40-ts8-plain"
+description = "Tab-indented paragraphs at 40 columns with a tabstop of eight and no decoration."
+buffer = """
+		the tab indented sentence that wraps a number of times in a narrow window and runs past the eightieth column
+	another tab indented line that also wraps before it ends
+plain tail
+"""
+keys = "jj$"
+viewport_width = 40
+tags = ["tab", "wrap"]
+
+[[case]]
+id = "matrix-tab-w40-ts8-breakindent"
+description = "Tab-indented paragraphs at 40 columns with a tabstop of eight and the indent repeated."
+buffer = """
+		the tab indented sentence that wraps a number of times in a narrow window and runs past the eightieth column
+	another tab indented line that also wraps before it ends
+plain tail
+"""
+keys = "jj$"
+viewport_width = 40
+tags = ["tab", "wrap", "breakindent"]
+options = { breakindent = true }
+
+[[case]]
+id = "matrix-tab-w40-ts8-showbreak"
+description = "Tab-indented paragraphs at 40 columns with a tabstop of eight and a continuation marker."
+buffer = """
+		the tab indented sentence that wraps a number of times in a narrow window and runs past the eightieth column
+	another tab indented line that also wraps before it ends
+plain tail
+"""
+keys = "jj$"
+viewport_width = 40
+tags = ["tab", "wrap", "showbreak"]
+options = { showbreak = "> " }
+
+[[case]]
+id = "matrix-tab-w40-ts4-plain"
+description = "Tab-indented paragraphs at 40 columns with a tabstop of four and no decoration."
+buffer = """
+		the tab indented sentence that wraps a number of times in a narrow window and runs past the eightieth column
+	another tab indented line that also wraps before it ends
+plain tail
+"""
+keys = "jj$"
+viewport_width = 40
+tags = ["tab", "wrap"]
+options = { tabstop = 4 }
+
+[[case]]
+id = "matrix-tab-w40-ts4-breakindent-showbreak"
+description = "Tab-indented paragraphs at 40 columns with a tabstop of four, the repeated indent and a marker."
+buffer = """
+		the tab indented sentence that wraps a number of times in a narrow window and runs past the eightieth column
+	another tab indented line that also wraps before it ends
+plain tail
+"""
+keys = "jj$"
+viewport_width = 40
+tags = ["tab", "wrap", "breakindent", "showbreak"]
+options = { breakindent = true, showbreak = "> ", tabstop = 4 }
+
+[[case]]
+id = "matrix-tab-w40-ts8-nowrap"
+description = "Tab-indented paragraphs at 40 columns with a tabstop of eight and the window scrolling sideways."
+buffer = """
+		the tab indented sentence that wraps a number of times in a narrow window and runs past the eightieth column
+	another tab indented line that also wraps before it ends
+plain tail
+"""
+keys = "jj$"
+viewport_width = 40
+tags = ["tab", "nowrap"]
+options = { wrap = false }
+
+[[case]]
+id = "matrix-tab-w24-ts8-linebreak"
+description = "Words separated by tabs at 24 columns, broken on word boundaries."
+buffer = """
+	one	two	three	four	five	six	seven	eight	nine	ten	eleven	twelve
+plain tail
+"""
+keys = "$"
+viewport_width = 24
+tags = ["tab", "wrap", "linebreak"]
+options = { linebreak = true }
+
+[[case]]
+id = "matrix-tab-w40-ts8-linebreak"
+description = "Words separated by tabs at 40 columns, broken on word boundaries."
+buffer = """
+	one	two	three	four	five	six	seven	eight	nine	ten	eleven	twelve
+plain tail
+"""
+keys = "$"
+viewport_width = 40
+tags = ["tab", "wrap", "linebreak"]
+options = { linebreak = true }
