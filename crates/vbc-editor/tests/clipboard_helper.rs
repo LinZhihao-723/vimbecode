@@ -465,6 +465,38 @@ fn the_helper_script_is_laid_down_where_windows_cannot_take_it_away() -> Result<
 }
 
 #[test]
+fn a_second_script_of_one_process_is_not_the_first_ones() -> Result<()> {
+    let scratch = Scratch::named("scripts")?;
+
+    let first = Script::lay_down(&scratch.root)?;
+    let kept = first.path().to_path_buf();
+    let taken = {
+        let second = Script::lay_down(&scratch.root)?;
+        let taken = second.path().to_path_buf();
+
+        assert_ne!(
+            kept, taken,
+            "two scripts of one process were laid down under the one name, so the second is the \
+             first one's file"
+        );
+
+        taken
+    };
+
+    assert!(
+        !taken.exists(),
+        "the script at {taken:?} outlived the helper that laid it down"
+    );
+    assert!(
+        kept.exists(),
+        "the script at {kept:?} was taken away by a helper that did not lay it down, so the \
+         helper still running has no script to be restarted from"
+    );
+
+    Ok(())
+}
+
+#[test]
 fn the_helper_the_editor_ships_serves_the_real_clipboard() -> Result<()> {
     let Some(powershell) = windows() else {
         eprintln!("skipped: this machine has no Windows to serve a clipboard");
