@@ -46,7 +46,7 @@ use anyhow::{ensure, Result};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::buffer::Buffer as Cells;
 use ratatui::layout::Rect;
-use vbc_editor::app::{App, Focus};
+use vbc_editor::app::{App, Focus, Outcome};
 use vbc_editor::chat::block::{Block, Kind, Role};
 use vbc_editor::chat::transcript::Transcript;
 use vbc_editor::clipboard::clip::{Clip, Error as WriteError};
@@ -437,6 +437,49 @@ fn a_key_typed_while_a_put_waits_runs_after_it() -> Result<()> {
         "the `j` ran before the put it was typed after"
     );
     assert_eq!(1, app.cursor().line, "the `j` never ran at all");
+
+    Ok(())
+}
+
+/// A `q` typed while a put is held ends the session, on the frame the put is over rather than
+/// ahead of it.
+///
+/// The clipboard here is the one that never answers, so that the put lays nothing down and the
+/// text is still the text that was opened when the `q` is read. A `q` over a buffer nothing has
+/// written is the one that quits, and what is being asked is whether a held `q` is still read at
+/// all -- an application that dropped what it queued, or that answered for it without running it,
+/// would leave a reader typing `q` at an editor that had stopped listening.
+#[test]
+fn a_quit_typed_while_a_put_waits_still_stops() -> Result<()> {
+    let asked = Arc::new(AtomicU64::new(0));
+    let mut app = stood_in(&asked, STALL);
+    let before = written(&app);
+
+    press(&mut app, "\"+p");
+
+    assert!(app.awaits_clipboard(), "the put was not held at all");
+    assert_eq!(
+        Outcome::Continues,
+        app.press(area(), typed('q')),
+        "the `q` ended the session ahead of the put it was typed after"
+    );
+
+    let deadline = Instant::now() + SETTLE_BUDGET;
+    let mut outcome = Outcome::Continues;
+    while Outcome::Continues == outcome {
+        ensure!(
+            Instant::now() < deadline,
+            "a `q` typed behind a held put never ended the session"
+        );
+        outcome = app.handle(area(), &Event::Redraw);
+        thread::sleep(TICK);
+    }
+
+    assert_eq!(
+        before,
+        written(&app),
+        "a put the clipboard never answered inserted something"
+    );
 
     Ok(())
 }
