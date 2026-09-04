@@ -171,6 +171,21 @@ impl Viewport {
         Self::default()
     }
 
+    /// Factory function.
+    ///
+    /// # Returns
+    ///
+    /// A newly created viewport whose top display row is the row `rows` rows into the logical line
+    /// at `line`, which is where a scroll that stopped part-way down a wrapped line leaves one.
+    #[must_use]
+    pub fn anchored_at(line: usize, rows: usize) -> Self {
+        Self {
+            anchor: line,
+            vertical_offset: rows,
+            horizontal_offset: 0,
+        }
+    }
+
     /// # Returns
     ///
     /// This viewport scrolled `columns` columns to the right, which a viewport whose rows are all

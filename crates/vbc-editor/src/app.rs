@@ -1318,8 +1318,12 @@ impl App {
         );
     }
 
-    /// Runs one keystroke against the engine, laid out in the window `area` draws, and reads back
-    /// what it left behind.
+    /// Runs one keystroke against the engine, laid out in the window `area` draws and scrolled to
+    /// where the window is, and reads back what it left behind.
+    ///
+    /// The window is handed over as well as its size because `H`, `M` and `L` name a line of the
+    /// window rather than a line of the text, and the window a reader typed at is the one they
+    /// were looking at when they typed.
     ///
     /// # Type Parameters
     ///
@@ -1331,6 +1335,7 @@ impl App {
         if let Some(geometry) = self.geometry(area) {
             self.engine.resize(geometry);
         }
+        self.engine.scrolled_to(self.viewport);
         if let Err(error) = press(&mut self.engine) {
             self.notice = Some(error.to_string());
         }
