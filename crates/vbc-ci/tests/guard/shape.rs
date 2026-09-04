@@ -9,6 +9,12 @@
 //! the code around it makes of it -- whether it is called, whether it sits inside a repetition
 //! over a whole text, and whether it sits in a test.
 //!
+//! A loop reaches the whole of a text through the words naming one, and it reaches the whole of a
+//! text just as surely through a local the extent was hoisted into: `while offset <= end` walks a
+//! document whenever `end` was bound from one, and a guard that reads only the loop's own header
+//! is defeated by moving the call that measures the text one line up. So a name bound from the
+//! whole of a text stands for one wherever it is read, for as long as the block that bound it.
+//!
 //! Comments and the text of literals are left out, which is what keeps a guard from firing on a
 //! word that was only ever written about.
 
@@ -31,7 +37,7 @@ const ADAPTERS: [&str; 10] = [
 
 /// The words that name the whole of a text rather than a bounded part of one, which is what tells
 /// a repetition over a document from a walk of the rows around an anchor.
-const WHOLE_TEXT: [&str; 8] = [
+pub const WHOLE_TEXT: [&str; 8] = [
     "buffer",
     "document",
     "enumerate",
@@ -132,8 +138,7 @@ pub fn words(source: &str) -> Vec<Word> {
                 test |= "cfg(test)" == attribute;
             }
             '(' | '[' | '{' => {
-                let frame = frames.last().expect("the outermost frame is never closed");
-                let repetition = opens_a_repetition(character, frame);
+                let repetition = opens_a_repetition(character, &frames);
                 if '(' == character {
                     if let Some(spoken) = spoken {
                         words[spoken].called = true;
@@ -144,6 +149,7 @@ pub fn words(source: &str) -> Vec<Word> {
                 test &= !opens_a_test;
                 frames.push(Frame {
                     header: Vec::new(),
+                    bound: Vec::new(),
                     repetition,
                     test: opens_a_test,
                 });
@@ -169,6 +175,9 @@ pub fn words(source: &str) -> Vec<Word> {
                 let frame = frames
                     .last_mut()
                     .expect("the outermost frame is never closed");
+                if let Some(name) = hoisted(&frame.header).cloned() {
+                    frame.bound.push(name);
+                }
                 frame.header.clear();
                 test = false;
                 spoken = None;
@@ -214,10 +223,213 @@ pub fn words(source: &str) -> Vec<Word> {
     words
 }
 
+/// A `::`-joined path a source names, together with what the code around it makes of it.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Path {
+    segments: Vec<String>,
+    tested: bool,
+}
+
+impl Path {
+    #[must_use]
+    pub fn segments(&self) -> &[String] {
+        &self.segments
+    }
+
+    /// # Returns
+    ///
+    /// Whether the path sits inside a module that is compiled only for the tests, which is what
+    /// separates a module the application reaches from one only its own tests name.
+    #[must_use]
+    pub fn tested(&self) -> bool {
+        self.tested
+    }
+}
+
+/// Reads a Rust source into the paths it names.
+///
+/// # Returns
+///
+/// Every `::`-joined path the source names, in the order it names them, with the branches a `use`
+/// tree brackets written out one path each so that `use a::{b, c}` names `a::b` and `a::c` as
+/// plainly as two statements would. The modules the source declares are left out, because a
+/// declaration hands a module to the compiler without any code reaching for it.
+#[must_use]
+pub fn paths(source: &str) -> Vec<Path> {
+    let characters: Vec<char> = source.chars().collect();
+    let mut paths = Vec::new();
+    let mut walk = Walk::default();
+    let mut test = false;
+    let mut index = 0;
+
+    while index < characters.len() {
+        match characters[index] {
+            '/' if Some(&'/') == characters.get(index + 1) => {
+                index = line_comment(&characters, index);
+                walk.flush(&mut paths);
+            }
+            '/' if Some(&'*') == characters.get(index + 1) => {
+                index = block_comment(&characters, index);
+                walk.flush(&mut paths);
+            }
+            '"' => {
+                index = string(&characters, index);
+                walk.flush(&mut paths);
+            }
+            '\'' => {
+                index = character_literal(&characters, index);
+                walk.flush(&mut paths);
+            }
+            '#' => {
+                let (end, attribute) = attribute(&characters, index);
+                index = end;
+                walk.flush(&mut paths);
+                test |= "cfg(test)" == attribute;
+            }
+            ':' if Some(&':') == characters.get(index + 1) => {
+                walk.join();
+                index += 2;
+            }
+            '{' => {
+                let opens_a_test = test && !walk.joins();
+                test &= !opens_a_test;
+                walk.open(opens_a_test, &mut paths);
+                index += 1;
+            }
+            '}' => {
+                walk.close(&mut paths);
+                index += 1;
+            }
+            ';' => {
+                walk.flush(&mut paths);
+                test = false;
+                index += 1;
+            }
+            character if starts_a_word(character) => {
+                let end = word_end(&characters, index);
+                let text: String = characters[index..end].iter().collect();
+                if let Some(literal) = raw_string(&characters, &text, end) {
+                    index = literal;
+                    walk.flush(&mut paths);
+                } else {
+                    walk.segment(text, &mut paths);
+                    index = end;
+                }
+            }
+            character => {
+                if !character.is_whitespace() {
+                    walk.flush(&mut paths);
+                }
+                index += 1;
+            }
+        }
+    }
+    walk.flush(&mut paths);
+
+    paths
+}
+
+/// What an open brace bracketed, which decides what closing it does.
+#[derive(Debug)]
+enum Brace {
+    /// The branches of a `use` tree, which share the path written before the brace.
+    Group,
+
+    /// A block of code, which is a test's block where the attribute above it said so.
+    Block { test: bool },
+}
+
+/// Where a walk over the paths of a source has reached.
+#[derive(Debug, Default)]
+struct Walk {
+    groups: Vec<Vec<String>>,
+    braces: Vec<Brace>,
+    segments: Vec<String>,
+    joined: bool,
+    declaration: bool,
+    declaring: bool,
+}
+
+impl Walk {
+    /// Reads a `::`, which joins whatever comes next to the path being walked.
+    fn join(&mut self) {
+        self.joined = true;
+    }
+
+    /// # Returns
+    ///
+    /// Whether the walk is waiting on what a `::` joins.
+    fn joins(&self) -> bool {
+        self.joined
+    }
+
+    /// Reads a word, which either continues the path being walked or starts one of its own.
+    fn segment(&mut self, text: String, paths: &mut Vec<Path>) {
+        if self.joined {
+            self.joined = false;
+            self.segments.push(text);
+            return;
+        }
+
+        self.flush(paths);
+        self.declaration = self.declaring;
+        self.declaring = "mod" == text;
+        self.segments.push(text);
+    }
+
+    /// Reads an open brace, which brackets the branches of a `use` tree where a `::` is waiting on
+    /// it and a block of code otherwise.
+    fn open(&mut self, test: bool, paths: &mut Vec<Path>) {
+        if self.joined {
+            self.joined = false;
+            let mut prefix = self.groups.concat();
+            prefix.append(&mut self.segments);
+            self.groups.push(prefix);
+            self.braces.push(Brace::Group);
+            self.declaration = false;
+            return;
+        }
+
+        self.flush(paths);
+        self.braces.push(Brace::Block { test });
+    }
+
+    /// Reads a closing brace, which ends the last branch of a `use` tree it closes one of.
+    fn close(&mut self, paths: &mut Vec<Path>) {
+        self.flush(paths);
+        if let Some(Brace::Group) = self.braces.pop() {
+            self.groups.pop();
+        }
+    }
+
+    /// Writes down the path the walk has reached the end of, if it reached one that is named
+    /// rather than declared.
+    fn flush(&mut self, paths: &mut Vec<Path>) {
+        let declaration = self.declaration;
+        let branch = std::mem::take(&mut self.segments);
+        self.declaration = false;
+        self.joined = false;
+        if declaration || branch.is_empty() {
+            return;
+        }
+
+        let mut segments = self.groups.concat();
+        segments.extend(branch);
+        paths.push(Path {
+            segments,
+            tested: self
+                .braces
+                .iter()
+                .any(|brace| matches!(brace, Brace::Block { test: true })),
+        });
+    }
+}
+
 /// What a delimiter opened, which is what the words inside it are read against.
 #[derive(Debug, Default)]
 struct Frame {
     header: Vec<String>,
+    bound: Vec<String>,
     repetition: bool,
     test: bool,
 }
@@ -225,12 +437,16 @@ struct Frame {
 /// # Returns
 ///
 /// Whether a delimiter opens a repetition over a whole text, which is either a loop walking one or
-/// an adapter run over every element of one.
-fn opens_a_repetition(delimiter: char, frame: &Frame) -> bool {
-    let over_a_whole_text = frame
-        .header
-        .iter()
-        .any(|word| WHOLE_TEXT.contains(&word.as_str()));
+/// an adapter run over every element of one. A header naming a local the extent of a text was
+/// bound to names the text, so a bound that was hoisted out of the loop is read as one written
+/// into it.
+fn opens_a_repetition(delimiter: char, frames: &[Frame]) -> bool {
+    let Some(frame) = frames.last() else {
+        return false;
+    };
+    let over_a_whole_text = frame.header.iter().any(|word| {
+        WHOLE_TEXT.contains(&word.as_str()) || frames.iter().any(|outer| outer.bound.contains(word))
+    });
     match delimiter {
         '{' => {
             over_a_whole_text
@@ -248,6 +464,27 @@ fn opens_a_repetition(delimiter: char, frame: &Frame) -> bool {
         }
         _ => false,
     }
+}
+
+/// # Returns
+///
+/// The name a statement binds the whole of a text to, or [`None`] where the statement binds no
+/// such name. `let end = source.len();` binds one, and a loop reading `end` afterwards walks the
+/// text `source` holds however far from the loop the measurement was written.
+fn hoisted(header: &[String]) -> Option<&String> {
+    let mut words = header.iter();
+    if Some("let") != words.next().map(String::as_str) {
+        return None;
+    }
+
+    let mut name = words.next()?;
+    if "mut" == name {
+        name = words.next()?;
+    }
+
+    words
+        .any(|word| WHOLE_TEXT.contains(&word.as_str()))
+        .then_some(name)
 }
 
 /// # Returns
