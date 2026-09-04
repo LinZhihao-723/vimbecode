@@ -21,11 +21,11 @@ use vbc_oracle::state::EditorState;
 /// The number of cases whose cursor column the widths here account for, which is the sample the
 /// cross-check is worth. A case added to the corpus lands in the sample or in one of the lists
 /// below, and either way this number moves.
-const CURSOR_COLUMNS_ANCHORED: usize = 53;
+const CURSOR_COLUMNS_ANCHORED: usize = 101;
 
 /// The number of cases whose first screen row the widths here account for, which is the sample
 /// that cross-check is worth.
-const FIRST_ROWS_ANCHORED: usize = 62;
+const FIRST_ROWS_ANCHORED: usize = 136;
 
 /// The cases whose cursor vim draws at another column than the width of the text before it, with
 /// the reason.
@@ -69,8 +69,48 @@ const CURSOR_ON_A_TAB: [&str; 1] = ["tab-leading-indent-ts8"];
 ///
 /// A case that does not wrap scrolls its window sideways instead, which puts its cursor here for
 /// the same reason.
-const CURSOR_PAST_THE_FIRST_ROW: [&str; 14] = [
+const CURSOR_PAST_THE_FIRST_ROW: [&str; 54] = [
     "cjk-wide-cell-straddles-edge",
+    "matrix-tab-w20-ts4-carried",
+    "matrix-tab-w20-ts8-carried",
+    "matrix-tab-w24-ts8-carried",
+    "matrix-tab-w24-ts8-carried-breakindent",
+    "matrix-tab-w24-ts8-carried-showbreak",
+    "matrix-tab-w24-ts8-linebreak",
+    "matrix-tab-w28-ts8-straddle",
+    "matrix-tab-w28-ts8-straddle-breakindent",
+    "matrix-tab-w40-ts8-linebreak",
+    "matrix-w12-breakindent",
+    "matrix-w12-breakindent-showbreak",
+    "matrix-w12-linebreak",
+    "matrix-w12-linebreak-long-first-word",
+    "matrix-w12-nowrap",
+    "matrix-w12-plain",
+    "matrix-w12-showbreak",
+    "matrix-w20-breakindent",
+    "matrix-w20-breakindent-showbreak",
+    "matrix-w20-linebreak",
+    "matrix-w20-nowrap",
+    "matrix-w20-plain",
+    "matrix-w20-showbreak",
+    "matrix-w24-breakindent",
+    "matrix-w24-breakindent-showbreak",
+    "matrix-w24-linebreak",
+    "matrix-w24-nowrap",
+    "matrix-w24-plain",
+    "matrix-w24-showbreak",
+    "matrix-w40-breakindent",
+    "matrix-w40-breakindent-showbreak",
+    "matrix-w40-linebreak",
+    "matrix-w40-nowrap",
+    "matrix-w40-plain",
+    "matrix-w40-showbreak",
+    "matrix-w80-breakindent",
+    "matrix-w80-breakindent-showbreak",
+    "matrix-w80-linebreak",
+    "matrix-w80-nowrap",
+    "matrix-w80-plain",
+    "matrix-w80-showbreak",
     "nowrap-w20-cjk",
     "nowrap-w40-horizontal-scroll",
     "tab-wrapped-with-breakindent",
@@ -88,7 +128,7 @@ const CURSOR_PAST_THE_FIRST_ROW: [&str; 14] = [
 
 /// The cases whose first screen row vim fills with something other than the graphemes that fit in
 /// it, with the reason.
-const FIRST_ROW_DIVERGENCES: [(&str, &str); 11] = [
+const FIRST_ROW_DIVERGENCES: [(&str, &str); 17] = [
     (
         "cjk-wide-cell-straddles-edge",
         "vim marks a row whose last cell cannot hold the next double-width character with a `>`",
@@ -109,6 +149,12 @@ const FIRST_ROW_DIVERGENCES: [(&str, &str); 11] = [
         "flag-wrap-narrow-viewport",
         "vim draws each regional indicator two columns wide, a flag cluster two together",
     ),
+    ("matrix-tab-w40-ts8-linebreak", LINE_BREAK),
+    ("matrix-w12-linebreak", LINE_BREAK),
+    ("matrix-w20-linebreak", LINE_BREAK),
+    ("matrix-w24-linebreak", LINE_BREAK),
+    ("matrix-w40-linebreak", LINE_BREAK),
+    ("matrix-w80-linebreak", LINE_BREAK),
     (
         "word-b-zwj-family",
         "vim spells a zero-width joiner as the escape `<200d>`",
@@ -135,9 +181,28 @@ const FIRST_ROW_DIVERGENCES: [(&str, &str); 11] = [
     ),
 ];
 
+/// The reason vim ends a first row before the text that would still fit in it, which is a rule the
+/// width of that text says nothing about. `vbc-layout/tests/line_oracle.rs` compares these cases
+/// row by row against the same screen and finds no difference, so the layout is not in question
+/// here.
+const LINE_BREAK: &str =
+    "vim ends a word-wrapped row on a 'breakat' character rather than on the last grapheme that \
+     fits";
+
 /// The cases whose first screen row does not start at the start of the line, since a window that
 /// does not wrap scrolls sideways to keep the cursor in view.
-const FIRST_ROW_SCROLLED_SIDEWAYS: [&str; 2] = ["nowrap-w20-cjk", "nowrap-w40-horizontal-scroll"];
+const FIRST_ROW_SCROLLED_SIDEWAYS: [&str; 10] = [
+    "matrix-tab-w20-ts8-nowrap",
+    "matrix-tab-w24-ts8-nowrap",
+    "matrix-tab-w40-ts8-nowrap",
+    "matrix-w12-nowrap",
+    "matrix-w20-nowrap",
+    "matrix-w24-nowrap",
+    "matrix-w40-nowrap",
+    "matrix-w80-nowrap",
+    "nowrap-w20-cjk",
+    "nowrap-w40-horizontal-scroll",
+];
 
 #[test]
 fn cursor_columns_match_the_columns_vim_drew() {
