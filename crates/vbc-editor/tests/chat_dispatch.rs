@@ -158,9 +158,9 @@ fn yanking_a_code_block_from_a_keystroke_fills_the_register_with_its_source() ->
         .cloned()
         .expect("`yac` filled the unnamed register");
 
-    assert_eq!(CODE, held.text);
+    assert_eq!(format!("{CODE}\n"), held.text);
     assert_eq!(
-        Some(CODE.to_owned()),
+        Some(format!("{CODE}\n")),
         app.panel().register('+').map(|held| held.text),
         "what a reader took never reached the clipboard's register"
     );
@@ -290,7 +290,7 @@ fn every_structural_yank_takes_what_the_cursor_is_in_from_a_keystroke() {
         }
 
         assert_eq!(
-            Some(taken.to_owned()),
+            Some(format!("{taken}\n")),
             app.panel()
                 .registers()
                 .get(&'"')
