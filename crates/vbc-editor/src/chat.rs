@@ -31,10 +31,16 @@
 //! the editor's permission to write. A record of an exchange that already happened has no edits to
 //! make to it, so the keystrokes that would make one are refused rather than run, which is what
 //! [`policy`] is for.
+//!
+//! None of that is worth anything until a keystroke can arrive at it. The keys a transcript
+//! answers are entries of the editor's one keybinding table rather than of readers of their own,
+//! and [`dispatch`] is where they are bound and where a place in the text a reader moves through
+//! is carried back to the block and the byte it stands for.
 
 pub mod ansi;
 pub mod block;
 pub mod diff;
+pub mod dispatch;
 pub mod fold;
 pub mod object;
 pub mod policy;

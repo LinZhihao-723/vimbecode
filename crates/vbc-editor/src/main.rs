@@ -5,6 +5,11 @@
 //! vim's own keys at it until `q` ends it. Everything it draws and edits with is the library's:
 //! the binary contributes the terminal it draws into and the keys it reads, and nothing else.
 //!
+//! `<C-T>` moves the keys to the transcript of an exchange, which is read rather than written:
+//! `yac` takes the code that was fenced, `yad` takes an edit as the patch it was, `za` folds away
+//! what a tool wrote, and `x` says why it will not. The exchange is a built-in one, because a
+//! binary that could only show a transcript it was handed is a binary nobody can see one in.
+//!
 //! The terminal is put back the way it was found on every exit, including the one an error takes,
 //! because a program that leaves a terminal in raw mode leaves a shell nobody can type in.
 
@@ -20,6 +25,8 @@ use ratatui::backend::CrosstermBackend;
 use ratatui::layout::Rect;
 use ratatui::Terminal;
 use vbc_editor::app::{App, Outcome};
+use vbc_editor::chat::block::{Block, Kind, Role};
+use vbc_editor::chat::transcript::Transcript;
 use vbc_editor::event::reader::TerminalReader;
 use vbc_editor::event::{Config, Event, Source};
 use vbc_layout::buffer::Buffer;
@@ -34,7 +41,31 @@ The gutter numbers logical lines, so the rows that continue one are left blank.
 Type vim's own keys: motions, counts, registers, operators such as dw and 3dd, and gj by row.
 每一段都是一个逻辑行，可能会占据屏幕上的很多行。
 Press CTRL-D and CTRL-U to scroll half a window, CTRL-E and CTRL-Y one row.
+Press CTRL-T to read the transcript, and CTRL-T again to come back.
 Press q to quit.";
+
+/// The exchange the panel shows, which is a short one of each kind of block there is so that the
+/// keys a transcript answers have something to answer over: `yac` over the fenced code, `yad`
+/// over the diff, `yat` over what the tool wrote, and `za` over the fold the tool result heads.
+const ASKED: &str = "add a todo to main, and show me the diff";
+const ANSWERED: &str = "\
+Here is the line to add:
+
+```rust
+fn main() {
+    todo!();
+}
+```
+
+I ran the build to check it.";
+const THOUGHT: &str = "The file is tiny, so replacing the body is safe.";
+const RAN: &str = "cargo build";
+const WROTE: &str = "\
+   Compiling vimbecode v0.0.0
+    Finished `dev` profile in 0.42s";
+const EDITED: &str = "src/main.rs";
+const BEFORE: &str = "fn main() {}\n";
+const AFTER: &str = "fn main() {\n    todo!();\n}\n";
 
 /// # Returns
 ///
@@ -84,7 +115,30 @@ fn open() -> Result<App, Box<dyn Error>> {
         None => PASSAGE.to_owned(),
     };
 
-    Ok(App::new(Buffer::from_text(text.trim_end_matches('\n'))).with_status(true))
+    Ok(App::new(Buffer::from_text(text.trim_end_matches('\n')))
+        .with_status(true)
+        .with_transcript(said()))
+}
+
+/// # Returns
+///
+/// The exchange the transcript panel shows.
+fn said() -> Transcript {
+    [
+        Block::new(Kind::Message(Role::User), ASKED.to_owned()),
+        Block::new(Kind::Thinking, THOUGHT.to_owned()),
+        Block::new(Kind::Message(Role::Assistant), ANSWERED.to_owned()),
+        Block::new(
+            Kind::ToolCall {
+                name: "Bash".to_owned(),
+            },
+            RAN.to_owned(),
+        ),
+        Block::from_ansi(Kind::ToolResult, WROTE),
+        Block::diff(EDITED.to_owned(), BEFORE, AFTER),
+    ]
+    .into_iter()
+    .collect()
 }
 
 /// Takes the terminal over: raw mode, a screen of its own, and bracketed paste.

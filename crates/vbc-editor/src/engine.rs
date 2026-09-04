@@ -75,7 +75,7 @@ use modalkit::editing::buffer::{CursorGroupId, EditBuffer};
 use modalkit::editing::context::EditContext;
 use modalkit::editing::cursor::{Cursor, CursorGroup, CursorState};
 use modalkit::editing::rope::EditRope;
-use modalkit::editing::store::Store;
+use modalkit::editing::store::{RegisterCell, RegisterPutFlags, Store};
 use modalkit::env::vim::VimMode;
 use modalkit::key::TerminalKey;
 use vbc_layout::position::LogicalPosition;
@@ -141,6 +141,16 @@ impl From<TargetShape> for Shape {
             TargetShape::CharWise => Self::Charwise,
             TargetShape::LineWise => Self::Linewise,
             TargetShape::BlockWise => Self::Blockwise,
+        }
+    }
+}
+
+impl From<Shape> for TargetShape {
+    fn from(shape: Shape) -> Self {
+        match shape {
+            Shape::Charwise => Self::CharWise,
+            Shape::Linewise => Self::LineWise,
+            Shape::Blockwise => Self::BlockWise,
         }
     }
 }
@@ -359,6 +369,65 @@ impl Engine {
         }
     }
 
+    /// # Returns
+    ///
+    /// The two ends of the selection the keys typed so far are making and the shape it takes, or
+    /// [`None`] where they are making none. The first end is the one the cursor is at and the
+    /// second the one the selection is anchored at, which is where it was started.
+    pub fn selection(&mut self) -> Option<(Position, Position, Shape)> {
+        let (cursor, anchor, shape) = self.text.get_leader_selection(self.group)?;
+
+        Some((self.located(&cursor), self.located(&anchor), shape.into()))
+    }
+
+    /// Rests a selection of the shape `shape` between `anchor` and `cursor`, wherever the keys
+    /// typed so far left one.
+    pub fn select(&mut self, cursor: Position, anchor: Position, shape: Shape) {
+        let leader =
+            CursorState::Selection(self.cursored(cursor), self.cursored(anchor), shape.into());
+        self.text
+            .set_group(self.group, CursorGroup::new(leader, Vec::new()));
+    }
+
+    /// # Returns
+    ///
+    /// What the register named `name` holds, or [`None`] where it holds nothing. Unlike
+    /// [`Engine::registers`], which answers with the registers a run is compared against vim's
+    /// own by, this reads whichever register was asked for, the clipboard's among them.
+    #[must_use]
+    pub fn register(&self, name: char) -> Option<Held> {
+        let cell = self.store.registers.get(&slot(name)).ok()?;
+        let text = cell.value.to_string();
+
+        (!text.is_empty()).then(|| Held {
+            text,
+            shape: cell.shape.into(),
+        })
+    }
+
+    /// Writes `held` into the register named `name`, as a yank the engine ran itself would.
+    pub fn fill(&mut self, name: char, held: &Held) {
+        let cell = RegisterCell::new(held.shape.into(), EditRope::from(held.text.as_str()));
+        let _ = self
+            .store
+            .registers
+            .put(&slot(name), cell, RegisterPutFlags::NONE);
+    }
+
+    /// Replaces the text being edited with `text`, leaving the registers as they stand.
+    ///
+    /// This is not an edit: it is how a panel whose text is a projection of something else -- a
+    /// transcript whose folds have opened or closed -- hands the engine the projection it now
+    /// draws. The cursor is taken to the start of the new text, since the place it rested is a
+    /// place the old projection named.
+    pub fn reload(&mut self, text: &str) {
+        self.text.set_text(text);
+        self.text.set_group(
+            self.group,
+            CursorGroup::new(CursorState::Location(Cursor::new(0, 0)), Vec::new()),
+        );
+    }
+
     /// Rests the cursor at `at`, wherever the keys typed so far left it.
     ///
     /// A window scrolled by something other than a keystroke carries the cursor with it, and an
@@ -410,6 +479,32 @@ impl Engine {
         }
 
         held
+    }
+
+    /// # Returns
+    ///
+    /// Where `cursor` rests, counted in bytes rather than in the characters modalkit counts a
+    /// column in.
+    fn located(&self, cursor: &Cursor) -> Position {
+        let line = self.line(cursor.y);
+
+        Position {
+            line: cursor.y,
+            column: line.chars().take(cursor.x).map(char::len_utf8).sum(),
+        }
+    }
+
+    /// # Returns
+    ///
+    /// `at` as modalkit counts a cursor, whose column is a character offset.
+    fn cursored(&self, at: Position) -> Cursor {
+        let line = self.line(at.line);
+        let column = line
+            .char_indices()
+            .take_while(|(offset, _)| *offset < at.column)
+            .count();
+
+        Cursor::new(at.line, column)
     }
 
     /// Runs one of the actions a keystroke produced.

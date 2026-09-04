@@ -34,18 +34,6 @@ use vbc_layout::anchor::Wrapping;
 use crate::chat::block::{Block, Kind, RenderedRow, RowWindow};
 use crate::chat::transcript::Transcript;
 
-/// The key a fold command is typed after in vim.
-pub const PREFIX: char = 'z';
-
-/// The key each fold command is bound to after [`PREFIX`].
-const BINDINGS: [(char, Command); 5] = [
-    ('M', Command::CloseAll),
-    ('R', Command::OpenAll),
-    ('a', Command::Toggle),
-    ('c', Command::Close),
-    ('o', Command::Open),
-];
-
 /// What is written before the summary of a fold, and the character repeated once per depth after
 /// it, which is how vim draws a fold's own line.
 const SUMMARY_MARK: char = '+';
@@ -80,48 +68,6 @@ pub enum Command {
 
     /// `zM`: close every fold, at every depth.
     CloseAll,
-}
-
-impl Command {
-    /// Reads a sequence of typed keys as a fold command.
-    ///
-    /// # Returns
-    ///
-    /// What `keys` are: a fold command, the start of one, or neither.
-    #[must_use]
-    pub fn read(keys: &str) -> Reading {
-        let mut typed = keys.chars();
-        let Some(prefix) = typed.next() else {
-            return Reading::Pending;
-        };
-        if PREFIX != prefix {
-            return Reading::Unbound;
-        }
-        let Some(key) = typed.next() else {
-            return Reading::Pending;
-        };
-        if typed.next().is_some() {
-            return Reading::Unbound;
-        }
-
-        BINDINGS
-            .iter()
-            .find(|(bound, _)| key == *bound)
-            .map_or(Reading::Unbound, |(_, command)| Reading::Bound(*command))
-    }
-}
-
-/// What a sequence of typed keys turned out to be.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum Reading {
-    /// The keys are a fold command.
-    Bound(Command),
-
-    /// The keys are the start of a fold command and not yet one.
-    Pending,
-
-    /// The keys are no fold command.
-    Unbound,
 }
 
 /// How a block arrived nested: the id a call to a tool is answered under, and the id of the call
@@ -724,7 +670,7 @@ mod tests {
     use crate::chat::block::{Block, Kind, Role};
     use crate::chat::transcript::Transcript;
 
-    use super::{Command, Entry, Fold, Folds, Position, Reading, Row, Tag, View};
+    use super::{Command, Entry, Fold, Folds, Position, Row, Tag, View};
 
     /// The width the fixtures are drawn at, at which none of them wraps.
     const UNWRAPPED: usize = 64;
@@ -735,31 +681,6 @@ mod tests {
     /// The ids the fixture's calls are answered under.
     const OUTER: &str = "toolu_outer";
     const INNER: &str = "toolu_inner";
-
-    #[test]
-    fn every_fold_command_is_read_from_the_keys_vim_binds_it_to() {
-        for (keys, command) in [
-            ("za", Command::Toggle),
-            ("zo", Command::Open),
-            ("zc", Command::Close),
-            ("zR", Command::OpenAll),
-            ("zM", Command::CloseAll),
-        ] {
-            assert_eq!(Reading::Bound(command), Command::read(keys));
-        }
-
-        for keys in ["", "z"] {
-            assert_eq!(Reading::Pending, Command::read(keys));
-        }
-
-        for keys in ["zx", "zA", "zr", "zm", "a", "gg", "zaa", "az"] {
-            assert_eq!(
-                Reading::Unbound,
-                Command::read(keys),
-                "{keys:?} was read as a fold command"
-            );
-        }
-    }
 
     #[test]
     fn a_tool_call_a_tool_result_and_a_thought_fold_and_the_conversation_itself_does_not() {

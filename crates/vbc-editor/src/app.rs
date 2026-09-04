@@ -28,6 +28,12 @@
 //! property the anchor-relative layout was built for, and a keystroke costs about two and a half
 //! milliseconds over fifty thousand lines against a twentieth of one over a hundred.
 //!
+//! The application draws two things and gives the keys to one of them at a time. `<C-T>` moves
+//! between the file being edited and the transcript of what was said, and it is read ahead of
+//! everything else because a panel reachable only from normal mode is a panel insert mode hides.
+//! While the transcript has the keys they go to its own panel, which reads them through the same
+//! table with the transcript's own sequences bound in it and refuses every one that would write.
+//!
 //! The window is measured from the area a frame is drawn into rather than stored, so a terminal
 //! that was resized between two frames draws the second one at its new size without being told,
 //! and the engine is laid out in that same window so that a display motion is measured in the
@@ -51,17 +57,25 @@ use vbc_layout::position::LogicalPosition;
 use vbc_layout::viewport::{Command, Viewport};
 use vbc_layout::width::{grapheme_indices, Metrics};
 
+use crate::chat::block::RenderedRow;
+use crate::chat::fold::Position as Placed;
+use crate::chat::policy::{Drawn, Panel, REFUSAL};
+use crate::chat::transcript::Transcript;
 use crate::engine::{self, Engine};
 use crate::event::{Event, KeyEvent};
 use crate::gutter::{Gutter, Options as GutterOptions};
 use crate::render::{cursor_cell, Renderer};
 use crate::screen::{self, Error, Geometry, Screen};
+use crate::style::StyledRow;
 
 /// What the status line says in each of the modes vim names in it, which is nothing at all in
 /// normal mode because vim says nothing there either.
 const INSERTING: &str = "-- INSERT --";
 const SELECTING: &str = "-- SELECT --";
 const VISUAL: &str = "-- VISUAL --";
+
+/// What the status line says while the transcript panel has the keys.
+const READING: &str = "-- TRANSCRIPT --";
 
 /// What a keystroke left the application asking for.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -91,6 +105,19 @@ pub struct App {
     scrolloff: usize,
     status: bool,
     notice: Option<String>,
+    panel: Panel,
+    focus: Focus,
+    top: Placed,
+}
+
+/// Which of the two things the application draws the keys are typed at.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Focus {
+    /// The file being edited.
+    Text,
+
+    /// The transcript of what was said, which is read rather than written.
+    Transcript,
 }
 
 impl App {
@@ -116,10 +143,24 @@ impl App {
             scrolloff: 0,
             status: false,
             notice: None,
+            panel: Panel::new(Transcript::new()),
+            focus: Focus::Text,
+            top: Placed::new(0, 0),
         };
         app.adopt();
 
         app
+    }
+
+    /// # Returns
+    ///
+    /// This application showing `transcript` in the panel `<C-T>` reaches.
+    #[must_use]
+    pub fn with_transcript(mut self, transcript: Transcript) -> Self {
+        self.panel = Panel::new(transcript);
+        self.top = Placed::new(0, 0);
+
+        self
     }
 
     /// # Returns
@@ -202,6 +243,21 @@ impl App {
 
     /// # Returns
     ///
+    /// Which of the two things the application draws the keys are typed at.
+    #[must_use]
+    pub fn focus(&self) -> Focus {
+        self.focus
+    }
+
+    /// # Returns
+    ///
+    /// The transcript panel the keys reach while it has the focus.
+    pub fn panel(&mut self) -> &mut Panel {
+        &mut self.panel
+    }
+
+    /// # Returns
+    ///
     /// What the last keystroke could not do, and [`None`] where it did what it asked for.
     #[must_use]
     pub fn notice(&self) -> Option<&str> {
@@ -216,6 +272,9 @@ impl App {
     pub fn status(&self) -> &str {
         if let Some(notice) = &self.notice {
             return notice;
+        }
+        if Focus::Transcript == self.focus {
+            return READING;
         }
 
         match self.mode() {
@@ -260,6 +319,9 @@ impl App {
     pub fn draw(&self, cells: &mut Cells, area: Rect) -> Option<Position> {
         let (body, status) = self.split(area);
         self.draw_status(cells, status);
+        if Focus::Transcript == self.focus {
+            return self.draw_panel(cells, body);
+        }
 
         let geometry = self.geometry(area)?;
         let screen = Screen::of(&self.text, &self.viewport, self.cursor, &geometry);
@@ -322,6 +384,17 @@ impl App {
         if interrupts(key) {
             return Outcome::Stops;
         }
+        if transcribes(key) {
+            self.focus = match self.focus {
+                Focus::Text => Focus::Transcript,
+                Focus::Transcript => Focus::Text,
+            };
+
+            return Outcome::Continues;
+        }
+        if Focus::Transcript == self.focus {
+            return self.read(area, key);
+        }
         self.dispatch(area, |engine| engine.press(key));
 
         let unbound = self
@@ -354,7 +427,9 @@ impl App {
     /// into an area of `area`.
     ///
     /// Pasted text reaches the engine as the keys it stands for and reaches the application's own
-    /// keys not at all, so a paste ends no program and scrolls no window whatever it holds.
+    /// keys not at all, so a paste ends no program and scrolls no window whatever it holds. A
+    /// paste while the transcript has the keys reaches neither: what a reader pasted belongs to
+    /// the thing they were typing at, and that thing is one nothing writes to.
     ///
     /// # Returns
     ///
@@ -364,12 +439,20 @@ impl App {
             Event::Key(key) => self.press(area, *key),
             Event::Paste(_) => {
                 self.notice = None;
+                if Focus::Transcript == self.focus {
+                    self.notice = Some(REFUSAL.to_owned());
+
+                    return Outcome::Continues;
+                }
                 self.dispatch(area, |engine| engine.handle(event));
                 self.follow(area);
 
                 Outcome::Continues
             }
             Event::Resize { .. } => {
+                if let Some(geometry) = self.panel_geometry(area) {
+                    self.panel.resize(geometry);
+                }
                 if let Some(geometry) = self.geometry(area) {
                     self.engine.resize(geometry);
                 }
@@ -409,6 +492,142 @@ impl App {
         self.engine.place(self.cursor);
 
         Ok(())
+    }
+
+    /// Types one key at the transcript panel, scrolling it by the keys the panel binds nothing to.
+    ///
+    /// # Returns
+    ///
+    /// Whether the application goes on reading keys.
+    fn read(&mut self, area: Rect, key: KeyEvent) -> Outcome {
+        if let Some(scrolled) = rolled_by(key) {
+            let moved = if scrolled {
+                self.panel.below(self.top)
+            } else {
+                self.panel.above(self.top)
+            };
+            if let Some(top) = moved {
+                self.top = top;
+            }
+
+            return Outcome::Continues;
+        }
+        if let Some(geometry) = self.panel_geometry(area) {
+            self.panel.resize(geometry);
+        }
+        if let Err(error) = self.panel.press(key) {
+            self.notice = Some(error.to_string());
+        } else if let Some(refusal) = self.panel.refusal() {
+            self.notice = Some(refusal.to_string());
+        } else if let Some(notice) = self.panel.notice() {
+            self.notice = Some(notice.to_owned());
+        }
+
+        Outcome::Continues
+    }
+
+    /// Draws the rows of the transcript panel, top to bottom, and blanks what is left of the area
+    /// below them.
+    ///
+    /// A closed fold is drawn in the one row its summary is, unwrapped and cut to the columns
+    /// there are, and every other row is drawn from the block's own source in the styles the
+    /// block carries.
+    fn draw_panel(&self, cells: &mut Cells, area: Rect) -> Option<Position> {
+        let renderer = Renderer::new(self.metrics);
+        let drawn = self.panel.rows(self.top, usize::from(area.height));
+        for (index, row) in drawn.iter().enumerate() {
+            let Ok(at) = u16::try_from(index) else {
+                break;
+            };
+            match row {
+                Drawn::Summary(summary) => {
+                    for x in area.x..area.right() {
+                        cells[(x, area.y + at)].reset();
+                    }
+                    cells.set_stringn(
+                        area.x,
+                        area.y + at,
+                        summary.text(),
+                        usize::from(area.width),
+                        Style::default(),
+                    );
+                }
+                Drawn::Body { block, row } => {
+                    renderer.draw_styled_row(
+                        cells,
+                        area,
+                        at,
+                        row.styled(),
+                        continues(drawn.get(index + 1), *block, row),
+                    );
+                }
+            }
+        }
+        blank(cells, area, narrowed(drawn.len()));
+
+        self.panel_cursor(&drawn, area)
+    }
+
+    /// # Returns
+    ///
+    /// The cell of `area` a terminal should rest the cursor in while the transcript has the keys,
+    /// or [`None`] where the rows drawn do not hold the byte the cursor rests on, which is what a
+    /// panel scrolled away from its cursor has.
+    ///
+    /// A cursor resting on a closed fold rests on the first column of the one row that fold is
+    /// drawn in, as vim's does, because the row is drawn from no byte of the block it stands for
+    /// and there is no byte of it to place the cursor at.
+    fn panel_cursor(&self, drawn: &[Drawn], area: Rect) -> Option<Position> {
+        let at = self.panel.at();
+        let block = self.panel.transcript().block(at.block())?;
+        let source = block.source();
+        let start = source
+            .get(..at.offset())?
+            .rfind('\n')
+            .map_or(0, |separator| separator + 1);
+        let grapheme = grapheme_indices(source.get(start..at.offset())?).count();
+        for (index, row) in drawn.iter().enumerate() {
+            match row {
+                Drawn::Summary(summary) if at.block() == summary.head() => {
+                    return folded_cell(area, narrowed(index));
+                }
+                Drawn::Summary(_) => {}
+                Drawn::Body {
+                    block: drawn_from,
+                    row,
+                } => {
+                    let held = row.source();
+                    if at.block() != *drawn_from
+                        || at.offset() < held.start
+                        || held.end < at.offset()
+                    {
+                        continue;
+                    }
+
+                    return cursor_cell(area, narrowed(index), row.styled().row(), grapheme);
+                }
+            }
+        }
+
+        None
+    }
+
+    /// # Returns
+    ///
+    /// The geometry the transcript panel is laid out in, which is the whole of the area the text
+    /// would be drawn in because a transcript is drawn without a gutter, or [`None`] where the
+    /// area is too small to draw a column of text or a row of one in.
+    fn panel_geometry(&self, area: Rect) -> Option<Geometry> {
+        let text = self.split(area).0;
+
+        Some(
+            Geometry::new(
+                NonZeroUsize::new(usize::from(text.width))?,
+                NonZeroUsize::new(usize::from(text.height))?,
+            )
+            .with_metrics(self.metrics)
+            .with_options(self.options.clone()),
+        )
     }
 
     /// Draws the status line into the row it was given, which is nothing at all where it was given
@@ -544,6 +763,17 @@ fn blank(cells: &mut Cells, area: Rect, top: u16) {
 
 /// # Returns
 ///
+/// The cell of `area` the cursor rests in on the row a closed fold is drawn in, which is the
+/// first column of the row `screen_row`, or [`None`] where the area has no such row.
+fn folded_cell(area: Rect, screen_row: u16) -> Option<Position> {
+    (screen_row < area.height).then(|| Position {
+        x: area.x,
+        y: area.y + screen_row,
+    })
+}
+
+/// # Returns
+///
 /// `columns` as a terminal coordinate, saturated at the widest a terminal can be.
 fn narrowed(columns: usize) -> u16 {
     u16::try_from(columns).unwrap_or(u16::MAX)
@@ -579,6 +809,52 @@ fn spelled(keys: &[TerminalKey]) -> String {
 /// Whether `key` is the interrupt a terminal sends, which stops the program from any mode.
 fn interrupts(key: KeyEvent) -> bool {
     KeyCode::Char('c') == key.code && key.modifiers.contains(KeyModifiers::CONTROL)
+}
+
+/// # Returns
+///
+/// Whether `key` moves the keys between the file and the transcript, which `<C-T>` does from
+/// either of them and from any mode, because a panel that could only be reached from normal mode
+/// is a panel insert mode hides.
+fn transcribes(key: KeyEvent) -> bool {
+    KeyCode::Char('t') == key.code && key.modifiers.contains(KeyModifiers::CONTROL)
+}
+
+/// # Returns
+///
+/// Whether `key` scrolls the transcript panel and whether it scrolls it downward, or [`None`]
+/// where it scrolls it not at all.
+fn rolled_by(key: KeyEvent) -> Option<bool> {
+    if !key.modifiers.contains(KeyModifiers::CONTROL) {
+        return None;
+    }
+
+    match key.code {
+        KeyCode::Char('e') => Some(true),
+        KeyCode::Char('y') => Some(false),
+        _ => None,
+    }
+}
+
+/// # Returns
+///
+/// The row that follows `row` of the block `block` within the same logical line, which is what
+/// says whether the cells the row has left over are the ones a wide character is marked in, and
+/// [`None`] where the next row drawn begins a logical line of its own.
+fn continues<'row>(
+    next: Option<&'row Drawn>,
+    block: usize,
+    row: &RenderedRow,
+) -> Option<&'row StyledRow> {
+    match next {
+        Some(Drawn::Body {
+            block: below,
+            row: following,
+        }) if block == *below && row.styled().row().line() == following.styled().row().line() => {
+            Some(following.styled())
+        }
+        _ => None,
+    }
 }
 
 /// # Returns
