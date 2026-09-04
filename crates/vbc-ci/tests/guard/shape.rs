@@ -501,8 +501,9 @@ fn hoisted(frames: &[Frame]) -> Option<&String> {
 
 /// # Returns
 ///
-/// Whether a word names the whole of a text, which it does by being one of the words that name one
-/// and by being a local one was bound to in a block that is still open.
+/// Whether a word names the whole of a text, which it does either by being one of the words that
+/// name one or by being a local one was bound to in a block that is still open, so that a chain of
+/// such locals names a text as plainly as the measurement at the head of it does.
 fn names_a_whole_text(word: &str, frames: &[Frame]) -> bool {
     WHOLE_TEXT.contains(&word)
         || frames
