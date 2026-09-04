@@ -310,6 +310,7 @@ pub struct Keys {
     pending: Vec<TerminalKey>,
     operator: Option<Operator>,
     reading_register: bool,
+    unbound: Option<Vec<TerminalKey>>,
     queue: VecDeque<(Action, EditContext)>,
 }
 
@@ -340,6 +341,7 @@ impl Keys {
             pending: Vec::new(),
             operator: None,
             reading_register: false,
+            unbound: None,
             queue: VecDeque::new(),
         }
     }
@@ -363,14 +365,19 @@ impl Keys {
         self.mode
     }
 
-    /// Types one key at the machine, queueing whatever it completes.
+    /// Types one key at the machine, queueing whatever it completes and recording whatever it
+    /// dropped.
     pub fn input_key(&mut self, typed: TerminalKey) {
+        self.unbound = None;
         if self.reading_register {
             self.reading_register = false;
-            if let Some((register, append)) = register_of(typed) {
-                self.register = Some(register);
-                self.register_append = append;
-            }
+            let Some((register, append)) = register_of(typed) else {
+                self.unbound = Some(vec![self.bindings.register, typed]);
+
+                return;
+            };
+            self.register = Some(register);
+            self.register_append = append;
 
             return;
         }
@@ -401,6 +408,16 @@ impl Keys {
         self.queue.pop_front()
     }
 
+    /// # Returns
+    ///
+    /// The keys the last one typed was dropped as, oldest first, and [`None`] where it carried a
+    /// sequence further or completed one. A key no table answers is dropped rather than run, and a
+    /// caller that says nothing about it is a caller whose keystroke vanished.
+    #[must_use]
+    pub fn unbound(&self) -> Option<&[TerminalKey]> {
+        self.unbound.as_deref()
+    }
+
     /// Looks `typed` up in the table, firing what it completes and abandoning what it kills.
     fn matched(&mut self, typed: TerminalKey) {
         self.pending.push(typed);
@@ -424,6 +441,7 @@ impl Keys {
 
             return;
         }
+        self.unbound = Some(self.dropped(typed));
         self.abandon();
     }
 
@@ -646,9 +664,13 @@ impl Keys {
     /// nothing anywhere else.
     fn unmapped(&mut self, typed: TerminalKey) {
         if VimMode::Insert != self.mode {
+            self.unbound = Some(vec![typed]);
+
             return;
         }
         let Some(character) = typed.get_char() else {
+            self.unbound = Some(vec![typed]);
+
             return;
         };
         let action: Action = EditorAction::InsertText(InsertTextAction::Type(
@@ -659,6 +681,21 @@ impl Keys {
         .into();
         let context = self.take();
         self.queue.push_back((action, context));
+    }
+
+    /// # Returns
+    ///
+    /// The keys a sequence ending in `typed` was typed by, which is the operator waiting for a
+    /// target, the keys typed at it so far and the one that completed none of them.
+    fn dropped(&self, typed: TerminalKey) -> Vec<TerminalKey> {
+        let mut dropped = self
+            .operator
+            .as_ref()
+            .map_or_else(Vec::new, |operator| operator.keys.clone());
+        dropped.extend_from_slice(&self.pending);
+        dropped.push(typed);
+
+        dropped
     }
 
     /// Abandons a sequence no binding can complete, leaving the text as it stands.

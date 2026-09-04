@@ -230,6 +230,19 @@ impl Screen {
     }
 }
 
+/// # Returns
+///
+/// `viewport` where `text` still holds the row it is anchored to, and a viewport at the top of the
+/// text where an edit has taken that row away.
+#[must_use]
+pub fn held(text: &Buffer, viewport: Viewport) -> Viewport {
+    if text.line_count() <= viewport.anchor() {
+        return Viewport::new();
+    }
+
+    viewport
+}
+
 /// Scrolls a viewport by one command, under the geometry the screen it draws is laid out to.
 ///
 /// # Returns

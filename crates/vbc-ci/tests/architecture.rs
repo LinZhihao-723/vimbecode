@@ -263,7 +263,7 @@ const HELD_APART: [&str; 1] = ["vbc_layout::invariants"];
 /// The modules no run of a binary arrives at yet. Each is work the application has drifted away
 /// from rather than work that is wrong, and each is written down so that a module joining them
 /// fails this rule and a module wired up to a keystroke fails it until its line is struck out.
-const ORPHANED: [&str; 18] = [
+const ORPHANED: [&str; 14] = [
     "vbc_editor::chat",
     "vbc_editor::chat::ansi",
     "vbc_editor::chat::block",
@@ -278,10 +278,6 @@ const ORPHANED: [&str; 18] = [
     "vbc_editor::clipboard::helper",
     "vbc_editor::clipboard::protocol",
     "vbc_editor::clipboard::reader",
-    "vbc_editor::engine",
-    "vbc_editor::indent",
-    "vbc_editor::keys",
-    "vbc_editor::shim",
 ];
 
 /// A scan of a tree, which reads every crate and every module of it and says what it found.
