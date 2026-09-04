@@ -1,36 +1,42 @@
-//! The invariant search over the reference layout: that it survives a hundred thousand generated
-//! views, that the harness catches each invariant being broken, that a failure is reported as a
-//! shrunk case with a replayable seed, and that the generator really draws the text and the
-//! options the search is only useful for covering.
+//! The invariant search over the reference layout: that it survives a million generated views,
+//! that the harness catches each invariant being broken, that a failure is reported as a shrunk
+//! case with a replayable seed, and that the generator really draws the text and the options the
+//! search is only useful for covering.
 //!
-//! A hundred thousand views is minutes of search rather than seconds, and a soak everybody's
-//! `cargo test` pays for is a soak somebody eventually shrinks. So it is the one test here the
-//! default run skips, and continuous integration runs it on every pull request instead.
+//! A million views is minutes of search rather than seconds, and a soak everybody's `cargo test`
+//! pays for is a soak somebody eventually shrinks. So it is kept out of the default run, as is the
+//! memory soak the same search is measured through, and continuous integration runs both on every
+//! pull request instead.
 //!
-//! What makes that a gate rather than a way of quietly losing the soak is read here too, because
+//! What makes that a gate rather than a way of quietly losing a soak is read here too, because
 //! neither half of it fails on its own: a workflow step nobody runs is green, and a filter that
 //! matches no test reports success just as loudly as one that matches. The workflow is therefore
-//! required to run the soak from an unconditional job, by the name and with the flags that really
-//! run it, and the soak is required to be the only test of this crate the default run leaves out
-//! and to be declared in the target that workflow names, since a soak moved into another source
-//! answers to the filter no better than a renamed one.
+//! required to run each soak from an unconditional job, by the name and with the flags that really
+//! run it, and the soaks are required to be the only tests of this crate the default run leaves
+//! out and to be declared in the targets that workflow names, since a soak moved into another
+//! source answers to the filter no better than a renamed one.
 
 mod fuzz;
 
 use std::fs;
+use std::num::NonZeroU32;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 use proptest::strategy::{Strategy, ValueTree};
 use proptest::test_runner::{Config, TestRunner};
 
 use fuzz::harness::{
-    layout_input, search, FuzzFailure, LayoutInput, Seed, DEFAULT_CASES, FLAG, ZWJ_FAMILY,
+    layout_input, search, sharded_search, FuzzFailure, LayoutInput, Seed, DEFAULT_CASES, FLAG,
+    ZWJ_FAMILY,
 };
 use fuzz::reference::WholeDocumentLayout;
 use fuzz::violations::{
     DropsAGrapheme, MergesLastCell, OverdrawsRows, OverflowsEndOfLine, PadsWithAnEmptyRow,
 };
-use vbc_layout::invariants::{graphemes, Invariant, Layout};
+use vbc_layout::invariants::{
+    graphemes, DisplayPosition, Invariant, Layout, LogicalPosition, Screen, View,
+};
 use vbc_layout::line;
 use vbc_layout::width::{AmbiWidth, DEFAULT_TAB_STOP};
 
@@ -43,21 +49,43 @@ const ALTERNATE_SEED: Seed = Seed::new(0x6C61_796F_7574_0001);
 /// The number of cases the search over the reference layout runs. A layout defect that shows up
 /// on one case in ten thousand is a defect a reader meets, so the search is run at a scale that
 /// meets it too, which is the scale that keeps it out of the default run.
-const SOAK_CASES: u32 = 100_000;
+const SOAK_CASES: u32 = 1_000_000;
 
 /// The least a soak may search and still be one. A search shrunk until it fits a default run is
 /// the cheapest way to lose one, and it is the only way that would leave every test here green, so
 /// it stops the crate compiling instead.
-const LEAST_SOAK_CASES: u32 = 100_000;
+const LEAST_SOAK_CASES: u32 = 1_000_000;
 const _: () = assert!(LEAST_SOAK_CASES <= SOAK_CASES, "the soak stopped soaking");
 
+/// The shards the soak splits its cases across. It is a fixed count rather than one shard per
+/// processor so that the same million cases are searched on every machine and a shard's reported
+/// seed replays the same cases everywhere.
+const SOAK_SHARDS: NonZeroU32 = NonZeroU32::new(16).expect("a search runs on at least one shard");
+
+/// The cases the sharded search is checked over, which is not a multiple of [`SOAK_SHARDS`] so
+/// that a shared-out remainder is checked to be searched rather than dropped.
+const SHARDED_CASES: u32 = 1_000;
+
 /// The soak's own name, which is the name continuous integration runs it by.
-const SOAK_TEST: &str = "the_reference_layout_survives_a_hundred_thousand_cases";
+const SOAK_TEST: &str = "the_reference_layout_survives_a_million_cases";
 
 /// The test target the soak is written in, which continuous integration names to run it.
 const SOAK_TARGET: &str = "layout_fuzz";
 
-/// The workflow that must run the soak, and the job of it that every pull request runs.
+/// The memory soak's name and the target it is written in, which continuous integration names the
+/// same way. It is a run of its own rather than a check folded into the search above because it
+/// measures the heap through an allocator only its own target installs.
+const MEMORY_SOAK_TEST: &str = "the_long_run_leaves_the_heap_where_it_found_it";
+const MEMORY_SOAK_TARGET: &str = "layout_soak_memory";
+
+/// Every test the default run leaves out, as the target and the name continuous integration has to
+/// give to run it.
+const SOAKS: [(&str, &str); 2] = [
+    (SOAK_TARGET, SOAK_TEST),
+    (MEMORY_SOAK_TARGET, MEMORY_SOAK_TEST),
+];
+
+/// The workflow that must run the soaks, and the job of it that every pull request runs.
 const WORKFLOW: [&str; 3] = [".github", "workflows", "ci.yaml"];
 const WORKFLOW_JOB: &str = "test";
 
@@ -96,6 +124,89 @@ const COVERAGE_CASES: usize = 2_000;
 /// above what the generator's unconstrained arm reaches on its own so that dropping a deliberate
 /// arm turns this into a failing test rather than a smaller number nobody reads.
 const HARD_SHAPE_CASES: usize = 420;
+
+/// A layout that draws every view the way the reference layout does and records the views it was
+/// asked to draw, so that a sharded search can be shown to run every case it was given, and to run
+/// each of them on the shard whose own seed generates it.
+///
+/// Counting the views is not enough on its own: a search that ran one shard's cases on all sixteen
+/// shards would draw as many views as one that ran sixteen shards' worth, and would search a
+/// sixteenth of what it reported.
+#[derive(Debug, Default)]
+struct RecordsViews {
+    views: Mutex<Vec<String>>,
+}
+
+impl RecordsViews {
+    /// # Returns
+    ///
+    /// The views this layout was asked to draw, sorted, since the shards of one search draw theirs
+    /// at the same time and in no order between them.
+    ///
+    /// # Panics
+    ///
+    /// Panics if a shard panicked while recording a view.
+    fn drawn(&self) -> Vec<String> {
+        let mut drawn = self
+            .views
+            .lock()
+            .expect("a shard does not panic while recording a view")
+            .clone();
+        drawn.sort();
+
+        drawn
+    }
+}
+
+impl Layout for RecordsViews {
+    fn lay_out(&self, view: View<'_>) -> Screen {
+        self.views
+            .lock()
+            .expect("a shard does not panic while recording a view")
+            .push(describe(view));
+
+        WholeDocumentLayout.lay_out(view)
+    }
+
+    fn display_position(
+        &self,
+        view: View<'_>,
+        position: LogicalPosition,
+    ) -> Option<DisplayPosition> {
+        WholeDocumentLayout.display_position(view, position)
+    }
+
+    fn logical_position(
+        &self,
+        view: View<'_>,
+        position: DisplayPosition,
+    ) -> Option<LogicalPosition> {
+        WholeDocumentLayout.logical_position(view, position)
+    }
+}
+
+/// # Returns
+///
+/// A view's text, window and cursor written out, which tells the cases one shard searched apart
+/// from the cases another did.
+fn describe(view: View<'_>) -> String {
+    format!(
+        "{} cursor at {} in {:?}",
+        view.viewport,
+        view.cursor,
+        view.buffer.lines()
+    )
+}
+
+/// # Returns
+///
+/// The share of [`SHARDED_CASES`] the shard at `index` searches, counted the way a search that
+/// shares its remainder out rather than dropping it has to count it.
+fn share(index: u32) -> u32 {
+    let shards = SOAK_SHARDS.get();
+
+    SHARDED_CASES / shards + u32::from(index < SHARDED_CASES % shards)
+}
 
 /// Draws cases from the generator a search runs over, so that what a search covers can be measured
 /// rather than assumed.
@@ -141,7 +252,28 @@ fn cases(seed: Seed, count: usize) -> Vec<LayoutInput> {
 ///
 /// Panics if the harness cleared the layout.
 fn expect_failure<LayoutType: Layout>(layout: &LayoutType, seed: Seed) -> FuzzFailure {
-    *search(layout, seed, DEFAULT_CASES)
+    expect_failure_over(layout, seed, DEFAULT_CASES)
+}
+
+/// Searches a layout that is known to be broken, over as many cases as a replay of it would run.
+///
+/// # Type Parameters
+///
+/// * `LayoutType` - The broken layout.
+///
+/// # Returns
+///
+/// The failure the harness found.
+///
+/// # Panics
+///
+/// Panics if the harness cleared the layout.
+fn expect_failure_over<LayoutType: Layout>(
+    layout: &LayoutType,
+    seed: Seed,
+    cases: u32,
+) -> FuzzFailure {
+    *search(layout, seed, cases)
         .expect_err("the harness must catch a layout that breaks an invariant")
 }
 
@@ -245,9 +377,9 @@ fn rests_past_a_full_row(input: &LayoutInput) -> bool {
 
 /// # Returns
 ///
-/// The command continuous integration must run the soak with, down to its flags.
-fn soak_command() -> String {
-    format!("cargo test -p vbc-layout --test {SOAK_TARGET} -- {SOAK_FLAGS} {SOAK_TEST}")
+/// The command continuous integration must run one soak with, down to its flags.
+fn soak_command((target, test): (&str, &str)) -> String {
+    format!("cargo test -p vbc-layout --test {target} -- {SOAK_FLAGS} {test}")
 }
 
 /// # Returns
@@ -268,11 +400,11 @@ fn workflow() -> String {
 
 /// # Returns
 ///
-/// What keeps `workflow` from running the soak on every pull request, empty if nothing does.
+/// What keeps `workflow` from running every soak on every pull request, empty if nothing does.
 fn unrun_by(workflow: &str) -> Vec<String> {
     let mut complaints = Vec::new();
-    let command = soak_command();
     let job = job(workflow, WORKFLOW_JOB);
+    let run = collapsed(&job);
 
     if !workflow.contains(PULL_REQUEST) {
         complaints.push(format!("the workflow is not triggered by `{PULL_REQUEST}`"));
@@ -284,8 +416,11 @@ fn unrun_by(workflow: &str) -> Vec<String> {
         let excuse = excuse.trim();
         complaints.push(format!("`{WORKFLOW_JOB}` is excused by `{excuse}`"));
     }
-    if !collapsed(&job).contains(&command) {
-        complaints.push(format!("`{WORKFLOW_JOB}` does not run `{command}`"));
+    for soak in SOAKS {
+        let command = soak_command(soak);
+        if !run.contains(&command) {
+            complaints.push(format!("`{WORKFLOW_JOB}` does not run `{command}`"));
+        }
     }
 
     complaints
@@ -339,24 +474,24 @@ fn collapsed(lines: &[&str]) -> String {
 
 /// # Returns
 ///
-/// The workflow with the step that runs the soak struck out of it.
-fn without_the_soak(workflow: &str) -> String {
+/// The workflow with the step that runs one soak struck out of it.
+fn without_the_soak(workflow: &str, (_, test): (&str, &str)) -> String {
     workflow
         .lines()
-        .filter(|line| !line.contains(SOAK_TEST))
+        .filter(|line| !line.contains(test))
         .collect::<Vec<_>>()
         .join("\n")
 }
 
 /// # Returns
 ///
-/// The workflow with the command that runs the soak commented out where it is written, which is a
+/// The workflow with the command that runs one soak commented out where it is written, which is a
 /// step that still reads as one and runs nothing.
-fn commented_out(workflow: &str) -> String {
+fn commented_out(workflow: &str, (target, test): (&str, &str)) -> String {
     workflow
         .lines()
         .map(|line| {
-            if !line.contains(SOAK_TARGET) && !line.contains(SOAK_TEST) {
+            if !line.contains(target) && !line.contains(test) {
                 return line.to_owned();
             }
             let command = line.trim_start();
@@ -370,7 +505,7 @@ fn commented_out(workflow: &str) -> String {
 
 /// # Returns
 ///
-/// The workflow with `excuse` written into the job that runs the soak.
+/// The workflow with `excuse` written into the job that runs the soaks.
 fn excused_by(workflow: &str, excuse: &str) -> String {
     let opening = format!("{JOB_KEY}{WORKFLOW_JOB}:\n");
 
@@ -497,44 +632,135 @@ fn the_reference_layout_satisfies_every_invariant() {
 
 #[test]
 #[ignore = "minutes of search; continuous integration runs it on every pull request"]
-fn the_reference_layout_survives_a_hundred_thousand_cases() {
-    if let Err(failure) = search(&WholeDocumentLayout, SEED, SOAK_CASES) {
+fn the_reference_layout_survives_a_million_cases() {
+    if let Err(failure) = sharded_search(&WholeDocumentLayout, SEED, SOAK_CASES, SOAK_SHARDS) {
         panic!("the reference layout broke an invariant:\n{failure}");
     }
 }
 
 #[test]
-fn the_default_run_skips_the_soak_and_nothing_else() {
-    assert_eq!(vec![format!("{SOAK_TARGET}::{SOAK_TEST}")], skipped_tests());
+fn a_sharded_search_runs_every_case_it_is_given() {
+    let layout = RecordsViews::default();
+    if let Err(failure) = sharded_search(&layout, SEED, SHARDED_CASES, SOAK_SHARDS) {
+        panic!("the recording layout broke an invariant:\n{failure}");
+    }
+
+    assert_eq!(SHARDED_CASES as usize, layout.drawn().len());
 }
 
 #[test]
-fn continuous_integration_runs_the_soak_on_every_pull_request() {
+fn a_sharded_search_searches_what_its_shards_searched() {
+    let sharded = RecordsViews::default();
+    if let Err(failure) = sharded_search(&sharded, SEED, SHARDED_CASES, SOAK_SHARDS) {
+        panic!("the recording layout broke an invariant:\n{failure}");
+    }
+
+    let mut by_shard: Vec<String> = (0..SOAK_SHARDS.get())
+        .flat_map(|shard| {
+            let layout = RecordsViews::default();
+            if let Err(failure) = search(&layout, SEED.shard(shard), share(shard)) {
+                panic!("the recording layout broke an invariant:\n{failure}");
+            }
+
+            layout.drawn()
+        })
+        .collect();
+    by_shard.sort();
+
+    assert_eq!(
+        by_shard,
+        sharded.drawn(),
+        "a sharded search did not search the cases its shards' own seeds generate, so it searches \
+         fewer cases than it is given"
+    );
+}
+
+#[test]
+fn every_shard_of_a_search_covers_its_own_cases() {
+    let mut found: Vec<String> = (0..SOAK_SHARDS.get())
+        .map(|shard| {
+            expect_failure(&OverdrawsRows, SEED.shard(shard))
+                .original
+                .to_string()
+        })
+        .collect();
+    let shards = found.len();
+    found.sort();
+    found.dedup();
+
+    assert_eq!(
+        shards,
+        found.len(),
+        "shards of one search repeat each other's cases, so a sharded soak searches fewer than it \
+         reports"
+    );
+}
+
+#[test]
+fn a_sharded_search_catches_a_broken_layout() {
+    let failure = *sharded_search(&MergesLastCell, SEED, SHARDED_CASES, SOAK_SHARDS)
+        .expect_err("the harness must catch a layout that breaks an invariant");
+
+    assert_violates(&failure, Invariant::RoundTrip);
+}
+
+#[test]
+fn a_printed_seed_replays_a_sharded_failure() {
+    let failure = *sharded_search(&MergesLastCell, SEED, SHARDED_CASES, SOAK_SHARDS)
+        .expect_err("the harness must catch a layout that breaks an invariant");
+    let replayed_seed: Seed = failure
+        .seed
+        .to_string()
+        .parse()
+        .expect("the printed seed must parse back");
+
+    assert_eq!(
+        failure,
+        expect_failure_over(&MergesLastCell, replayed_seed, failure.cases)
+    );
+}
+
+#[test]
+fn the_default_run_skips_the_soaks_and_nothing_else() {
+    let mut soaks: Vec<String> = SOAKS
+        .iter()
+        .map(|(target, test)| format!("{target}::{test}"))
+        .collect();
+    soaks.sort();
+
+    assert_eq!(soaks, skipped_tests());
+}
+
+#[test]
+fn continuous_integration_runs_the_soaks_on_every_pull_request() {
     assert_eq!(Vec::<String>::new(), unrun_by(&workflow()));
 }
 
 #[test]
-fn a_workflow_that_stopped_running_the_soak_is_caught() {
+fn a_workflow_that_stopped_running_a_soak_is_caught() {
     let workflow = workflow();
-    let stopped = [
-        without_the_soak(&workflow),
-        commented_out(&workflow),
+    let mut stopped = vec![
         excused_by(
             &workflow,
             &format!("{CONDITION} \"github.event_name == 'push'\""),
         ),
         excused_by(&workflow, &format!("{FORGIVEN} true")),
         workflow.replace(SOAK_FLAGS, "--exact"),
-        workflow.replace(SOAK_TEST, "a_test_by_another_name"),
         workflow.replace(&format!("{JOB_KEY}{WORKFLOW_JOB}:"), "  released:"),
         workflow.replace(PULL_REQUEST, "schedule:"),
     ];
+    for soak in SOAKS {
+        let (_, test) = soak;
+        stopped.push(without_the_soak(&workflow, soak));
+        stopped.push(commented_out(&workflow, soak));
+        stopped.push(workflow.replace(test, "a_test_by_another_name"));
+    }
 
     for workflow in stopped {
         assert_ne!(
             Vec::<String>::new(),
             unrun_by(&workflow),
-            "a workflow that stopped running the soak was passed:\n{workflow}"
+            "a workflow that stopped running a soak was passed:\n{workflow}"
         );
     }
 }

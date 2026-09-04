@@ -1,7 +1,12 @@
 //! The property-test harness that searches for views on which a layout breaks an invariant.
 //!
-//! A search is driven entirely by its [`Seed`], so a failure prints a seed that replays the search
-//! case for case. Failures are shrunk to a smaller view that still breaks the same invariant.
+//! A search is driven entirely by its [`Seed`], so a failure prints a seed and a case count that
+//! replay the search case for case. Failures are shrunk to a smaller view that still breaks the
+//! same invariant.
+//!
+//! A search of a million cases is split into shards searched in parallel, each shard a search of
+//! its own driven by a seed derived from the one it was given, so that a shard's failure replays
+//! the same way a whole search's does.
 //!
 //! The generated cases cover the text and the options a layout is hard on rather than the text it
 //! is easy on: tabs, joined emoji, flags, combining marks, and ambiguous-width letters, drawn into
@@ -17,8 +22,9 @@
 
 use std::cell::RefCell;
 use std::fmt::{Display, Formatter, Result as FmtResult};
-use std::num::{NonZeroUsize, ParseIntError};
+use std::num::{NonZeroU32, NonZeroUsize, ParseIntError};
 use std::str::FromStr;
+use std::thread;
 
 use proptest::prelude::*;
 use proptest::test_runner::{Config, RngAlgorithm, TestCaseError, TestError, TestRng, TestRunner};
@@ -93,6 +99,17 @@ impl Seed {
     #[must_use]
     pub const fn new(value: u64) -> Self {
         Self(value)
+    }
+
+    /// # Returns
+    ///
+    /// The seed the shard at `index` of a sharded search runs, which is a seed like any other and
+    /// replays that shard's cases on its own.
+    #[must_use]
+    pub const fn shard(self, index: u32) -> Self {
+        const STRIDE: u64 = 0xD1B5_4A32_D192_ED03;
+
+        Self(self.0.wrapping_add((index as u64).wrapping_mul(STRIDE)))
     }
 
     /// # Returns
@@ -188,6 +205,9 @@ pub struct FuzzFailure {
     /// The seed that replays the search which found this defect.
     pub seed: Seed,
 
+    /// The number of cases that search runs, which a replay needs as much as it needs the seed.
+    pub cases: u32,
+
     /// The first case the layout failed.
     pub original: LayoutInput,
 
@@ -205,7 +225,11 @@ impl Display for FuzzFailure {
         }
         writeln!(f, "shrunk from a case of size {}:", self.original.size())?;
         write!(f, "{}", self.minimal)?;
-        write!(f, "replay this search with seed {}", self.seed)
+        write!(
+            f,
+            "replay this search with seed {} over {} cases",
+            self.seed, self.cases
+        )
     }
 }
 
@@ -261,6 +285,7 @@ pub fn search<LayoutType: Layout>(
                 .expect("the failing case is recorded before it is shrunk");
             Err(Box::new(FuzzFailure {
                 seed,
+                cases,
                 original,
                 minimal,
                 violations,
@@ -268,6 +293,58 @@ pub fn search<LayoutType: Layout>(
         }
         Err(TestError::Abort(reason)) => panic!("the layout search was aborted: {reason}"),
     }
+}
+
+/// Searches a layout over `cases` generated views split evenly across `shards`, each shard
+/// searched on a thread of its own.
+///
+/// The shards are counted rather than taken from the machine, so that the same cases are searched
+/// wherever the search is run and a shard's reported seed replays the same cases everywhere.
+///
+/// # Type Parameters
+///
+/// * `LayoutType` - The layout under search.
+///
+/// # Returns
+///
+/// `Ok(())` if the layout survived every one of the `cases` generated views.
+///
+/// # Errors
+///
+/// Returns an error if:
+///
+/// * [`FuzzFailure`] if a view broke an invariant, holding the shrunk case, the seed of the shard
+///   that found it, and the number of cases that shard searched. It is boxed because a failure is
+///   far larger than the success it is returned alongside.
+///
+/// # Panics
+///
+/// Panics if a shard's search panics.
+pub fn sharded_search<LayoutType: Layout + Sync>(
+    layout: &LayoutType,
+    seed: Seed,
+    cases: u32,
+    shards: NonZeroU32,
+) -> Result<(), Box<FuzzFailure>> {
+    let shards = shards.get();
+    let searched = thread::scope(|scope| {
+        let running: Vec<_> = (0..shards)
+            .map(|shard| {
+                let share = cases / shards + u32::from(shard < cases % shards);
+                scope.spawn(move || search(layout, seed.shard(shard), share))
+            })
+            .collect();
+
+        running
+            .into_iter()
+            .map(|shard| shard.join().expect("a shard's search does not panic"))
+            .collect::<Vec<_>>()
+    });
+
+    searched
+        .into_iter()
+        .find_map(Result::err)
+        .map_or(Ok(()), Err)
 }
 
 /// # Returns
