@@ -410,7 +410,7 @@ fn a_plain_yank_reaches_the_clipboards_register_and_a_plain_put_reads_the_unname
     );
 
     let yanked = Held {
-        text: ASKED_TEXT.to_owned(),
+        text: format!("{ASKED_TEXT}\n"),
         shape: Shape::Linewise,
     };
     assert_eq!(Some(yanked.clone()), registers.get(UNNAMED));
