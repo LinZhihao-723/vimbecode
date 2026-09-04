@@ -56,6 +56,13 @@
 //! than the transcript it walks through, so a step over a closed fold costs one row however many
 //! lines that fold hides.
 //!
+//! Those two are two engines and one register file. Each of them has a text, a cursor and a mode
+//! of its own, and neither has registers of its own, because what a reader takes out of the
+//! transcript they mean to put into the file: an application that let each engine keep a file of
+//! its own would answer `yac` in the panel and `p` in the file with a yank into a drawer nothing
+//! opens, which is the gesture this editor exists for going nowhere. So the file is built once,
+//! where the engine is, and every panel the application builds afterwards is handed it.
+//!
 //! The window is measured from the area a frame is drawn into rather than stored, so a terminal
 //! that was resized between two frames draws the second one at its new size without being told,
 //! and the engine is laid out in that same window so that a display motion is measured in the
@@ -226,8 +233,10 @@ impl App {
     /// grapheme and a vim engine over it.
     #[must_use]
     pub fn new(text: Buffer) -> Self {
+        let engine = Engine::new(&written(&text));
+        let panel = Panel::new(Transcript::new()).sharing(engine.register_file().clone());
         let mut app = Self {
-            engine: Engine::new(&written(&text)),
+            engine,
             text,
             viewport: Viewport::new(),
             cursor: LogicalPosition {
@@ -240,7 +249,7 @@ impl App {
             scrolloff: 0,
             status: false,
             notice: None,
-            panel: Panel::new(Transcript::new()),
+            panel,
             focus: Focus::Text,
             top: Placed::top(0),
             revision: u64::MAX,
@@ -293,7 +302,7 @@ impl App {
     /// This application showing `transcript` in the panel `<C-T>` reaches.
     #[must_use]
     pub fn with_transcript(mut self, transcript: Transcript) -> Self {
-        self.panel = Panel::new(transcript);
+        self.panel = Panel::new(transcript).sharing(self.engine.register_file().clone());
         self.top = Placed::top(0);
 
         self
