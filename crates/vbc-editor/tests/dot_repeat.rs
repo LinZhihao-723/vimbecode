@@ -69,6 +69,17 @@ struct Landed {
     mode: Mode,
 }
 
+impl From<EditorState> for Landed {
+    fn from(state: EditorState) -> Self {
+        Self {
+            text: state.buffer,
+            line: state.cursor.line,
+            column: state.cursor.column,
+            mode: state.mode,
+        }
+    }
+}
+
 /// The prose the repeats that ask nothing about the window are typed at, whose first line holds
 /// more words than any count below reaches and whose later lines are short.
 const PROSE: &str = "aaa bbb ccc ddd eee fff ggg hhh\nsecond line here\nthird line\nfourth\nfifth";
@@ -507,15 +518,4 @@ fn typed(keys: &str) -> Vec<KeyEvent> {
     }
 
     events
-}
-
-impl From<EditorState> for Landed {
-    fn from(state: EditorState) -> Self {
-        Self {
-            text: state.buffer,
-            line: state.cursor.line,
-            column: state.cursor.column,
-            mode: state.mode,
-        }
-    }
 }
