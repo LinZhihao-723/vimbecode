@@ -20,13 +20,19 @@
 //! every content whose rows cannot be read off a length -- tab-indented lines, CJK, emoji and
 //! box-drawing characters -- and under `'showbreak'`, `'breakindent'` and `'linebreak'`, which are
 //! the configurations that hid this twice. The scroll itself must cost the same wherever the panel
-//! stands, and so must the follow that runs after every other keystroke, which asks for a window
-//! of the screen and two hundred and fifty-six rows more.
+//! stands, upward as well as downward -- a `CTRL-Y` is answered by a step that reads the line
+//! above the one the panel stands on rather than the block around it -- and so must the follow
+//! that runs after every other keystroke, which asks for a window of the screen and two hundred
+//! and fifty-six rows more.
 //!
 //! The fifth is that none of that changed what is drawn. The same transcript is drawn twice, once
 //! into a window tall enough to hold the whole of it and once into a screenful scrolled down it a
-//! row at a time, and every frame of the scroll is required to be the rows of the tall frame it
-//! stands over, cell for cell, at three widths, over five contents and under five option sets.
+//! row at a time and then back up it again, and every frame of either scroll is required to be
+//! the rows of the tall frame it stands over, cell for cell, at three widths, over five contents
+//! and under five option sets. Both directions are swept because they are answered by different
+//! steps: the way down reads the line the panel stands on, and the way up reads the line above it
+//! and, at the top of an entry, reaches the last row of the entry above without laying out the
+//! rows before it.
 //!
 //! What these assert is what they were seen to measure. In a debug build at eighty columns, a
 //! frame of twenty rows of a hundred-thousand-line tab-indented message asks the allocator for
@@ -75,6 +81,10 @@ const MATRIX_TOP: usize = 10_000;
 /// down the message than the follow walks, so both ask for the window and the rows beyond it that
 /// a follow asks for, and neither finds the cursor in them.
 const FOLLOWED_TOPS: [usize; 2] = [1_000, 99_000];
+
+/// The rows the panel stands at when the scroll upward is measured. A `CTRL-Y` typed at the first
+/// row of the message moves nothing, so the top of it is not among them.
+const RAISED_TOPS: [usize; 3] = [1_000, 50_000, 99_000];
 
 /// The widths the drawn frames are compared at: one that wraps every line of every fixture, one
 /// that wraps most of them, and the one a panel is read at.
@@ -219,6 +229,36 @@ fn scrolling_the_panel_by_a_row_costs_the_same_deep_in_a_long_message_as_at_its_
 }
 
 #[test]
+fn scrolling_the_panel_up_by_a_row_costs_the_same_deep_in_a_long_message_as_near_its_top() {
+    let mut app = reading(Content::Tabbed, LONG, &Options::new(), area(ROWS));
+    let mut at = 0;
+    let mut measurements = Vec::new();
+
+    for top in RAISED_TOPS {
+        at = scrolled(&mut app, at, top);
+        let (_, count) = counted(|| app.press(area(ROWS), control('y')));
+        let taken = fastest(|| app.press(area(ROWS), control('y')));
+        at -= 1 + RUNS;
+        measurements.push((top, count, taken));
+    }
+
+    let (near_the_top, off_the_top, at_the_top) = measurements[0];
+    for (top, count, taken) in &measurements {
+        assert_eq!(
+            off_the_top, *count,
+            "one `CTRL-Y` at row {top} of a {LONG}-line message asked for {count:?}, and one at \
+             row {near_the_top} asked for {off_the_top:?}, so a scroll upward follows where the \
+             panel stands"
+        );
+        assert!(
+            *taken < at_the_top * MARGIN,
+            "one `CTRL-Y` at row {top} of a {LONG}-line message took {taken:?}, and one at row \
+             {near_the_top} took {at_the_top:?}, so a scroll upward follows where the panel stands"
+        );
+    }
+}
+
+#[test]
 fn the_follow_after_a_keystroke_costs_the_same_deep_in_a_long_message_as_near_its_top() {
     let mut app = reading(Content::Tabbed, LONG, &Options::new(), area(ROWS));
     let mut at = 0;
@@ -287,6 +327,68 @@ fn scrolling_the_panel_draws_the_rows_the_panel_drawn_whole_draws_at_every_width
                     app.press(window, control('e'));
                     compared += 1;
                 }
+            }
+        }
+    }
+
+    assert!(
+        1_000 < compared,
+        "only {compared} frames were compared, so the sweep is not the sweep it says it is"
+    );
+}
+
+#[test]
+fn scrolling_the_panel_back_up_draws_the_rows_it_drew_on_the_way_down_at_every_width_and_option() {
+    let mut compared = 0;
+    for content in Content::ALL {
+        for width in COMPARED_WIDTHS {
+            for options in option_sets() {
+                let whole = area_of(width, TALL);
+                let tall = reading_over(said(content), &options, whole);
+                let mut cells = Cells::empty(whole);
+                tall.draw(&mut cells, whole);
+                let rows = frame(&cells, whole);
+                let drawn = rows
+                    .iter()
+                    .rposition(|row| !row.is_empty())
+                    .map_or(0, |at| at + 1);
+
+                assert!(
+                    usize::from(ROWS) < drawn && drawn < usize::from(TALL),
+                    "the compared transcript of {content:?} at {width} columns under {options:?} \
+                     is drawn in {drawn} rows, which is not more than the window of {ROWS} holds \
+                     and fewer than the {TALL} the whole of it is drawn into"
+                );
+
+                let window = area_of(width, ROWS);
+                let deepest = drawn - usize::from(ROWS);
+                let mut app = reading_over(said(content), &options, window);
+                let mut cells = Cells::empty(window);
+                for _ in 0..deepest {
+                    app.press(window, control('e'));
+                }
+                for top in (0..=deepest).rev() {
+                    app.draw(&mut cells, window);
+
+                    assert_eq!(
+                        rows[top..top + usize::from(ROWS)],
+                        frame(&cells, window)[..],
+                        "the panel of {content:?} at {width} columns under {options:?} scrolled \
+                         back up to row {top} drew something other than those rows of the whole \
+                         of it"
+                    );
+                    app.press(window, control('y'));
+                    compared += 1;
+                }
+
+                app.draw(&mut cells, window);
+
+                assert_eq!(
+                    rows[..usize::from(ROWS)],
+                    frame(&cells, window)[..],
+                    "a `CTRL-Y` typed at the first row of the panel of {content:?} at {width} \
+                     columns under {options:?} moved it off that row"
+                );
             }
         }
     }
