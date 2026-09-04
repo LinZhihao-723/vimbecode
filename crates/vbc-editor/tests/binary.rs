@@ -53,6 +53,20 @@ const LEAVE_ALTERNATE_SCREEN: &str = "\u{1b}[?1049l";
 /// already was.
 const DRAWN_WORDS: [&str; 3] = ["gutter", "numbers", "logical"];
 
+/// The keys typed at the running program, and what its terminal is written once they have been
+/// answered. `gUU` upper-cases the line `j` moved onto, which nothing but a keystroke that reached
+/// the engine can put on the screen, and `i` puts the editor in the mode its status line names.
+/// What is looked for is a run of cells a frame changed rather than the whole word it changed them
+/// in, because a terminal is written the cells that differ: `T` upper-cases to itself, and the
+/// blanks around the words of a status line are blanks the frame before it drew there too.
+const TYPED_EDIT: &[u8] = b"jgUU";
+const UPPER_CASED: &str = "GUTTER";
+const TYPED_INSERT: &[u8] = b"i";
+const INSERTING: &str = "INSERT";
+
+/// The interrupt the program is stopped by once it is in a mode its own `q` is text in.
+const INTERRUPT: &[u8] = b"\x03";
+
 /// A character of the built-in passage that no terminal measures by counting characters, which is
 /// what says the frame that reached the terminal went through the layout.
 const DRAWN_CJK: &str = "折";
@@ -133,10 +147,10 @@ fn written(app: &App, area: Rect) -> Result<Vec<u8>> {
     Ok(bytes)
 }
 
-/// Validation 4: the program builds, takes a terminal over, draws a frame into it, gives it back
-/// and stops on a key.
+/// Validation 4: the program builds, takes a terminal over, draws a frame into it, edits its text
+/// by the vim keys typed at it, says which mode it is in, gives the terminal back and stops.
 #[test]
-fn the_binary_draws_a_frame_and_quits_on_a_key() -> Result<()> {
+fn the_binary_draws_a_frame_types_vim_keys_and_quits() -> Result<()> {
     let Some(mut editor) = start()? else {
         assert!(
             std::env::var_os(CONTINUOUS_INTEGRATION).is_none(),
@@ -152,15 +166,23 @@ fn the_binary_draws_a_frame_and_quits_on_a_key() -> Result<()> {
     let chunks = read_chunks(&mut editor)?;
 
     let mut written: Vec<u8> = Vec::new();
-    let mut asked_to_quit = false;
+    let mut typed = 0;
+    let waypoints: [(&str, &[u8]); 3] = [
+        (ENTER_ALTERNATE_SCREEN, TYPED_EDIT),
+        (UPPER_CASED, TYPED_INSERT),
+        (INSERTING, INTERRUPT),
+    ];
     loop {
         match chunks.recv_timeout(PATIENCE) {
             Ok(chunk) => {
                 written.extend(chunk);
-                if !asked_to_quit && holds(&written, ENTER_ALTERNATE_SCREEN) {
-                    keys.write_all(b"q")?;
+                while let Some((seen, next)) = waypoints.get(typed) {
+                    if !holds(&written, seen) {
+                        break;
+                    }
+                    keys.write_all(next)?;
                     keys.flush()?;
-                    asked_to_quit = true;
+                    typed += 1;
                 }
             }
             Err(RecvTimeoutError::Disconnected) => break,
@@ -177,7 +199,18 @@ fn the_binary_draws_a_frame_and_quits_on_a_key() -> Result<()> {
     let status = editor.wait()?;
     let seen = String::from_utf8_lossy(&written).into_owned();
 
-    assert!(asked_to_quit, "the program never took the terminal over");
+    assert_eq!(
+        waypoints.len(),
+        typed,
+        "the program answered {typed} of the keys typed at it: {seen:?}"
+    );
+    for answer in [UPPER_CASED, INSERTING] {
+        assert!(
+            holds(&written, answer),
+            "the program drew none of `{answer}`, so the keys typed at it reached no engine: \
+             {seen:?}"
+        );
+    }
     for word in DRAWN_WORDS {
         assert!(
             holds(&written, word),

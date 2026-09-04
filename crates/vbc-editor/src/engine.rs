@@ -77,6 +77,7 @@ use modalkit::editing::cursor::{Cursor, CursorGroup, CursorState};
 use modalkit::editing::rope::EditRope;
 use modalkit::editing::store::Store;
 use modalkit::env::vim::VimMode;
+use modalkit::key::TerminalKey;
 use vbc_layout::position::LogicalPosition;
 use vbc_layout::width::graphemes;
 
@@ -245,6 +246,29 @@ impl Engine {
         self.shim.as_ref()
     }
 
+    /// Measures the screen motions typed at the engine in `geometry`, which is the window they are
+    /// being typed at now.
+    ///
+    /// A screen line is a screen line only relative to some window, so an engine typed at a
+    /// terminal that has been resized measures its screen motions in a window that is no longer
+    /// there until it is told. The chain of screen motions the old window was walking down does
+    /// not survive the new one, any more than a column vim measured against a width it no longer
+    /// has.
+    pub fn resize(&mut self, geometry: Geometry) {
+        if self
+            .shim
+            .as_ref()
+            .is_some_and(|shim| shim.geometry() == &geometry)
+        {
+            return;
+        }
+        self.window.dimensions = (geometry.columns().get(), geometry.window().height().get());
+        self.shift = self.shift.with_tab_stop(geometry.metrics().tab_stop());
+        if self.shim.is_some() {
+            self.shim = Some(Shim::new(geometry));
+        }
+    }
+
     /// Types one key at the engine and runs everything that key asks for.
     ///
     /// # Errors
@@ -335,12 +359,30 @@ impl Engine {
         }
     }
 
+    /// Rests the cursor at `at`, wherever the keys typed so far left it.
+    ///
+    /// A window scrolled by something other than a keystroke carries the cursor with it, and an
+    /// engine that was not told goes on editing the place the cursor was drawn before the scroll.
+    pub fn place(&mut self, at: LogicalPosition) {
+        let cursor = self.placed(at);
+        self.text.set_leader(self.group, cursor);
+    }
+
     /// # Returns
     ///
     /// The mode the engine is in.
     #[must_use]
     pub fn mode(&self) -> VimMode {
         self.keys.mode()
+    }
+
+    /// # Returns
+    ///
+    /// The keys the last one typed was dropped as, and [`None`] where it carried a sequence
+    /// further or completed one, as [`Keys::unbound`] answers.
+    #[must_use]
+    pub fn unbound(&self) -> Option<&[TerminalKey]> {
+        self.keys.unbound()
     }
 
     /// # Returns
