@@ -263,8 +263,9 @@ const HELD_APART: [&str; 1] = ["vbc_layout::invariants"];
 /// The modules no run of a binary arrives at yet. Each is work the application has drifted away
 /// from rather than work that is wrong, and each is written down so that a module joining them
 /// fails this rule and a module wired up to a keystroke fails it until its line is struck out.
-const ORPHANED: [&str; 4] = [
+const ORPHANED: [&str; 5] = [
     "vbc_editor::clipboard",
+    "vbc_editor::clipboard::clip",
     "vbc_editor::clipboard::helper",
     "vbc_editor::clipboard::protocol",
     "vbc_editor::clipboard::reader",
