@@ -13,10 +13,14 @@
 //!
 //! A window names its start as a position rather than as an ordinal. A [`RowAnchor`] says which
 //! logical line the window begins inside and which of that line's rows it begins at, so the block
-//! above it is not read at all, let alone laid out, and what a window costs is the rows it draws
-//! whatever the content is written from and whatever the wrapping options ask for. A reader
+//! above that line is not read at all, let alone laid out, and what a window costs is the rows it
+//! draws whatever the content is written from and whatever the wrapping options ask for. A reader
 //! scrolling by a row moves the anchor [`Rendered::next`] hands back rather than counting rows
-//! again, so a keystroke costs a screenful wherever the screenful sits.
+//! again, so a keystroke costs a screenful however far down a block the screenful sits.
+//!
+//! What goes unread is the block above the anchor's own logical line, not that line above the
+//! anchor. Where every line is shorter than a screenful those are the same thing; where one of
+//! them is not, they are not, which is what the paragraph on long lines below is about.
 //!
 //! A window may still name the row it starts at, which is what a caller holding an ordinal has,
 //! and that window is walked down to before it is drawn. Where the lines above it are plain text
@@ -28,7 +32,16 @@
 //!
 //! A line is not always shorter than the window drawn into it either: a minified document arrives
 //! as one logical line of megabytes, and laying it out whole to draw twenty rows of it costs the
-//! line rather than the rows. So a line is laid out only as far as the window reaches into it.
+//! line rather than the rows. So a line is laid out only as far as the window reaches into it,
+//! and what a window into such a line costs is where it reaches rather than how long the line is.
+//!
+//! Where it reaches is still counted from the line's own first row, because a line can only be
+//! laid out from its start: a continuation row's decoration, the tab stops its text is measured
+//! against and the word it may not be broken inside are all read from there. So a window anchored
+//! deep inside one logical line lays out that line's rows above it, throws them away again, and
+//! costs them. Bounding that as well needs a layout that can be resumed from a byte of a line
+//! rather than only from the first of it, which [`vbc_layout::line`] does not offer; until it
+//! does, what is bounded is the block above a window and the line below it, not the line above it.
 //!
 //! Measured in release at eighty columns, an anchored window of twenty rows of a
 //! hundred-thousand-line block asks the allocator for the same bytes in the same number of calls
@@ -42,7 +55,11 @@
 //! 101 ms where they are laid out to be counted. Twenty rows off the top of a sixteen-megabyte
 //! logical line ask for 196,816 bytes in 2,063 calls and take 65 µs, which is what the same rows
 //! of a one-megabyte line cost, where laying either of those lines out whole asked for 2.6 GB and
-//! 160 MB and took 2.0 s and 64 ms.
+//! 160 MB and took 2.0 s and 64 ms. Anchored at row 100, at row 1,000 and at row 3,000 of either
+//! of those two lines, twenty rows ask for 1.1 MB, 9.0 MB and 20.7 MB and take 227 µs, 1.6 ms and
+//! 4.5 ms: the rows of the line above the window, laid out to reach it and thrown away again. The
+//! two lines ask for exactly the same at each of those rows, which is the length of the line
+//! below the window not being read.
 //!
 //! `chat_cost.rs` measures all of this rather than taking it on trust, over content that is not
 //! only printable ASCII and under wrapping options that are not only vim's defaults, because those
@@ -140,10 +157,13 @@ pub enum Kind {
 /// window starts at.
 ///
 /// An anchor is a position rather than an ordinal, which is what lets a window be reached without
-/// counting the rows above it. Nothing here checks that the offset starts a logical line or that
-/// the index numbers it: an anchor is the caller's own position, handed to it by whatever drew the
-/// rows around it, and a caller naming a position the block does not hold draws from where it
-/// named rather than from anywhere else.
+/// counting the rows of the block above the line it names. The rows of that line above it are
+/// counted all the same, because a line is laid out from its first row and from nowhere else.
+///
+/// Nothing here checks that the offset starts a logical line or that the index numbers it: an
+/// anchor is the caller's own position, handed to it by whatever drew the rows around it, and a
+/// caller naming a position the block does not hold draws from where it named rather than from
+/// anywhere else.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct RowAnchor {
     offset: usize,
@@ -216,7 +236,7 @@ impl RowWindow {
     ///
     /// A window named by a row is reached by counting the rows above it, so drawing one costs what
     /// the block above it costs as well as the rows it draws. [`RowWindow::at`] names the same
-    /// window as a position and costs the rows alone.
+    /// window as a position and costs the block above it nothing.
     ///
     /// # Returns
     ///
@@ -370,11 +390,12 @@ impl Block {
     ///
     /// Only the lines the window draws are kept, and only as much of each of them as the window
     /// reaches, so a window holds the rows it was asked for however far down a block it sits and
-    /// however long the line it sits inside.
+    /// however long the line it sits inside runs on below it.
     ///
-    /// What it costs is the rows it draws once the window names where it starts, and the rows
-    /// above it as well once the window names which row it starts at: an anchored window is drawn
-    /// from where it names, and a numbered one is walked down to first.
+    /// What it costs is the rows it draws, together with the rows of its own logical line above
+    /// it, once the window names where it starts, and the rows of the whole block above it as well
+    /// once the window names which row it starts at: an anchored window is drawn from the first
+    /// row of the line it names, and a numbered one is walked down to first.
     ///
     /// # Returns
     ///

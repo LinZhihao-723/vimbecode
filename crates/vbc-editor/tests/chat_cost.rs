@@ -46,6 +46,17 @@
 //! twenty rows of it costs the line rather than the rows, so [`ENORMOUS`] and the line sixteen
 //! times its length are drawn from and required to cost the same.
 //!
+//! What that bounds is the line below the window, not the line above it. A line is laid out from
+//! its first row and from nowhere else, so a window anchored deep inside one lays out the rows of
+//! that line above it, throws them away again, and costs them: twenty rows at row 3,000 of either
+//! of those two lines ask for a hundred times what twenty rows off the top of them ask for. That
+//! is measured rather than left to be found, because it is the same shape as every bound this file
+//! has had to widen -- flat along the axis the fixtures varied and not along the one they fixed.
+//! [`ENORMOUS_DEPTHS`] varies it: the two lines must still ask for exactly the same at each of
+//! those rows, which is the length of the line below the window going unread, and what each asks
+//! for must stay inside [`PER_ROW_INSIDE_A_LINE`] for every row of the line above it, which is
+//! that line being read once rather than over and over.
+//!
 //! Counting the rows of an entry is measured the same way. A reader arriving at a block from below
 //! has to know how many rows it is drawn in, and the count used to be taken by drawing the whole
 //! block and asking how many rows came back, which holds every row of it at once.
@@ -86,6 +97,13 @@
 //! at row 100 of either they ask for 1,142,384 bytes in 3,268 calls and take 200 µs. Laying those
 //! two lines out whole asked for 160 MB in 1.3 million calls and 2.6 GB in 21 million, and took
 //! 64 ms and 2.0 s.
+//!
+//! Deeper inside either of those lines the rows of the line above the window are what it costs. At
+//! rows 100, 1,000 and 3,000 twenty rows ask for 1.1 MB, 9.0 MB and 20.7 MB of printable ASCII and
+//! of tab-indented lines alike, 1.0, 8.3 and 28.6 MB of CJK, 2.2, 17.4 and 41.8 MB of emoji and
+//! 2.3, 18.5 and 65.3 MB of box-drawing characters, and take 227 µs, 1.6 ms and 4.5 ms of the
+//! first of those; the sixteen-megabyte line asks for the same as the one-megabyte one at every
+//! one of them, to the byte and to the call.
 
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
@@ -165,6 +183,19 @@ const ENORMOUS_STARTS: [usize; 3] = [0, 1, 100];
 /// asks for tens of times the line, so a window that costs the rows it draws misses this by orders
 /// of magnitude rather than by a margin.
 const ENORMOUS_MEMORY: usize = 4 << 20;
+
+/// The rows into an enormous logical line a window is anchored at where the rows of that line
+/// above it are what it costs rather than the rows it draws. [`ENORMOUS_STARTS`] stops at the row
+/// where that cost is still a rounding error, which is the one place a window inside a long line
+/// looks like a window anywhere else; these are the rows where it does not.
+const ENORMOUS_DEPTHS: [usize; 3] = [100, 1_000, 3_000];
+
+/// The bytes a window anchored inside an enormous logical line may ask for per row of that line
+/// above it, beyond what a window off the top of the same line asks for. A line is laid out from
+/// its first row, so what a window inside one asks for follows the rows above it; what it may not
+/// do is follow them more than a bounded number of times over, which is what a render that laid
+/// the line out again for every row of it would.
+const PER_ROW_INSIDE_A_LINE: usize = 32 << 10;
 
 /// The columns the rendered output is compared at. A width of one wraps every cluster onto a row of
 /// its own, and one wider than any fixture wraps nothing at all.
@@ -669,6 +700,56 @@ fn a_window_into_an_enormous_logical_line_costs_what_one_into_a_short_line_costs
                     bytes < ENORMOUS_MEMORY,
                     "drawing {WINDOW} rows at row {start} of one {content:?} logical line of \
                      {} bytes under {options:?} asked for {bytes} bytes",
+                    ENORMOUS_FACTOR * ENORMOUS
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn a_window_inside_an_enormous_logical_line_costs_the_rows_of_that_line_above_it() {
+    for content in Content::ALL {
+        let short = content.one_line(ENORMOUS);
+        let long = content.one_line(ENORMOUS_FACTOR * ENORMOUS);
+        for options in option_sets() {
+            let wrapping = wrapping_under(&options);
+            let top = RowAnchor::top();
+            let (_, off_the_top) = counted(|| long.render(RowWindow::at(top, WINDOW), &wrapping));
+            let (top_bytes, _) = off_the_top;
+
+            for depth in ENORMOUS_DEPTHS {
+                let anchor = RowAnchor::new(0, 0, depth);
+                let (rows, of_short) =
+                    counted(|| short.render(RowWindow::at(anchor, WINDOW), &wrapping));
+                let (same, of_long) =
+                    counted(|| long.render(RowWindow::at(anchor, WINDOW), &wrapping));
+                let (bytes, calls) = of_long;
+
+                assert_eq!(
+                    WINDOW,
+                    rows.rows().len(),
+                    "the window at row {depth} of one {ENORMOUS}-byte {content:?} line under \
+                     {options:?} did not fill"
+                );
+                assert_eq!(
+                    rows, same,
+                    "the two {content:?} lines did not draw the same rows at row {depth} under \
+                     {options:?}, so the measurement compares two things"
+                );
+                assert_eq!(
+                    of_short, of_long,
+                    "drawing {WINDOW} rows at row {depth} of one {ENORMOUS}-byte {content:?} line \
+                     under {options:?} asked for {of_short:?} and drawing the same rows of a line \
+                     {ENORMOUS_FACTOR} times as long asked for {of_long:?}, so a window inside a \
+                     line reads the length of the line below it"
+                );
+                assert!(
+                    bytes < top_bytes + depth * PER_ROW_INSIDE_A_LINE,
+                    "drawing {WINDOW} rows at row {depth} of one {content:?} logical line of {} \
+                     bytes under {options:?} asked for {bytes} bytes in {calls} calls, against the \
+                     {top_bytes} the same rows off the top of that line asked for, so the rows of \
+                     the line above the window are read more times over than once",
                     ENORMOUS_FACTOR * ENORMOUS
                 );
             }
