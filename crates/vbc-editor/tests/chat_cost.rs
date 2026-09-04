@@ -24,6 +24,16 @@
 //! it steps over, and reading them is memory bandwidth rather than layout: what it must not do is
 //! lay them out.
 //!
+//! That is required of the window over [`plain`], whose lines are the printable ASCII whose rows a
+//! width divides out of a length. It is not what a block of [`tabbed`] lines can promise: a tab's
+//! columns are not its bytes, so every line above such a window is laid out to be counted, and the
+//! bytes that costs follow the row the window starts at. What that walk must still do is throw each
+//! line away again, which is the difference between a frame that holds a line of a block and one
+//! that holds all of it, so the tabbed fixture is measured in what it holds at once rather than in
+//! what it asks for. Leaving it unmeasured is how the shape of the fast path went unstated: every
+//! fixture here was printable ASCII drawn under vim's own defaults, which is the one case in which
+//! a line's rows are its length over the width.
+//!
 //! Counting the rows of an entry is measured the same way. A reader arriving at a block from below
 //! has to know how many rows it is drawn in, and the count used to be taken by drawing the whole
 //! block and asking how many rows came back, which holds every row of it at once.
@@ -40,6 +50,10 @@
 //! were counted rather than laid out, the second of them asked for 228 MB in 626,364 calls and the
 //! third for 452 MB in 1,238,864. Counting the rows of that block asks for nothing at all and takes
 //! 1.0 ms, where drawing it to count them asked for 1.2 GB in 13.6 million calls and took 507 ms.
+//! The same three windows of a hundred thousand tab-indented lines ask for 121 KB, 236 MB and
+//! 467 MB and take 62 µs, 48 ms and 95 ms, holding 24,952 bytes at once at every one of the three
+//! against the 24,454 the plain fixture holds; counting that block asks for 942 MB in 2.7 million
+//! calls and takes 186 ms, and holds 5,193 bytes where counting the plain one holds none.
 //! Four thousand lines diffed against four thousand with nothing in common cost 56 ms and 2.4 MB;
 //! twenty thousand against twenty thousand cost 10 ms and 11 MB past the bound, and 3.6 ms with one
 //! line inserted, which the common head and tail match off to a middle of one line either side.
@@ -108,6 +122,11 @@ const COUNTING_MEMORY: usize = 1 << 10;
 /// The calls to the allocator counting the rows of the long block may make, measured at none,
 /// against the 13.6 million drawing it to count them made.
 const COUNTING_CALLS: usize = 8;
+
+/// The bytes a walk over a block whose rows have to be laid out to be counted may hold at once
+/// beyond the rows it was asked for. It is a line of the fixture's layout, which is what a walk
+/// that throws each line away again holds, against the whole block's a walk that keeps them does.
+const HELD_MEMORY: usize = 1 << 14;
 
 /// The lines each side of the diff that is measured, which is where a full table comes to 128 MB.
 const DIFFED: usize = 4_000;
@@ -322,6 +341,56 @@ fn counting_the_rows_of_an_open_block_does_not_draw_it() {
 }
 
 #[test]
+fn counting_the_rows_of_an_open_block_of_tabs_holds_no_row_of_it() {
+    let transcript: Transcript = [tabbed(LONG)].into_iter().collect();
+    let folds = Folds::of(&transcript, &[]);
+    let view = View::of(&folds, &transcript);
+    let wrapping = wrapping();
+
+    let (rows, held) = measured(|| view.rows(0, &wrapping));
+
+    assert_eq!(
+        LONG_ROWS, rows,
+        "the tab-indented entry was counted as a different number of rows than it is drawn in"
+    );
+    assert!(
+        held < HELD_MEMORY,
+        "counting the rows of a {LONG}-line block whose rows have to be laid out to be counted \
+         held {held} bytes at once, so it is keeping what it counted rather than a line of it"
+    );
+}
+
+#[test]
+fn a_window_deep_in_a_block_of_tabs_holds_a_line_of_it_at_a_time() {
+    let tabbed = tabbed(LONG);
+    let wrapping = wrapping();
+
+    let (rendered, off_the_top) =
+        measured(|| tabbed.render(RowWindow::new(STARTS[0], WINDOW), &wrapping));
+    assert_eq!(
+        WINDOW,
+        rendered.rows().len(),
+        "the window off the top of the tab-indented block did not fill"
+    );
+
+    for start in STARTS {
+        let (rendered, held) = measured(|| tabbed.render(RowWindow::new(start, WINDOW), &wrapping));
+
+        assert_eq!(
+            WINDOW,
+            rendered.rows().len(),
+            "the window at row {start} of the tab-indented block did not fill"
+        );
+        assert!(
+            held < off_the_top + HELD_MEMORY,
+            "drawing {WINDOW} rows at row {start} of a {LONG}-line block whose rows have to be \
+             laid out to be counted held {held} bytes at once, against the {off_the_top} the same \
+             rows off its top held, so the walk down to it keeps the lines it steps over"
+        );
+    }
+}
+
+#[test]
 fn diffing_four_thousand_lines_against_four_thousand_takes_bounded_memory() {
     let old = lines(0..DIFFED);
     let new = lines(DIFFED..2 * DIFFED);
@@ -487,6 +556,22 @@ fn timed(block: &Block, start: usize) -> Duration {
 /// A block of `count` lines, each of them long enough to wrap once.
 fn plain(count: usize) -> Block {
     Block::new(Kind::Message(Role::Assistant), text(0..count))
+}
+
+/// # Returns
+///
+/// The lines of [`plain`], each indented with a tab. A tab is the commonest thing a build tool
+/// writes and is what leaves a line's rows unreadable from its length, so the two fixtures differ
+/// in the one thing that decides whether a walk over a block lays out the lines it steps over or
+/// only reads where each of them ends.
+fn tabbed(count: usize) -> Block {
+    Block::new(
+        Kind::Message(Role::Assistant),
+        text(0..count)
+            .lines()
+            .map(|line| format!("\t{line}\n"))
+            .collect(),
+    )
 }
 
 /// # Returns

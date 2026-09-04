@@ -8,19 +8,28 @@
 //! Rendering is a projection over a window of that source. A block is asked for a [`RowWindow`] --
 //! a display row to start at and a number of rows to draw -- and walks down to that row the way
 //! [`vbc_layout::anchor`]'s mapping walks out from an anchor: a logical line at a time, nothing
-//! remembered between calls and nothing below the window touched at all. What it lays out is the
-//! window and only the window. The lines above it are counted rather than drawn, and a line of
+//! remembered between calls and nothing below the window touched at all. What it keeps is the
+//! window and only the window. The lines above it are counted rather than kept, and a line of
 //! plain text wrapped at the column it runs out of is not even counted a row at a time: the rows
 //! it takes are its length over the width, so stepping over it is reading where it ends.
 //!
-//! So a window costs the rows it was asked for wherever it is drawn from. Measured in release at
-//! eighty columns, twenty rows of a hundred-thousand-line block ask the allocator for 121,800 bytes
-//! in 1,364 calls off the top of it, at row 50,000 and at row 99,000 alike, and for the same off
-//! the top of a hundred-line one; the three take 42 µs, 282 µs and 526 µs, the difference being the
-//! nine megabytes the last of them reads the line ends of on its way down. Laying those lines out
-//! instead cost 46 ms and 91 ms and asked for 228 MB and 452 MB. This is what lets a transcript
-//! hold the whole of what `cargo` wrote and still draw a frame in the time a frame has, and
-//! `chat_cost.rs` measures it rather than taking it on trust.
+//! So a window of a block whose lines are read that way costs the rows it was asked for wherever
+//! it is drawn from. Measured in release at eighty columns, twenty rows of a hundred-thousand-line
+//! block ask the allocator for 121,800 bytes in 1,364 calls off the top of it, at row 50,000 and at
+//! row 99,000 alike, and for the same off the top of a hundred-line one; the three take 42 µs,
+//! 282 µs and 526 µs, the difference being the nine megabytes the last of them reads the line ends
+//! of on its way down. Laying those lines out instead cost 46 ms and 91 ms and asked for 228 MB
+//! and 452 MB.
+//!
+//! A line whose rows cannot be read off its length -- one carrying a tab, a control character or a
+//! cluster of more than one byte, and every line at all under `'linebreak'`, `'showbreak'` or
+//! `'breakindent'` -- is laid out to be counted and thrown away again. A walk over such a block
+//! therefore still holds one line at a time, which is what keeps a frame's memory bounded, but it
+//! asks the allocator for what it steps over: twenty rows at row 99,000 of a hundred thousand
+//! tab-indented lines ask for 467 MB in 1.3 million calls and take 95 ms. Bounding that as well
+//! needs either a row index, which [`vbc_layout::anchor`] exists to do without, or a [`RowWindow`]
+//! naming where it starts rather than which row it starts at. `chat_cost.rs` measures both what
+//! holds here and what does not, rather than taking either on trust.
 //!
 //! A rendered row carries the byte offset of the source it starts at, which is what lets the
 //! source behind a run of rows be recovered exactly -- separators included, which no row's own
@@ -222,9 +231,10 @@ impl Block {
 
     /// Lays out the window `window` asks for and applies the block's spans to the rows in it.
     ///
-    /// Only the lines the window draws are laid out. The lines above it are counted rather than
-    /// laid out, so a window deep in a block builds the rows it was asked for and no others
-    /// however far down it sits.
+    /// Only the lines the window draws are kept. The lines above it are counted rather than kept,
+    /// so a window deep in a block holds the rows it was asked for and one line beside them
+    /// however far down it sits, and where the lines above it are counted without being laid out
+    /// it asks the allocator for nothing at all on its way down.
     ///
     /// # Returns
     ///
@@ -272,10 +282,12 @@ impl Block {
     ///
     /// Counting is not drawing: a line whose rows can be read off its length is never laid out at
     /// all, and one that has to be laid out is thrown away again as soon as its rows have been
-    /// counted, so the count holds no row and the memory it takes does not follow the block. In
-    /// release at eighty columns, counting a hundred-thousand-line block asks the allocator for
-    /// nothing at all and takes 1.0 ms, where drawing it to count its rows asked for 1.2 GB in 13.6
-    /// million calls and took 507 ms.
+    /// counted, so the count holds no row of the block whatever it is written from. In release at
+    /// eighty columns, counting a hundred-thousand-line block of plain lines asks the allocator for
+    /// nothing at all and takes 1.0 ms, and counting one of tab-indented lines asks for 942 MB in
+    /// 2.7 million calls and takes 186 ms while holding a line of it at a time; drawing either to
+    /// count its rows asked for 1.2 GB in 13.6 million calls, held every row of it at once, and
+    /// took 507 ms.
     ///
     /// # Returns
     ///
