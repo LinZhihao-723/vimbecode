@@ -30,6 +30,7 @@ use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -66,6 +67,12 @@ const SHUTDOWN_GRACE: Duration = Duration::from_secs(2);
 
 /// How often that wait looks.
 const SHUTDOWN_POLL: Duration = Duration::from_millis(2);
+
+/// Tells one laid-down script from another's. The process is in the name so that two sessions do
+/// not read each other's, and this is in it so that two helpers of one process do not either: a
+/// script is taken away with the helper that laid it down, and a name shared with a helper still
+/// running is a name whose file goes out from under it.
+static SCRIPTS: AtomicU64 = AtomicU64::new(0);
 
 /// What stopped an exchange with the helper from saying anything about the clipboard.
 ///
@@ -160,7 +167,11 @@ impl Script {
     ///
     /// * [`Error::Script`] if the directory or the script could not be written.
     pub fn lay_down(directory: &Path) -> Result<Self, Error> {
-        let path = directory.join(format!("vimbecode-clipboard-{}.ps1", std::process::id()));
+        let path = directory.join(format!(
+            "vimbecode-clipboard-{}-{}.ps1",
+            std::process::id(),
+            SCRIPTS.fetch_add(1, Ordering::Relaxed)
+        ));
         fs::create_dir_all(directory).map_err(|error| Error::Script {
             path: directory.to_path_buf(),
             message: error.to_string(),

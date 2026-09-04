@@ -63,6 +63,17 @@
 //! opens, which is the gesture this editor exists for going nowhere. So the file is built once,
 //! where the engine is, and every panel the application builds afterwards is handed it.
 //!
+//! One of the registers those two engines share is not a register at all. `"+` is the desktop's
+//! clipboard and `"*` is another name for it, so `"+yy` here leaves the line in a window the editor
+//! has nothing to do with and `"+p` brings back whatever the reader last copied somewhere else.
+//! Neither of those is a thing the drawing thread may wait on: the desktop answers in a fraction of
+//! a millisecond when it is warm and in over a second when it is locked or when the window holding
+//! the clipboard is busy. So a yank is handed over and not waited for, and a put is held -- the key
+//! that would run it is kept, the frames go on being drawn, and the put runs on the frame the
+//! answer arrives at or is abandoned with nothing pasted at the frame the deadline passes. Keys
+//! typed while a put is held are kept behind it rather than run ahead of it, because a keystroke
+//! that overtakes the put it followed is a keystroke that edits the wrong text.
+//!
 //! The window is measured from the area a frame is drawn into rather than stored, so a terminal
 //! that was resized between two frames draws the second one at its new size without being told,
 //! and the engine is laid out in that same window so that a display motion is measured in the
@@ -70,6 +81,7 @@
 //! wraps into what is left, so a wider gutter narrows the text rather than pushing it off the
 //! screen.
 
+use std::collections::VecDeque;
 use std::num::NonZeroUsize;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
@@ -94,6 +106,7 @@ use crate::chat::object::Position as Resting;
 use crate::chat::policy::{Drawn, Panel, Selected, REFUSAL};
 use crate::chat::selection::Source as Selectable;
 use crate::chat::transcript::Transcript;
+use crate::clipboard::register::{Bridge, Settled};
 use crate::engine::{self, Engine, Position as Caret, Shape};
 use crate::event::{Event, KeyEvent};
 use crate::gutter::{Gutter, Options as GutterOptions};
@@ -212,6 +225,21 @@ pub struct App {
     forward: bool,
     selection: Option<(Caret, Caret, Shape)>,
     held: Option<Selected>,
+    clipboard: Option<Bridge>,
+    waiting: Option<Waiting>,
+}
+
+/// A put held until the desktop's clipboard answers, and what was typed while it waits.
+///
+/// What is typed is kept rather than run, so that the put a reader asked for first is the edit that
+/// happens first. It is handed to the editor again, in the order it arrived, on the frame the put
+/// is over. What is not kept is what a terminal says about itself rather than about the text: a
+/// resize changes the window a frame is drawn in and there is nothing to be gained by drawing the
+/// old one until the desktop answers.
+#[derive(Clone, Debug)]
+struct Waiting {
+    put: KeyEvent,
+    held: VecDeque<Event>,
 }
 
 /// Which of the two things the application draws the keys are typed at.
@@ -260,6 +288,8 @@ impl App {
             forward: true,
             selection: None,
             held: None,
+            clipboard: None,
+            waiting: None,
         };
         app.adopt();
         app.saved = app.written();
@@ -304,6 +334,21 @@ impl App {
     pub fn with_transcript(mut self, transcript: Transcript) -> Self {
         self.panel = Panel::new(transcript).sharing(self.engine.register_file().clone());
         self.top = Placed::top(0);
+
+        self
+    }
+
+    /// # Returns
+    ///
+    /// This application reaching the desktop's clipboard through `clipboard`, so that `"+` and
+    /// `"*` are what another window copied rather than a drawer of the editor's own.
+    ///
+    /// The bridge is handed the one register file the engines share, because the register a
+    /// keystroke names has to be the register the desktop is reached through. An application given
+    /// no bridge has `"+` as a register like any other, which is what an engine under test wants.
+    #[must_use]
+    pub fn with_clipboard(mut self, clipboard: Bridge) -> Self {
+        self.clipboard = Some(clipboard.sharing(self.engine.register_file().clone()));
 
         self
     }
@@ -422,6 +467,23 @@ impl App {
     /// The transcript panel the keys reach while it has the focus.
     pub fn panel(&mut self) -> &mut Panel {
         &mut self.panel
+    }
+
+    /// # Returns
+    ///
+    /// The bridge to the desktop's clipboard, and [`None`] where the application was given none.
+    #[must_use]
+    pub fn clipboard(&self) -> Option<&Bridge> {
+        self.clipboard.as_ref()
+    }
+
+    /// # Returns
+    ///
+    /// Whether a put is being held until the desktop's clipboard answers, which is when a frame
+    /// drawn on a timer's tick has something new to draw.
+    #[must_use]
+    pub fn awaits_clipboard(&self) -> bool {
+        self.waiting.is_some()
     }
 
     /// # Returns
@@ -718,10 +780,15 @@ impl App {
     ///
     /// Whether the application goes on reading keys.
     pub fn press(&mut self, area: Rect, key: KeyEvent) -> Outcome {
-        self.notice = None;
         if interrupts(key) {
             return Outcome::Stops;
         }
+        if let Some(waiting) = self.waiting.as_mut() {
+            waiting.held.push_back(Event::Key(key));
+
+            return self.settle(area);
+        }
+        self.notice = None;
         if self.prompt.is_some() {
             return self.typing(area, key);
         }
@@ -740,7 +807,12 @@ impl App {
         if Focus::Transcript == self.focus {
             return self.read(area, key);
         }
+        if self.awaited(key) {
+            return self.settle(area);
+        }
+        let addressed = self.engine.named_register();
         self.dispatch(area, |engine| engine.press(key));
+        self.mirror(addressed);
 
         let unbound = self
             .engine
@@ -1015,6 +1087,11 @@ impl App {
         match event {
             Event::Key(key) => self.press(area, *key),
             Event::Paste(_) => {
+                if let Some(waiting) = self.waiting.as_mut() {
+                    waiting.held.push_back(event.clone());
+
+                    return self.settle(area);
+                }
                 self.notice = None;
                 if Focus::Transcript == self.focus {
                     self.notice = Some(REFUSAL.to_owned());
@@ -1038,7 +1115,7 @@ impl App {
 
                 Outcome::Continues
             }
-            Event::Redraw => Outcome::Continues,
+            Event::Redraw => self.settle(area),
             Event::Notice(notice) => {
                 self.notice = Some(notice.to_string());
 
@@ -1102,9 +1179,101 @@ impl App {
             self.notice = Some(notice.to_owned());
         }
         self.held = self.panel.selection();
+        self.mirror(None);
         self.follow_panel(area);
 
         Outcome::Continues
+    }
+
+    /// Holds a put that reads the desktop's clipboard until the desktop has answered.
+    ///
+    /// The key is kept rather than typed, and the desktop is asked what it holds. Nothing waits on
+    /// the answer: the frames go on being drawn, and [`App::settle`] runs the put on the frame the
+    /// answer arrives at. A put that reads any other register, and every keystroke of an editor
+    /// that was given no clipboard, goes to the engine as it always did -- which is what keeps a
+    /// plain `p` from ever asking the desktop anything.
+    ///
+    /// # Returns
+    ///
+    /// Whether the key was held.
+    fn awaited(&mut self, key: KeyEvent) -> bool {
+        let Some(clipboard) = self.clipboard.as_mut() else {
+            return false;
+        };
+        let Some(name) = self.engine.pasted_register(key) else {
+            return false;
+        };
+        if !Bridge::serves(name) {
+            return false;
+        }
+
+        clipboard.read();
+        self.waiting = Some(Waiting {
+            put: key,
+            held: VecDeque::new(),
+        });
+
+        true
+    }
+
+    /// Runs a held put once the desktop has answered it, or abandons it once it has taken too
+    /// long, and then types every key that was held behind it.
+    ///
+    /// What an abandoned put inserts is nothing at all. The register is left holding what the
+    /// desktop handed over, which for a read that missed its deadline is nothing, so the put runs
+    /// and puts nothing rather than putting whatever the register held before the reader asked --
+    /// a paste of stale text being the one answer worse than no paste.
+    ///
+    /// # Returns
+    ///
+    /// Whether the application goes on reading keys, which what was held behind the put may say it
+    /// does not: a `q` typed while the desktop was being waited on is a `q`.
+    fn settle(&mut self, area: Rect) -> Outcome {
+        let Some(clipboard) = self.clipboard.as_mut() else {
+            return Outcome::Continues;
+        };
+        if self.waiting.is_none() {
+            return Outcome::Continues;
+        }
+
+        let notice = match clipboard.settled() {
+            Settled::Waiting => return Outcome::Continues,
+            Settled::Slow(notice) => {
+                self.notice = Some(notice.to_owned());
+
+                return Outcome::Continues;
+            }
+            Settled::Ready(notice) => notice,
+        };
+        let Some(waiting) = self.waiting.take() else {
+            return Outcome::Continues;
+        };
+        self.notice = notice;
+        self.dispatch(area, |engine| engine.press(waiting.put));
+        self.follow(area);
+        for event in waiting.held {
+            if Outcome::Stops == self.handle(area, &event) {
+                return Outcome::Stops;
+            }
+        }
+
+        Outcome::Continues
+    }
+
+    /// Writes what the clipboard's register holds out to the desktop, where the keystroke just run
+    /// left it holding something new.
+    ///
+    /// `addressed` is the register that keystroke named, which for a keystroke typed at the
+    /// transcript panel is none: what the panel yanks it files itself, and the register file's own
+    /// count is what finds that.
+    fn mirror(&mut self, addressed: Option<char>) {
+        let Some(clipboard) = self.clipboard.as_mut() else {
+            return;
+        };
+        clipboard.mirror(addressed);
+        if let Some(refusal) = clipboard.refusal() {
+            self.notice = Some(refusal);
+        }
     }
 
     /// Scrolls the transcript panel so that it draws the row its cursor rests on.

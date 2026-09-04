@@ -46,6 +46,7 @@ use crate::chat::fold::Fold;
 use crate::chat::object::{Kind as ObjectKind, Object, Position, Scope};
 use crate::chat::selection::{Mode, Selection, Source};
 use crate::chat::transcript::Transcript;
+use crate::clipboard;
 use crate::engine::{Held, Registers, Shape};
 
 /// What is written between the sources of two blocks a yank spans, which is the one line break the
@@ -60,7 +61,7 @@ pub const YANK: char = '0';
 
 /// The register standing for the system clipboard, which a yank in the transcript panel mirrors
 /// into and which a put never reads.
-pub const CLIPBOARD: char = '+';
+pub const CLIPBOARD: char = clipboard::REGISTER;
 
 /// What a patch names the file either side of the edit, whose leading component `git apply` strips
 /// before it looks for the file.

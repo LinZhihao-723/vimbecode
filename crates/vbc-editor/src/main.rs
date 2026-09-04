@@ -5,6 +5,9 @@
 //! vim's own keys at it until `q` ends it. Everything it draws and edits with is the library's:
 //! the binary contributes the terminal it draws into and the keys it reads, and nothing else.
 //!
+//! `"+` and `"*` are the desktop's clipboard rather than registers of the editor's own, so `"+yy`
+//! here is a line another Windows application can paste and `"+p` is what one of them last copied.
+//!
 //! `<C-T>` moves the keys to the transcript of an exchange, which is read rather than written:
 //! `yac` takes the code that was fenced, `yad` takes an edit as the patch it was, `za` folds away
 //! what a tool wrote, and `x` says why it will not. The exchange is a built-in one, because a
@@ -28,6 +31,7 @@ use ratatui::Terminal;
 use vbc_editor::app::{App, Outcome};
 use vbc_editor::chat::block::{Block, Kind, Role};
 use vbc_editor::chat::transcript::Transcript;
+use vbc_editor::clipboard::register::Bridge;
 use vbc_editor::event::reader::TerminalReader;
 use vbc_editor::event::{Config, Event, Source};
 use vbc_layout::buffer::Buffer;
@@ -116,7 +120,10 @@ fn open() -> Result<App, Box<dyn Error>> {
         None => App::new(Buffer::from_text(PASSAGE.trim_end_matches('\n'))),
     };
 
-    Ok(app.with_status(true).with_transcript(said()))
+    Ok(app
+        .with_status(true)
+        .with_transcript(said())
+        .with_clipboard(Bridge::windows()))
 }
 
 /// # Returns
@@ -185,7 +192,10 @@ fn leave(mut terminal: Terminal<CrosstermBackend<Stdout>>) -> Result<(), Box<dyn
 /// Draws the editor and hands it every event until one of them ends the program.
 ///
 /// A frame is drawn for every event but the timer's own tick, because a tick changes nothing and a
-/// terminal written to sixty times a second is a terminal nothing else can read.
+/// terminal written to sixty times a second is a terminal nothing else can read. The exception is
+/// a tick taken while a put is waiting on the desktop's clipboard, which is the one moment the
+/// editor's screen changes without a key having been typed: the notice that the wait is slow, and
+/// the text the put finally lays down, both arrive on a tick.
 ///
 /// # Errors
 ///
@@ -205,8 +215,9 @@ fn run(
         if let Event::Resize { .. } = event {
             terminal.autoresize()?;
         }
+        let awaited = app.awaits_clipboard();
         let outcome = app.handle(area(terminal)?, &event);
-        if Event::Redraw != event {
+        if Event::Redraw != event || awaited {
             terminal.draw(|frame| app.render(frame))?;
         }
         if Outcome::Stops == outcome {

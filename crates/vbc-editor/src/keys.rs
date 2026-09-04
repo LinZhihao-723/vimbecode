@@ -53,6 +53,7 @@ use modalkit::key::TerminalKey;
 use modalkit::keybindings::InputKey;
 
 use crate::chat::dispatch::Command as Chat;
+use crate::clipboard;
 
 /// The character the display motions and the case operators hang off in vim, and the one the
 /// table is built with where a caller asks for no other.
@@ -436,6 +437,38 @@ impl Keys {
     #[must_use]
     pub fn unbound(&self) -> Option<&[TerminalKey]> {
         self.unbound.as_deref()
+    }
+
+    /// # Returns
+    ///
+    /// The name of the register the keys typed so far address, and [`None`] where they address the
+    /// unnamed one or a register vim does not name with a character.
+    #[must_use]
+    pub fn named_register(&self) -> Option<char> {
+        named(self.register.as_ref()?)
+    }
+
+    /// # Returns
+    ///
+    /// The register a put would read out of, were `typed` the next key, and [`None`] where it
+    /// would complete no put or would put from the unnamed register.
+    ///
+    /// This is a question about the table rather than about a spelling: what a put is bound by is
+    /// the table's business, and asking it here is what lets a caller hold a put back without
+    /// knowing which keys make one. It is asked by typing `typed` at a machine of its own, so
+    /// nothing about the machine that was asked moves, and it is asked only where a register has
+    /// been named, since that is the only case a caller can do anything about.
+    #[must_use]
+    pub fn pasted_register(&self, typed: TerminalKey) -> Option<char> {
+        self.named_register()?;
+        let mut ahead = self.clone();
+        ahead.input_key(typed);
+
+        ahead
+            .queue
+            .iter()
+            .filter(|(action, _)| pastes(action))
+            .find_map(|(_, context)| named(&context.get_register()?))
     }
 
     /// Looks `typed` up in the table, firing what it completes and abandoning what it kills.
@@ -1839,8 +1872,36 @@ fn digit_of(typed: TerminalKey) -> Option<usize> {
 
 /// # Returns
 ///
-/// The register `typed` names and whether it is appended to rather than replaced, and [`None`]
-/// where it names none.
+/// Whether `action` is a put, which is the one action that reads a register the editor may have to
+/// go outside itself to fill.
+fn pastes(action: &Action) -> bool {
+    matches!(
+        action,
+        Action::Editor(EditorAction::InsertText(InsertTextAction::Paste(_, _)))
+    )
+}
+
+/// # Returns
+///
+/// The character vim addresses `register` by, and [`None`] for a register it addresses by no
+/// character at all.
+fn named(register: &Register) -> Option<char> {
+    match register {
+        Register::Named(name) => Some(*name),
+        Register::Unnamed => Some('"'),
+        Register::SmallDelete => Some('-'),
+        Register::LastYanked => Some('0'),
+        Register::RecentlyDeleted(offset) => char::from_digit(u32::try_from(*offset).ok()? + 1, 10),
+        Register::Blackhole => Some('_'),
+        Register::LastInserted => Some('.'),
+        _ => None,
+    }
+}
+
+/// # Returns
+///
+/// The register a key names, together with whether it names it to be appended to, and [`None`]
+/// where the key names no register at all.
 fn register_of(typed: TerminalKey) -> Option<(Register, bool)> {
     let character = typed.get_char()?;
     let register = match character {
@@ -1852,8 +1913,7 @@ fn register_of(typed: TerminalKey) -> Option<(Register, bool)> {
         '-' => Register::SmallDelete,
         '_' => Register::Blackhole,
         '.' => Register::LastInserted,
-        '*' => Register::SelectionPrimary,
-        '+' => Register::SelectionClipboard,
+        clipboard::ALIAS | clipboard::REGISTER => Register::Named(clipboard::REGISTER),
         _ => return None,
     };
 
