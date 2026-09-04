@@ -346,6 +346,36 @@ impl Selection {
     /// does.
     #[must_use]
     pub fn highlight(&self, source: Source<'_>, rendered: &Rendered) -> Vec<RowHighlight> {
+        self.painted(source, rendered.rows())
+    }
+
+    /// Derives the highlight of the selection over rows a caller drew itself.
+    ///
+    /// This is [`Selection::highlight`] over rows that reached the caller one at a time rather
+    /// than as the window a block was rendered into, which is what a panel drawing several blocks
+    /// down one screen has: the rows of one block arrive interleaved with summaries and with the
+    /// rows of its neighbours, and only the caller knows which of them belong to the block the
+    /// selection is over.
+    ///
+    /// # Type Parameters
+    ///
+    /// * `RowsType` - The rows of the block the selection is over, in the order they are drawn.
+    ///
+    /// # Returns
+    ///
+    /// The columns to paint, one entry for each row of `rows` the selection reaches, numbered by
+    /// that row's place among the rows given. A row the selection reaches and takes nothing from
+    /// is absent.
+    ///
+    /// # Panics
+    ///
+    /// Panics if a row carries fewer columns than the graphemes it shows, which no laid-out row
+    /// does.
+    #[must_use]
+    pub fn painted<'row, RowsType>(&self, source: Source<'_>, rows: RowsType) -> Vec<RowHighlight>
+    where
+        RowsType: IntoIterator<Item = &'row RenderedRow>,
+    {
         let text = source.text;
         let (first, last) = self.ends();
         let covered = line_start(text, first)..line_start(text, last);
@@ -353,7 +383,7 @@ impl Selection {
 
         let mut highlights = Vec::new();
         let mut held: Option<(Range<usize>, Range<usize>)> = None;
-        for (index, row) in rendered.rows().iter().enumerate() {
+        for (index, row) in rows.into_iter().enumerate() {
             let drawn = row.source();
             let continues = |(line, _): &(Range<usize>, Range<usize>)| {
                 line.start <= drawn.start && drawn.end <= line.end

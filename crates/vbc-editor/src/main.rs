@@ -15,6 +15,7 @@
 
 use std::error::Error;
 use std::io::{self, Stdout};
+use std::path::PathBuf;
 use std::process::ExitCode;
 
 use crossterm::execute;
@@ -110,14 +111,12 @@ fn main() -> ExitCode {
 ///
 /// * Forwards [`std::fs::read_to_string`]'s return values on failure.
 fn open() -> Result<App, Box<dyn Error>> {
-    let text = match std::env::args().nth(1) {
-        Some(path) => std::fs::read_to_string(path)?,
-        None => PASSAGE.to_owned(),
+    let app = match std::env::args().nth(1) {
+        Some(path) => App::opened(PathBuf::from(path))?,
+        None => App::new(Buffer::from_text(PASSAGE.trim_end_matches('\n'))),
     };
 
-    Ok(App::new(Buffer::from_text(text.trim_end_matches('\n')))
-        .with_status(true)
-        .with_transcript(said()))
+    Ok(app.with_status(true).with_transcript(said()))
 }
 
 /// # Returns

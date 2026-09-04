@@ -29,6 +29,8 @@
 //! the row begins with, while the styled path fills them, because a tab under a span carries that
 //! span's background.
 
+use std::ops::Range;
+
 use ratatui::buffer::{Buffer, CellDiffOption, CellWidth};
 use ratatui::layout::{Position, Rect};
 use ratatui::style::Style;
@@ -380,6 +382,65 @@ pub fn cursor_cell(
         area.y + screen_row,
         row.columns()[grapheme - row.start()],
     )
+}
+
+/// Lays `style` over the cells of a screen row without moving what is drawn in them.
+///
+/// This is how a selection reaches the screen. A highlight is a property of the cells rather than
+/// of the text -- the same grapheme is drawn in the same cell whether it is selected or not -- so
+/// it is painted over a row that has already been drawn instead of being folded into the styles
+/// the row was drawn with. That is what lets a selection cross a wrap boundary without the layout
+/// knowing anything about it: the columns of each row it reaches are painted, and the rows are the
+/// rows the layout produced.
+///
+/// # Panics
+///
+/// Panics if `area` is not inside `buffer`.
+pub fn paint(
+    buffer: &mut Buffer,
+    area: Rect,
+    screen_row: u16,
+    columns: &Range<usize>,
+    style: Style,
+) {
+    if area.height <= screen_row {
+        return;
+    }
+
+    let y = area.y + screen_row;
+    let first = u16::try_from(columns.start)
+        .unwrap_or(u16::MAX)
+        .min(area.width);
+    let last = u16::try_from(columns.end)
+        .unwrap_or(u16::MAX)
+        .min(area.width);
+    for x in first..last {
+        buffer[(area.x + x, y)].set_style(style);
+    }
+}
+
+/// # Returns
+///
+/// The columns of `row` drawing the graphemes `graphemes` of the logical line it shows, or `None`
+/// where the row draws none of them.
+///
+/// A grapheme wider than one cell is answered with every column it claims, because half a reversed
+/// character is not something a terminal can draw. The range is never empty where the row draws the
+/// position it names either: a selection covering a line with no graphemes at all is one cell wide
+/// on the screen, as vim's own is.
+#[must_use]
+pub fn painted_columns(row: &DisplayRow, graphemes: &Range<usize>) -> Option<Range<usize>> {
+    let first = graphemes.start.max(row.start());
+    let last = graphemes.end.min(row.end());
+    if last < first || (first == last && row.start() != row.end()) {
+        return None;
+    }
+
+    let columns = row.columns();
+    let start = columns[first - row.start()];
+    let end = columns[last - row.start()].max(start + 1);
+
+    Some(start..end)
 }
 
 /// One grapheme as a renderer places it: the cells of a screen line it claims, and the style it is

@@ -52,6 +52,15 @@
 //! action is, and so is the blockwise selection, whose shift vim lays down at the block's own left
 //! column rather than at the start of the lines it spans.
 //!
+//! What a keystroke did to the text is reported as well as what it left behind. A caller that lays
+//! the text out again has to read the whole rope to do it, which costs the file rather than the
+//! window, and most of what is typed at an editor -- the motions, the scrolls, the selections --
+//! changes no byte of it. So the engine keeps a revision that moves whenever an action that could
+//! write runs, read off the action rather than off the text, because comparing two versions of a
+//! rope costs the rope. The same answer is what lets the checkpoint the keybindings issue on every
+//! keystroke be dropped where nothing has written, since modalkit's own checkpoint opens by
+//! comparing the whole rope against the last one it kept.
+//!
 //! An action the seam does not run is reported rather than dropped. An engine that quietly ignores
 //! what it was asked to do is an engine whose tests pass against a keystroke that did nothing, so
 //! there is no arm here that swallows an action. A motion the shim classifies as out of scope is
@@ -80,7 +89,7 @@ use editor_types::prelude::{
     Register as Slot, Specifier, TargetShape, ViewportContext,
 };
 use editor_types::EditAction;
-use modalkit::actions::{Action, Editable, EditorAction, InsertTextAction};
+use modalkit::actions::{Action, Editable, EditorAction, HistoryAction, InsertTextAction};
 use modalkit::editing::application::EmptyInfo;
 use modalkit::editing::buffer::{CursorGroupId, EditBuffer};
 use modalkit::editing::context::EditContext;
@@ -324,6 +333,8 @@ pub struct Engine {
     registers: Registers,
     shim: Option<Shim>,
     shift: Shift,
+    revision: u64,
+    checkpointed: u64,
 }
 
 impl Engine {
@@ -520,19 +531,29 @@ impl Engine {
     /// # Returns
     ///
     /// Where the cursor rests in the text.
+    ///
+    /// What this costs is the line the cursor is on rather than the text it sits in, because a
+    /// caller reads the cursor back after every keystroke and a read that spelled the whole rope
+    /// out would make every keystroke cost the file.
     pub fn cursor(&mut self) -> Position {
         let cursor = self.text.get_leader(self.group);
-        let text = self.text.get_text();
-        let line = text.split('\n').nth(cursor.y).unwrap_or_default();
 
-        Position {
-            line: cursor.y,
-            column: line
-                .chars()
-                .take(cursor.x)
-                .map(char::len_utf8)
-                .sum::<usize>(),
-        }
+        self.located(&cursor)
+    }
+
+    /// # Returns
+    ///
+    /// A number that changes whenever a keystroke could have changed the text, and stays as it was
+    /// over the keystrokes that could not.
+    ///
+    /// A caller that lays the text out again reads the whole of it, which costs the file rather
+    /// than the window; this is what lets it skip that work over the motions, the scrolls and the
+    /// selections, which are most of what is typed at an editor. It is conservative in the one
+    /// direction that is safe: an action that changes nothing may still move the number, and no
+    /// action that changes the text leaves it alone.
+    #[must_use]
+    pub fn revision(&self) -> u64 {
+        self.revision
     }
 
     /// # Returns
@@ -577,6 +598,7 @@ impl Engine {
     /// draws. The cursor is taken to the start of the new text, since the place it rested is a
     /// place the old projection named.
     pub fn reload(&mut self, text: &str) {
+        self.revision += 1;
         self.text.set_text(text);
         self.text.set_group(
             self.group,
@@ -1065,12 +1087,30 @@ impl Engine {
 
     /// Runs one of the actions that edit the text against the text as it stands.
     ///
+    /// A checkpoint over a text nothing has written since the last one is dropped rather than run.
+    /// The keybindings issue a checkpoint on every return to normal mode, and modalkit's own
+    /// checkpoint begins by comparing the whole rope against the one the last checkpoint kept, so
+    /// every motion typed at a hundred-thousand-line file paid for a comparison of that file. What
+    /// the comparison answers is what this engine already knows -- whether anything has written --
+    /// so the comparison is skipped and the checkpoint runs exactly when there is a change for it
+    /// to keep, which is what leaves `u` with the same changes to take back.
+    ///
     /// # Errors
     ///
     /// Returns an error if:
     ///
     /// * [`Error::Unrunnable`] if the action could not be run against the text.
     fn apply(&mut self, editor: &EditorAction, context: &EditContext) -> Result<(), Error> {
+        if let EditorAction::History(HistoryAction::Checkpoint) = editor {
+            if self.revision == self.checkpointed {
+                return Ok(());
+            }
+            self.checkpointed = self.revision;
+        }
+        if writes(editor, context) {
+            self.revision += 1;
+        }
+
         let Self {
             text,
             store,
@@ -1141,6 +1181,8 @@ impl Engine {
             registers: Registers::new(),
             shim,
             shift: Shift::default().with_tab_stop(geometry.metrics().tab_stop()),
+            revision: 0,
+            checkpointed: 0,
         }
     }
 }
@@ -1268,6 +1310,30 @@ fn bare(action: &EditorAction, context: &EditContext) -> bool {
 
 /// # Returns
 ///
+/// Whether running `action` under `context` could leave the text other than it was.
+///
+/// The answer is read off the action rather than off the text, because comparing two versions of a
+/// rope costs the rope. It errs towards yes: a motion with no operator, a cursor command, a mark, a
+/// selection command and the checkpoint that ends every keystroke are the actions that provably
+/// write nothing, and everything else -- an undo and a redo among them -- is answered as though it
+/// wrote.
+///
+/// The checkpoint is the one that matters most. The keybindings issue one on every return to normal
+/// mode, so an answer that called it a write would call every keystroke a write and there would be
+/// nothing left for a caller to skip.
+fn writes(action: &EditorAction, context: &EditContext) -> bool {
+    match action {
+        EditorAction::Edit(operation, _) => EditAction::Motion != context.resolve(operation),
+        EditorAction::Cursor(_)
+        | EditorAction::History(HistoryAction::Checkpoint)
+        | EditorAction::Mark(_)
+        | EditorAction::Selection(_) => false,
+        _ => true,
+    }
+}
+
+/// # Returns
+///
 /// The number of characters of `line` in front of the grapheme at `grapheme`, which is the column
 /// modalkit keeps a cursor in.
 fn char_offset(line: &str, grapheme: usize) -> usize {
@@ -1359,6 +1425,46 @@ mod tests {
         assert_eq!(3, grapheme_offset(CLUSTERED, 8));
         assert_eq!(3, grapheme_offset(CLUSTERED, 99));
         assert_eq!(0, grapheme_offset("", 0));
+    }
+
+    #[test]
+    fn the_revision_moves_over_the_keys_that_write_and_stays_over_the_keys_that_do_not() {
+        let mut engine = Engine::new(PUT_INTO);
+        typing(&mut engine, "j");
+        let unwritten = engine.revision();
+        typing(&mut engine, "0lhvlv");
+        engine.place(LogicalPosition {
+            line: 0,
+            grapheme: 2,
+        });
+
+        assert_eq!(
+            unwritten,
+            engine.revision(),
+            "a motion, a selection or a scroll's cursor placing was reported as a write"
+        );
+
+        typing(&mut engine, "x");
+
+        assert_ne!(
+            unwritten,
+            engine.revision(),
+            "an `x` was reported as no write"
+        );
+
+        let written = engine.revision();
+        typing(&mut engine, "u");
+
+        assert_ne!(
+            written,
+            engine.revision(),
+            "an undo was reported as no write"
+        );
+        assert_eq!(
+            format!("{PUT_INTO}\n"),
+            engine.text(),
+            "the undo took nothing back"
+        );
     }
 
     #[test]
