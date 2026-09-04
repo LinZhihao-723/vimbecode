@@ -11,6 +11,7 @@
 //! than written down here, and a scan that read fewer fails rather than passes.
 
 pub mod fixture;
+pub mod reach;
 pub mod shape;
 
 use std::collections::BTreeSet;
@@ -109,6 +110,9 @@ pub enum Error {
     /// The tree holds no crates at all.
     NoCrates { root: String },
 
+    /// The tree holds no binary, so a scan for what a run reaches has nothing to start from.
+    NoBinaries { root: String },
+
     /// A crate of the tree holds no source directory.
     NoSourceDirectory { name: String },
 
@@ -132,6 +136,7 @@ impl Display for Error {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> FmtResult {
         match self {
             Self::NoCrates { root } => write!(formatter, "`{root}` holds no crates"),
+            Self::NoBinaries { root } => write!(formatter, "`{root}` holds no binaries"),
             Self::NoSourceDirectory { name } => {
                 write!(formatter, "the crate `{name}` holds no source directory")
             }

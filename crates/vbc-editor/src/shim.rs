@@ -57,6 +57,26 @@
 //! left from rather than to the column the row it landed on cut it back to, and a `g$` in front of
 //! either sticks to the end of every row they pass. Anything else the engine runs forgets that
 //! column, which is what keeps it the memory of a chain rather than a memory that outlives one.
+//! The exception is vim's own exception: a bare `j` or `k` is the one cursor move that leaves
+//! `curswant` alone, so a chain that a `$` left wanting the end of a row reaches the screen motion
+//! behind one still wanting it. Nothing else is carried across one. vim's `curswant` is a virtual
+//! column of a whole logical line, and every other column a chain can be walking down is a display
+//! column of the row it was walking down, which is a different number in the line a vertical
+//! motion lands in; `$` is the one place the two agree, because the end of a row is the same place
+//! in whatever line it is measured against. Carrying a number instead was measured against vim
+//! and moved forty-eight cases off it that were on it.
+//!
+//! A motion this seam measures and then leaves to modalkit forgets that column as anything else
+//! does. `H`, `M` and `L` move the cursor whoever answers them, and vim sets `curswant` from each,
+//! so a chain reaching past one would be walking down a column vim had already forgotten.
+//!
+//! What a motion is answered with is a place together with the two facts an operator applied over
+//! it turns on and a cursor moved by it does not: whether the grapheme landed on is part of what
+//! the operator takes, which is what separates `g$` from `gj`, and whether the walk travelled the
+//! whole count it was asked for, because vim abandons an operator whose motion ran out of text.
+//! What is done with the place is not the shim's -- it knows nothing about operators, marks or
+//! registers -- but a place alone is not enough to decide an edit from, so both facts are reported
+//! rather than left to be inferred from where the answer landed.
 
 use std::borrow::Cow;
 
@@ -129,6 +149,27 @@ pub enum Classification {
     Unclassified,
 }
 
+/// Where a screen motion goes, in the terms a cursor moved by it and an operator applied over it
+/// are both decided from.
+///
+/// A cursor needs the place alone. An operator needs two more facts about the walk that reached
+/// it: whether the grapheme landed on is part of what the operator takes, and whether the walk
+/// travelled the whole count it was asked for, because vim abandons an operator whose motion ran
+/// out of text.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct Landing {
+    /// The place in the logical text the motion reached.
+    pub at: LogicalPosition,
+
+    /// Whether the grapheme reached is part of what an operator applied over the motion takes.
+    /// `g$` takes it and `gj`, `gk`, `g0` and `g^` stop in front of it.
+    pub inclusive: bool,
+
+    /// Whether the walk travelled the whole count the motion was asked for, which a walk that ran
+    /// out of text did not.
+    pub complete: bool,
+}
+
 /// One screen motion the shim took, and where the layout engine says the cursor stood when it
 /// arrived.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -154,8 +195,15 @@ enum Wanted {
     /// A display column, which a row too short to reach it cuts back to its last grapheme.
     Column(usize),
 
-    /// The last grapheme of whatever row the motion lands on, however long that row is.
-    End,
+    /// The last grapheme of whatever row the motion lands on, however long that row is, and
+    /// whether an operator over a motion walking towards it takes the grapheme it stops on. vim's
+    /// `$` leaves a chain wanting a column it holds no number for, which is what makes the motions
+    /// after it inclusive; `g$` leaves it wanting the column it landed in, which is a column like
+    /// any other and which the motions after it stop in front of.
+    End {
+        /// Whether a motion walking towards this end takes the grapheme it stops on.
+        inclusive: bool,
+    },
 
     /// The first grapheme of the landing row that is not a blank.
     FirstWord,
@@ -201,22 +249,35 @@ impl Shim {
         &self.intercepted
     }
 
-    /// Reads what an action this seam does not answer leaves a chain of screen motions wanting.
+    /// Reads what an action this seam does not answer leaves a chain of screen motions wanting,
+    /// where `bare` says the action is a motion with no operator applied to it.
     ///
     /// vim's own `$` wants the end of every row a screen motion after it lands on, which is the
-    /// one column a chain can be walking down without a screen motion having started it. Anything
-    /// else that moves the cursor wants nothing at all, and the next screen motion is measured
-    /// from wherever the cursor was left.
+    /// one column a chain can be walking down without a screen motion having started it. A bare
+    /// `j` or `k` is the one cursor move vim leaves `curswant` alone across, and a chain wanting
+    /// that end reaches the screen motion behind one still wanting it. Anything else that moves
+    /// the cursor wants nothing at all, and the next screen motion is measured from wherever the
+    /// cursor was left.
+    ///
+    /// What is carried across a vertical motion is that end alone. vim's `curswant` is a virtual
+    /// column of a whole logical line, and everything else a chain can be walking down -- a
+    /// numbered column, or the end a `g$` landed in -- is a display column of the row it was
+    /// walking down, which is a different number in the line a vertical motion lands in. `$` is
+    /// the one place the two agree, because the end of a row is the same place in whatever line it
+    /// is measured against.
     ///
     /// An action that only records where the text has been moves no cursor and so ends no chain.
     /// modalkit files a history checkpoint after every key, and a chain such a checkpoint broke
     /// would be a chain no second motion could ever join.
-    pub fn note(&mut self, action: &EditorAction) {
+    pub fn note(&mut self, action: &EditorAction, bare: bool) {
         if matches!(action, EditorAction::History(_)) {
             return;
         }
+        if bare && Some(Wanted::End { inclusive: true }) == self.wanted && steps_a_line(action) {
+            return;
+        }
 
-        self.wanted = ends_a_line(action).then_some(Wanted::End);
+        self.wanted = (bare && ends_a_line(action)).then_some(Wanted::End { inclusive: true });
     }
 
     /// Takes the screen motion `motion`, resolved to the count `count`, with the cursor standing
@@ -228,15 +289,16 @@ impl Shim {
     ///
     /// # Returns
     ///
-    /// Where the motion leaves the cursor, and [`None`] for a motion this seam does not answer,
-    /// which the caller is then to leave to modalkit.
+    /// Where the motion goes, and [`None`] for a motion this seam does not answer, which the
+    /// caller is then to leave to modalkit. A motion left to modalkit still ends the chain: it
+    /// moves the cursor, and vim sets `curswant` from every cursor move but a bare `j` or `k`.
     pub fn intercept<TextType: Text>(
         &mut self,
         motion: ScreenMotion,
         count: usize,
         at: LogicalPosition,
         text: &TextType,
-    ) -> Option<LogicalPosition> {
+    ) -> Option<Landing> {
         let rows = self.lay_out(at.line, text);
         let row = row_index(&rows, at.grapheme);
         let from = DisplayPosition {
@@ -251,7 +313,9 @@ impl Shim {
 
         let (steps, direction, wanted) = match motion {
             ScreenMotion::ViewportPos(_) | ScreenMotion::LinePos(MovePosition::Middle) => {
-                return None
+                self.wanted = None;
+
+                return None;
             }
             ScreenMotion::FirstWord(direction) => (count, direction, Wanted::FirstWord),
             ScreenMotion::Line(direction) => (
@@ -262,16 +326,25 @@ impl Shim {
             ScreenMotion::LinePos(MovePosition::Beginning) => {
                 (0, MoveDir1D::Next, Wanted::Column(0))
             }
-            ScreenMotion::LinePos(MovePosition::End) => (count, MoveDir1D::Next, Wanted::End),
+            ScreenMotion::LinePos(MovePosition::End) => {
+                (count, MoveDir1D::Next, Wanted::End { inclusive: false })
+            }
         };
-        let (line, rows, row) = self.step(at.line, rows, row, direction, steps, text);
-        let grapheme = grapheme_at(&rows[row], wanted);
+        let (line, rows, row, travelled) = self.step(at.line, rows, row, direction, steps, text);
+        let grapheme = grapheme_at(&rows[row], wanted, self.geometry.columns().get());
         self.wanted = Some(match motion {
             ScreenMotion::Line(_) | ScreenMotion::LinePos(MovePosition::End) => wanted,
             _ => Wanted::Column(column_of(&rows[row], grapheme)),
         });
 
-        Some(LogicalPosition { line, grapheme })
+        Some(Landing {
+            at: LogicalPosition { line, grapheme },
+            inclusive: match motion {
+                ScreenMotion::LinePos(MovePosition::End) => true,
+                _ => matches!(wanted, Wanted::End { inclusive: true }),
+            },
+            complete: steps == travelled,
+        })
     }
 
     /// Walks `steps` display rows in `direction`, starting from the row `row` of the logical line
@@ -284,7 +357,8 @@ impl Shim {
     ///
     /// # Returns
     ///
-    /// The logical line the walk ended on, that line's display rows, and the row within them.
+    /// The logical line the walk ended on, that line's display rows, the row within them, and the
+    /// display rows the walk travelled, which is fewer than `steps` where the text ran out.
     fn step<TextType: Text>(
         &self,
         line: usize,
@@ -293,14 +367,14 @@ impl Shim {
         direction: MoveDir1D,
         steps: usize,
         text: &TextType,
-    ) -> (usize, Vec<DisplayRow>, usize) {
+    ) -> (usize, Vec<DisplayRow>, usize, usize) {
         let last = text.line_count().saturating_sub(1);
         let mut line = line;
         let mut rows = rows;
         let mut row = row;
-        let mut remaining = steps;
+        let mut travelled = 0;
 
-        while 0 < remaining {
+        while travelled < steps {
             match direction {
                 MoveDir1D::Next if row + 1 < rows.len() => row += 1,
                 MoveDir1D::Next if line < last => {
@@ -316,10 +390,10 @@ impl Shim {
                 }
                 MoveDir1D::Next | MoveDir1D::Previous => break,
             }
-            remaining -= 1;
+            travelled += 1;
         }
 
-        (line, rows, row)
+        (line, rows, row, travelled)
     }
 
     /// # Type Parameters
@@ -399,6 +473,17 @@ pub fn classified(action: &EditorAction) -> Option<(Classification, Count)> {
 
 /// # Returns
 ///
+/// Whether `action` is one of the motions counted in whole logical lines, which is vim's `j` and
+/// `k` and is what it leaves `curswant` alone across.
+fn steps_a_line(action: &EditorAction) -> bool {
+    matches!(
+        action,
+        EditorAction::Edit(_, EditTarget::Motion(MoveType::Line(_), _))
+    )
+}
+
+/// # Returns
+///
 /// Whether `action` is the characterwise motion to the end of a line, which is vim's `$`.
 fn ends_a_line(action: &EditorAction) -> bool {
     matches!(
@@ -430,19 +515,42 @@ fn column_of(row: &DisplayRow, grapheme: usize) -> usize {
 
 /// # Returns
 ///
-/// The grapheme of the logical line that `row` draws at `wanted`, which is the row's last grapheme
-/// wherever the row is too short to reach it.
-fn grapheme_at(row: &DisplayRow, wanted: Wanted) -> usize {
+/// The grapheme of the logical line that `row`, drawn in a window `width` columns wide, draws at
+/// `wanted`, which is the row's last grapheme wherever the row is too short to reach it.
+///
+/// A grapheme wider than the cell a column names is one the column can land in the middle of, and
+/// vim steps back off one it landed in the second half of a row: a tab reaching across the end of
+/// a row would otherwise carry the cursor a row further along than the motion asked for. Only the
+/// far half of a row is stepped back from, which is where vim steps back.
+///
+/// The half is a half of the row's own text rather than of the window, because a continuation row
+/// draws its decoration in front of that text and both the column carried onto the row and the
+/// columns the row is measured in count those cells. Measuring against the window instead moves
+/// the mark by half the decoration, which is why an undecorated window cannot tell the two apart.
+fn grapheme_at(row: &DisplayRow, wanted: Wanted, width: usize) -> usize {
     let held = row.end() - row.start();
     if 0 == held {
         return row.start();
     }
 
     let offset = match wanted {
-        Wanted::Column(column) => row.columns()[..held]
-            .partition_point(|drawn| *drawn <= column)
-            .saturating_sub(1),
-        Wanted::End => held - 1,
+        Wanted::Column(column) => {
+            let offset = row.columns()[..held]
+                .partition_point(|drawn| *drawn <= column)
+                .saturating_sub(1);
+            let grapheme = row.start() + offset;
+            let decoration = row.columns()[0];
+            let beside = width.saturating_sub(decoration);
+            if 0 < grapheme
+                && column < column_of(row, grapheme)
+                && beside / 2 < column.saturating_sub(decoration)
+            {
+                return grapheme - 1;
+            }
+
+            offset
+        }
+        Wanted::End { .. } => held - 1,
         Wanted::FirstWord => first_word(row.text()).min(held - 1),
     };
 
@@ -486,6 +594,23 @@ mod tests {
     /// A text whose logical lines lay out into a different number of rows apiece, which is what
     /// makes a walk down its rows cross into a line at a row other than its first.
     const RAGGED: [&str; 3] = ["abcdefghijklmnopqrstuvwxyz", "short", "0123456789abcde"];
+
+    /// A text whose second line draws a tab across the cells four to seven, which is a grapheme a
+    /// column carried down from the line above can land in the middle of.
+    const STRADDLED: [&str; 2] = ["0123456789", "abcd\tefgh"];
+
+    /// The columns the decorated measurements below are made in. Half of the window and half of a
+    /// decorated row's own text are different columns there, which is what makes the two rules a
+    /// row can be stepped back from tell each other apart.
+    const DECORATED_COLUMNS: usize = 15;
+
+    /// The continuation marker the decorated measurements below are drawn with.
+    const SHOW_BREAK: &str = "> ";
+
+    /// A line of tabs, every row of which ends part-way through one. Drawn behind a continuation
+    /// marker, a column carried down it lands in the middle of a tab on a row whose text starts
+    /// two cells in.
+    const TABS: [&str; 1] = ["a\tb\tc\td\te\tf\tg\th\ti\tj\tk\tl"];
 
     /// A text held in memory as the lines it is written from.
     struct Lines(Vec<String>);
@@ -690,10 +815,12 @@ mod tests {
         let held = text(&RAGGED);
         let first = shim
             .intercept(ScreenMotion::Line(MoveDir1D::Next), 3, at, &held)
-            .expect("a screen line down is answered");
+            .expect("a screen line down is answered")
+            .at;
         let second = shim
             .intercept(ScreenMotion::Line(MoveDir1D::Next), 1, first, &held)
-            .expect("a screen line down is answered");
+            .expect("a screen line down is answered")
+            .at;
 
         assert_eq!(4, first.grapheme, "the short line reaches only its own end");
         assert_eq!(
@@ -712,25 +839,118 @@ mod tests {
         let held = text(&RAGGED);
         let first = shim
             .intercept(ScreenMotion::Line(MoveDir1D::Next), 3, at, &held)
-            .expect("a screen line down is answered");
-        shim.note(&edit(EditTarget::Motion(
-            MoveType::Column(MoveDir1D::Next, false),
-            Count::Contextual,
-        )));
+            .expect("a screen line down is answered")
+            .at;
+        shim.note(
+            &edit(EditTarget::Motion(
+                MoveType::Column(MoveDir1D::Next, false),
+                Count::Contextual,
+            )),
+            true,
+        );
         let second = shim
             .intercept(ScreenMotion::Line(MoveDir1D::Next), 1, first, &held)
-            .expect("a screen line down is answered");
+            .expect("a screen line down is answered")
+            .at;
 
         assert_eq!(4, second.grapheme);
     }
 
     #[test]
-    fn the_end_of_a_line_leaves_the_chain_wanting_the_end_of_a_row() {
+    fn a_bare_vertical_motion_carries_a_chain_wanting_an_end_across_itself() {
         let mut shim = Shim::new(geometry());
-        shim.note(&edit(EditTarget::Motion(
-            MoveType::LinePos(MovePosition::End),
-            Count::Contextual,
-        )));
+        let held = text(&RAGGED);
+        shim.note(&ended_a_line(), true);
+        let first = shim
+            .intercept(
+                ScreenMotion::Line(MoveDir1D::Next),
+                3,
+                LogicalPosition {
+                    line: 0,
+                    grapheme: 0,
+                },
+                &held,
+            )
+            .expect("a screen line down is answered")
+            .at;
+        shim.note(&stepped_down(), true);
+        let second = shim
+            .intercept(ScreenMotion::Line(MoveDir1D::Next), 1, first, &held)
+            .expect("a screen line down is answered")
+            .at;
+
+        assert_eq!(
+            LogicalPosition {
+                line: 2,
+                grapheme: 9,
+            },
+            second,
+            "a bare `j` between the two ended a chain wanting an end, which vim's own `curswant` \
+             outlives"
+        );
+    }
+
+    #[test]
+    fn a_bare_vertical_motion_ends_a_chain_wanting_a_numbered_column() {
+        let mut shim = Shim::new(geometry());
+        let held = text(&RAGGED);
+        let first = shim
+            .intercept(
+                ScreenMotion::Line(MoveDir1D::Next),
+                3,
+                LogicalPosition {
+                    line: 0,
+                    grapheme: 7,
+                },
+                &held,
+            )
+            .expect("a screen line down is answered")
+            .at;
+        shim.note(&stepped_down(), true);
+        let second = shim
+            .intercept(ScreenMotion::Line(MoveDir1D::Next), 1, first, &held)
+            .expect("a screen line down is answered")
+            .at;
+
+        assert_eq!(4, second.grapheme);
+    }
+
+    #[test]
+    fn an_operator_over_a_vertical_motion_breaks_a_chain_wanting_an_end() {
+        let mut shim = Shim::new(geometry());
+        let held = text(&RAGGED);
+        shim.note(&ended_a_line(), true);
+        let first = shim
+            .intercept(
+                ScreenMotion::Line(MoveDir1D::Next),
+                3,
+                LogicalPosition {
+                    line: 0,
+                    grapheme: 0,
+                },
+                &held,
+            )
+            .expect("a screen line down is answered")
+            .at;
+        shim.note(&stepped_down(), false);
+        let second = shim
+            .intercept(ScreenMotion::Line(MoveDir1D::Next), 1, first, &held)
+            .expect("a screen line down is answered")
+            .at;
+
+        assert_eq!(
+            LogicalPosition {
+                line: 2,
+                grapheme: 4,
+            },
+            second
+        );
+    }
+
+    #[test]
+    fn an_operator_over_an_end_of_line_leaves_the_chain_wanting_nothing() {
+        let mut shim = Shim::new(geometry());
+        shim.note(&ended_a_line(), false);
         let below = shim
             .intercept(
                 ScreenMotion::Line(MoveDir1D::Next),
@@ -741,7 +961,69 @@ mod tests {
                 },
                 &text(&RAGGED),
             )
-            .expect("a screen line down is answered");
+            .expect("a screen line down is answered")
+            .at;
+
+        assert_eq!(
+            LogicalPosition {
+                line: 1,
+                grapheme: 0,
+            },
+            below
+        );
+    }
+
+    #[test]
+    fn a_motion_left_to_modalkit_ends_the_chain() {
+        let mut shim = Shim::new(geometry());
+        let held = text(&RAGGED);
+        shim.note(&ended_a_line(), true);
+        let at = LogicalPosition {
+            line: 0,
+            grapheme: 0,
+        };
+
+        assert_eq!(
+            None,
+            shim.intercept(
+                ScreenMotion::ViewportPos(MovePosition::Beginning),
+                1,
+                at,
+                &held
+            )
+        );
+
+        let below = shim
+            .intercept(ScreenMotion::Line(MoveDir1D::Next), 3, at, &held)
+            .expect("a screen line down is answered")
+            .at;
+
+        assert_eq!(
+            LogicalPosition {
+                line: 1,
+                grapheme: 0,
+            },
+            below,
+            "an `H` between the two carried a chain vim's own `curswant` does not outlive"
+        );
+    }
+
+    #[test]
+    fn the_end_of_a_line_leaves_the_chain_wanting_the_end_of_a_row() {
+        let mut shim = Shim::new(geometry());
+        shim.note(&ended_a_line(), true);
+        let below = shim
+            .intercept(
+                ScreenMotion::Line(MoveDir1D::Next),
+                3,
+                LogicalPosition {
+                    line: 0,
+                    grapheme: 0,
+                },
+                &text(&RAGGED),
+            )
+            .expect("a screen line down is answered")
+            .at;
 
         assert_eq!(
             LogicalPosition {
@@ -762,10 +1044,12 @@ mod tests {
         let held = text(&RAGGED);
         let end = shim
             .intercept(ScreenMotion::LinePos(MovePosition::End), 0, at, &held)
-            .expect("the end of a screen line is answered");
+            .expect("the end of a screen line is answered")
+            .at;
         let below = shim
             .intercept(ScreenMotion::Line(MoveDir1D::Next), 3, end, &held)
-            .expect("a screen line down is answered");
+            .expect("a screen line down is answered")
+            .at;
 
         assert_eq!(9, end.grapheme, "the end of the first row was not reached");
         assert_eq!(
@@ -815,6 +1099,124 @@ mod tests {
     }
 
     #[test]
+    fn the_end_of_a_screen_line_takes_the_grapheme_it_lands_on_and_the_others_do_not() {
+        let at = LogicalPosition {
+            line: 0,
+            grapheme: 0,
+        };
+        let held = text(&RAGGED);
+
+        for (motion, inclusive) in [
+            (ScreenMotion::LinePos(MovePosition::End), true),
+            (ScreenMotion::LinePos(MovePosition::Beginning), false),
+            (ScreenMotion::Line(MoveDir1D::Next), false),
+            (ScreenMotion::FirstWord(MoveDir1D::Next), false),
+        ] {
+            assert_eq!(
+                inclusive,
+                landed(motion, 1, at, &held)
+                    .expect("the motion is answered")
+                    .inclusive,
+                "`{motion:?}` reports the wrong grapheme as the one an operator takes"
+            );
+        }
+    }
+
+    #[test]
+    fn a_walk_that_ran_out_of_text_reports_that_it_did_not_travel_its_count() {
+        let held = text(&RAGGED);
+        let at = LogicalPosition {
+            line: 0,
+            grapheme: 0,
+        };
+
+        assert!(
+            landed(ScreenMotion::Line(MoveDir1D::Next), 3, at, &held)
+                .expect("a screen line down is answered")
+                .complete
+        );
+        assert!(
+            !landed(ScreenMotion::Line(MoveDir1D::Next), 99, at, &held)
+                .expect("a screen line down is answered")
+                .complete
+        );
+        assert!(
+            !landed(ScreenMotion::Line(MoveDir1D::Previous), 1, at, &held)
+                .expect("a screen line up is answered")
+                .complete
+        );
+        assert!(
+            !landed(ScreenMotion::LinePos(MovePosition::End), 99, at, &held)
+                .expect("the end of a screen line is answered")
+                .complete
+        );
+    }
+
+    #[test]
+    fn a_column_landing_in_the_far_half_of_a_row_steps_back_off_the_grapheme_it_split() {
+        let held = text(&STRADDLED);
+
+        assert_eq!(
+            Some(LogicalPosition {
+                line: 1,
+                grapheme: 3,
+            }),
+            answered(
+                ScreenMotion::Line(MoveDir1D::Next),
+                1,
+                LogicalPosition {
+                    line: 0,
+                    grapheme: 6,
+                },
+                &held,
+            ),
+            "a column carried into the middle of a tab was carried a row further along than the \
+             motion asked for"
+        );
+        assert_eq!(
+            Some(LogicalPosition {
+                line: 1,
+                grapheme: 4,
+            }),
+            answered(
+                ScreenMotion::Line(MoveDir1D::Next),
+                1,
+                LogicalPosition {
+                    line: 0,
+                    grapheme: 4,
+                },
+                &held,
+            ),
+            "a column landing in the near half of a row was stepped back from, which vim does not"
+        );
+    }
+
+    #[test]
+    fn the_half_a_row_is_stepped_back_from_is_a_half_of_its_own_text() {
+        let held = text(&TABS);
+
+        assert_eq!(
+            Some(LogicalPosition {
+                line: 0,
+                grapheme: 9,
+            }),
+            Shim::new(decorated_geometry())
+                .intercept(
+                    ScreenMotion::Line(MoveDir1D::Next),
+                    1,
+                    LogicalPosition {
+                        line: 0,
+                        grapheme: 5,
+                    },
+                    &held,
+                )
+                .map(|landing| landing.at),
+            "a column in the near half of a decorated row's own text was stepped back from, which \
+             it is only in the near half of the window the row is drawn in"
+        );
+    }
+
+    #[test]
     fn a_motion_counted_against_the_window_is_left_to_modalkit() {
         assert_eq!(
             None,
@@ -840,6 +1242,19 @@ mod tests {
         at: LogicalPosition,
         held: &Lines,
     ) -> Option<LogicalPosition> {
+        landed(motion, count, at, held).map(|landing| landing.at)
+    }
+
+    /// # Returns
+    ///
+    /// What a shim measuring in [`geometry`] makes of `motion`, resolved to `count`, with the
+    /// cursor standing at `at` in `held`.
+    fn landed(
+        motion: ScreenMotion,
+        count: usize,
+        at: LogicalPosition,
+        held: &Lines,
+    ) -> Option<Landing> {
         Shim::new(geometry()).intercept(motion, count, at, held)
     }
 
@@ -862,8 +1277,39 @@ mod tests {
 
     /// # Returns
     ///
+    /// The layout the decorated measurements above are made in.
+    fn decorated_geometry() -> Geometry {
+        Geometry::new(
+            NonZeroUsize::new(DECORATED_COLUMNS).expect("the columns are not zero"),
+            NonZeroUsize::new(ROWS).expect("the rows are not zero"),
+        )
+        .with_options(line::Options::new().with_show_break(SHOW_BREAK.to_owned()))
+    }
+
+    /// # Returns
+    ///
     /// The action modalkit produces for a motion over `target` with no operator applied to it.
     fn edit(target: EditTarget) -> EditorAction {
         EditorAction::Edit(Specifier::Contextual, target)
+    }
+
+    /// # Returns
+    ///
+    /// The action modalkit produces for vim's `j`.
+    fn stepped_down() -> EditorAction {
+        edit(EditTarget::Motion(
+            MoveType::Line(MoveDir1D::Next),
+            Count::Contextual,
+        ))
+    }
+
+    /// # Returns
+    ///
+    /// The action modalkit produces for vim's `$`.
+    fn ended_a_line() -> EditorAction {
+        edit(EditTarget::Motion(
+            MoveType::LinePos(MovePosition::End),
+            Count::Contextual,
+        ))
     }
 }

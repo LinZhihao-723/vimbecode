@@ -7,17 +7,20 @@
 //! to over a pipe that stays open for the life of the session, and this module holds the language
 //! that pipe carries.
 //!
-//! Three things make that up: the wire, which is the frames the two sides exchange and the answers
+//! Four things make that up: the wire, which is the frames the two sides exchange and the answers
 //! a request can come back with; the helper's life, which is the process those frames travel
-//! between and the rules about starting it, keeping it and letting it go; and the write path,
-//! which does not go through the helper at all, because putting text on the clipboard is worth a
-//! program that cannot stall where reading it is worth a process that need not start.
+//! between and the rules about starting it, keeping it and letting it go; the reading, which is
+//! the worker thread every one of those exchanges happens on and the deadlines the render loop
+//! holds them to; and the write path, which does not go through the helper at all, because putting
+//! text on the clipboard is worth a program that cannot stall where reading it is worth a process
+//! that need not start.
 //!
-//! The round trip across those two is not byte-exact. The writer rewrites every line ending to
-//! CRLF, so what is read back is put through the write path's normalization rather than trusted,
-//! and what the editor pastes is what the editor yanked even though what sits on the clipboard in
-//! between is not.
+//! The round trip across the two directions is not byte-exact. The writer rewrites every line
+//! ending to CRLF, so what is read back is put through the write path's normalization rather than
+//! trusted, and what the editor pastes is what the editor yanked even though what sits on the
+//! clipboard in between is not.
 
 pub mod clip;
 pub mod helper;
 pub mod protocol;
+pub mod reader;

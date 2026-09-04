@@ -4,10 +4,13 @@
 //! rendered through the layout engine.
 
 pub mod app;
+pub mod chat;
 pub mod clipboard;
 pub mod engine;
 pub mod event;
 pub mod gutter;
+pub mod indent;
+pub mod keys;
 pub mod render;
 pub mod screen;
 pub mod shim;
