@@ -31,7 +31,7 @@ const PASSAGE: &str = "\
 中文的段落在窄窗口里会折行，行号只出现在第一行上。
 The gutter numbers logical lines, so the rows that continue one are left blank.
 混合了 ASCII 和中文的一行也照样折行，字宽由布局引擎测量。
-Type vim's own keys: motions, counts, registers, operators such as dw and 3dd, and gj to walk down a display row.
+Type vim's own keys: motions, counts, registers, operators such as dw and 3dd, and gj by row.
 每一段都是一个逻辑行，可能会占据屏幕上的很多行。
 Press CTRL-D and CTRL-U to scroll half a window, CTRL-E and CTRL-Y one row.
 Press q to quit.";

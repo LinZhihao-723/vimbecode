@@ -72,6 +72,10 @@ const NARROW: u16 = 14;
 /// The rows every terminal here holds, which is fewer than [`TALL`] has lines.
 const ROWS: u16 = 5;
 
+/// The lines the window stranded by an edit is typed at, which is several windows' worth so that a
+/// window resting where the edit left it is a window nowhere near the row the cursor was left on.
+const LINES: usize = 30;
+
 /// The grapheme of the first line of [`PROSE`] that its second display row begins at, in a
 /// terminal [`NARROW`] columns wide.
 const SECOND_ROW: usize = 10;
@@ -393,6 +397,45 @@ fn the_window_follows_the_cursor_off_its_own_edges() -> Result<()> {
     Ok(())
 }
 
+/// A window an edit left anchored past the end of the text comes back to the cursor rather than
+/// resting on the one row the anchor can still be clamped onto.
+///
+/// A screen draws the last line of its text for a viewport anchored past it, so an anchor an edit
+/// stranded is an anchor whose clamp can land on the cursor's own line -- and a window that only
+/// asks whether the cursor is drawn sees no reason to move. What it would leave is a frame holding
+/// one line at the top and blanks under it, and a viewport still naming a line the text no longer
+/// holds for the next scroll to count from.
+#[test]
+fn a_window_stranded_past_the_end_of_a_shortened_text_comes_back_to_the_cursor() -> Result<()> {
+    let window = usize::from(ROWS);
+    let area = area(WIDE);
+    let mut app = App::new(Buffer::from_text(&numbered(LINES)));
+    for key in typed("Gkkkk") {
+        app.press(area, key);
+    }
+
+    assert_eq!(
+        LINES - window,
+        app.viewport().anchor(),
+        "the window is not resting on the rows the edit is about to take away"
+    );
+
+    for key in typed("dG") {
+        app.press(area, key);
+    }
+
+    assert_eq!(LINES - window, app.text().line_count());
+    assert_eq!(LINES - window - 1, app.cursor().line);
+    assert_eq!(
+        LINES - window - window,
+        app.viewport().anchor(),
+        "the window stayed where the edit stranded it, past the end of the text"
+    );
+    assert_eq!(Some(window - 1), drawn_row(&app, area)?);
+
+    Ok(())
+}
+
 /// The program stops on the key it has always stopped on, and on the interrupt from a mode where
 /// that key is text rather than a command.
 #[test]
@@ -422,6 +465,17 @@ fn the_program_stops_on_its_own_key_and_on_the_interrupt() {
 /// The area a case is typed into, which is `columns` columns of a terminal [`ROWS`] rows tall.
 fn area(columns: u16) -> Rect {
     Rect::new(0, 0, columns, ROWS)
+}
+
+/// # Returns
+///
+/// A text of `count` lines, each of them naming its own number so that a window drawing it says
+/// which lines it drew.
+fn numbered(count: usize) -> String {
+    (1..=count)
+        .map(|line| format!("line {line}"))
+        .collect::<Vec<String>>()
+        .join("\n")
 }
 
 /// # Returns
