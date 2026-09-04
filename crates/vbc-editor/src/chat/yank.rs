@@ -28,13 +28,13 @@
 //! blocks it covers, whole, rather than the row its summary is drawn in. A fold hides what is
 //! drawn and never what is held.
 //!
-//! Where a yank lands is [`Registers`]. A plain `y` fills the unnamed register, the yank register
-//! and `"+`, so that what a reader took reaches the system clipboard as well as the editor's own.
-//! A plain `p` reads the unnamed register and nothing besides: a vim user who yanks and then puts
-//! expects what they yanked rather than whatever the desktop last copied, so the mirroring is one
-//! way on purpose.
+//! Where a yank lands is the [`Registers`] the file editor puts from, because a reader who yanks a
+//! code block out of an answer means to paste it into a file. A plain `y` fills the unnamed
+//! register, the yank register and `"+`, so that what a reader took reaches the system clipboard as
+//! well as the editor's own. A plain `p` reads the unnamed register and nothing besides: a vim user
+//! who yanks and then puts expects what they yanked rather than whatever the desktop last copied,
+//! so the mirroring is one way on purpose.
 
-use std::collections::BTreeMap;
 use std::ops::Range;
 
 use vbc_layout::buffer::LINE_SEPARATOR;
@@ -46,7 +46,7 @@ use crate::chat::fold::Fold;
 use crate::chat::object::{Kind as ObjectKind, Object, Position, Scope};
 use crate::chat::selection::{Mode, Selection, Source};
 use crate::chat::transcript::Transcript;
-use crate::engine::{Held, Shape};
+use crate::engine::{Held, Registers, Shape};
 
 /// What is written between the sources of two blocks a yank spans, which is the one line break the
 /// rows of the second follow the rows of the first across.
@@ -228,67 +228,27 @@ impl Yank {
     }
 }
 
-/// The registers of the transcript panel: what a yank there filled, and what a put there reads.
+/// Files `yank` in `registers`, in every register a yank in the transcript panel fills: the unnamed
+/// register, the yank register and the clipboard's, which is how what a reader took leaves the
+/// editor for the desktop.
 ///
-/// A yank reaches three of them, the unnamed register, the yank register and the clipboard's,
-/// which is how what a reader took leaves the editor for the desktop. A put reads the unnamed
-/// register alone, so text the desktop holds and the reader never yanked is never what comes back.
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub struct Registers {
-    held: BTreeMap<char, Held>,
-}
-
-impl Registers {
-    /// Factory function.
-    ///
-    /// # Returns
-    ///
-    /// Newly created registers, every one of them holding nothing.
-    #[must_use]
-    pub fn new() -> Self {
-        Self::default()
+/// The registers are the file editor's own, so what is filed here is what `p` in the file puts.
+/// A linewise register holds whole lines, the last of them ended as every other one is, because a
+/// put lays the register's bytes down between two lines rather than between two lines and a break
+/// it supplies itself. A structure taken out of a transcript ends where the structure ends and a
+/// code block's last line carries no break of its own, so one is written here or `p` in the middle
+/// of a file joins the last line of what was yanked to the line it was put above.
+pub fn file(registers: &Registers, yank: &Yank) {
+    let mut text = yank.text.clone();
+    if yank.shape == Shape::Linewise && !text.ends_with(LINE_SEPARATOR) {
+        text.push(LINE_SEPARATOR);
     }
-
-    /// Files `yank` in every register a yank fills.
-    pub fn yank(&mut self, yank: &Yank) {
-        let held = Held {
-            text: yank.text.clone(),
-            shape: yank.shape,
-        };
-        for name in [UNNAMED, YANK, CLIPBOARD] {
-            self.held.insert(name, held.clone());
-        }
-    }
-
-    /// Files `held` in the register `name`, which is what a yank into a named register does and
-    /// what the reader of the system clipboard does to [`CLIPBOARD`].
-    pub fn fill(&mut self, name: char, held: Held) {
-        self.held.insert(name, held);
-    }
-
-    /// # Returns
-    ///
-    /// What a plain put reinserts, which is the unnamed register however much the clipboard's
-    /// holds, or `None` where nothing has been yanked.
-    #[must_use]
-    pub fn put(&self) -> Option<&Held> {
-        self.get(UNNAMED)
-    }
-
-    /// # Returns
-    ///
-    /// What the register `name` holds, or `None` where it holds nothing.
-    #[must_use]
-    pub fn get(&self, name: char) -> Option<&Held> {
-        self.held.get(&name)
-    }
-
-    /// # Returns
-    ///
-    /// What every register holding text holds, keyed by the name it is addressed by.
-    #[must_use]
-    pub fn held(&self) -> &BTreeMap<char, Held> {
-        &self.held
+    let held = Held {
+        text,
+        shape: yank.shape,
+    };
+    for name in [UNNAMED, YANK, CLIPBOARD] {
+        registers.fill(name, &held);
     }
 }
 
@@ -455,9 +415,9 @@ mod tests {
     use crate::chat::object::Position;
     use crate::chat::selection::{Mode, Motion, Selection, Source};
     use crate::chat::transcript::Transcript;
-    use crate::engine::{Held, Shape};
+    use crate::engine::{Held, Registers, Shape};
 
-    use super::{patch, Registers, Structure, Yank, CLIPBOARD, UNNAMED, YANK};
+    use super::{file, patch, Structure, Yank, CLIPBOARD, LINE_SEPARATOR, UNNAMED, YANK};
 
     /// The blocks of the fixture transcript, named by where they sit in it.
     const ASKED: usize = 0;
@@ -653,47 +613,46 @@ mod tests {
 
     #[test]
     fn a_yank_fills_the_unnamed_the_yank_and_the_clipboard_registers() {
-        let mut registers = Registers::new();
+        let registers = Registers::new();
         let transcript = said();
         let yank = Yank::structural(&transcript, Position::new(RESULT, 0), Structure::ToolResult)
             .expect("the fixture holds a tool result");
-        registers.yank(&yank);
+        file(&registers, &yank);
 
         let held = Held {
-            text: yank.text().to_owned(),
+            text: format!("{}{LINE_SEPARATOR}", yank.text()),
             shape: yank.shape(),
         };
         for name in [UNNAMED, YANK, CLIPBOARD] {
-            assert_eq!(Some(&held), registers.get(name));
+            assert_eq!(Some(held.clone()), registers.get(name));
         }
-        assert_eq!(3, registers.held().len());
     }
 
     #[test]
-    fn a_put_reads_the_unnamed_register_and_never_the_clipboards() {
-        let mut registers = Registers::new();
+    fn a_linewise_yank_is_filed_as_whole_lines_and_a_charwise_one_as_it_was_taken() {
+        let transcript = said();
+        let block = transcript
+            .block(ASKED)
+            .expect("the fixture holds a question");
+        let source = Source::new(block.source(), Metrics::default());
+        for (mode, ended) in [(Mode::Linewise, true), (Mode::Charwise, false)] {
+            let registers = Registers::new();
+            let selection = Selection::new(mode, source, 0);
+            file(
+                &registers,
+                &Yank::selected(block, &selection, Metrics::default()),
+            );
+            let held = registers
+                .get(UNNAMED)
+                .expect("the yank filled the register");
 
-        assert_eq!(None, registers.put());
-
-        registers.fill(
-            UNNAMED,
-            Held {
-                text: "yanked".to_owned(),
-                shape: Shape::Charwise,
-            },
-        );
-        registers.fill(
-            CLIPBOARD,
-            Held {
-                text: "copied elsewhere".to_owned(),
-                shape: Shape::Charwise,
-            },
-        );
-
-        assert_eq!(
-            Some("yanked"),
-            registers.put().map(|held| held.text.as_str())
-        );
+            assert_eq!(
+                ended,
+                held.text.ends_with(LINE_SEPARATOR),
+                "a {mode:?} yank was filed as {:?}",
+                held.text
+            );
+        }
     }
 
     /// # Returns
