@@ -138,6 +138,21 @@ impl Selection {
         }
     }
 
+    /// Factory function.
+    ///
+    /// # Returns
+    ///
+    /// A selection of `mode` anchored at `origin` with its moving end at `at`, each moved back to
+    /// the nearest grapheme of the logical line it falls in where it names no grapheme of one.
+    #[must_use]
+    pub fn between(mode: Mode, source: Source<'_>, origin: usize, at: usize) -> Self {
+        let mut selection = Self::new(mode, source, origin);
+        selection.cursor = place(source.text, at);
+        selection.wanted = column_of(source, selection.cursor);
+
+        selection
+    }
+
     #[must_use]
     pub fn mode(&self) -> Mode {
         self.mode

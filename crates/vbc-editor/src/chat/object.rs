@@ -92,24 +92,6 @@ impl Object {
         Self { scope, kind }
     }
 
-    /// Factory function.
-    ///
-    /// # Returns
-    ///
-    /// The object `keys` spells, or `None` where they spell no object of a transcript.
-    #[must_use]
-    pub fn from_keys(keys: &str) -> Option<Self> {
-        match keys {
-            "iac" => Some(Self::new(Scope::Inner, Kind::Code)),
-            "aac" => Some(Self::new(Scope::Around, Kind::Code)),
-            "iam" => Some(Self::new(Scope::Inner, Kind::Message)),
-            "aam" => Some(Self::new(Scope::Around, Kind::Message)),
-            "iat" => Some(Self::new(Scope::Inner, Kind::ToolResult)),
-            "aat" => Some(Self::new(Scope::Around, Kind::ToolResult)),
-            _ => None,
-        }
-    }
-
     #[must_use]
     pub fn scope(&self) -> Scope {
         self.scope
@@ -934,24 +916,6 @@ mod tests {
     }
 
     #[test]
-    fn the_keys_of_an_object_name_what_it_takes_and_what_it_addresses() {
-        for (keys, scope, kind) in [
-            ("iac", Scope::Inner, Kind::Code),
-            ("aac", Scope::Around, Kind::Code),
-            ("iam", Scope::Inner, Kind::Message),
-            ("aam", Scope::Around, Kind::Message),
-            ("iat", Scope::Inner, Kind::ToolResult),
-            ("aat", Scope::Around, Kind::ToolResult),
-        ] {
-            assert_eq!(Some(Object::new(scope, kind)), Object::from_keys(keys));
-        }
-
-        for keys in ["", "ia", "aa", "iaw", "aap", "iaC", "iacc", "cia"] {
-            assert_eq!(None, Object::from_keys(keys), "`{keys}` spelled an object");
-        }
-    }
-
-    #[test]
     fn a_run_of_fewer_fence_characters_than_a_fence_takes_is_no_fence_at_all() {
         let short = "``text\nnot code\n``\n";
         let shortest = "~text\nnot code\n~\n";
@@ -1125,11 +1089,24 @@ mod tests {
 
     /// # Returns
     ///
-    /// The region `keys` resolves to with the cursor at byte `offset` of the block at `block`.
+    /// The region the object `keys` spells resolves to with the cursor at byte `offset` of the
+    /// block at `block`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `keys` spell no object of a transcript, which is a fault in a fixture.
     fn resolve(transcript: &Transcript, keys: &str, block: usize, offset: usize) -> Option<Region> {
-        Object::from_keys(keys)
-            .expect("the keys of a fixture spell an object")
-            .resolve(transcript, Position::new(block, offset))
+        let object = match keys {
+            "iac" => Object::new(Scope::Inner, Kind::Code),
+            "aac" => Object::new(Scope::Around, Kind::Code),
+            "iam" => Object::new(Scope::Inner, Kind::Message),
+            "aam" => Object::new(Scope::Around, Kind::Message),
+            "iat" => Object::new(Scope::Inner, Kind::ToolResult),
+            "aat" => Object::new(Scope::Around, Kind::ToolResult),
+            other => panic!("`{other}` spells no object of a transcript"),
+        };
+
+        object.resolve(transcript, Position::new(block, offset))
     }
 
     /// # Returns

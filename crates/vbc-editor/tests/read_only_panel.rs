@@ -85,7 +85,9 @@ use std::num::NonZeroUsize;
 use anyhow::Result;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use modalkit::env::vim::VimMode;
+use vbc_editor::chat::block::{Block, Kind, Role};
 use vbc_editor::chat::policy::{Panel, Policy, REFUSAL};
+use vbc_editor::chat::transcript::Transcript;
 use vbc_editor::engine::{typed, Engine, Held, Position};
 use vbc_editor::keys::{Bindings, Edge};
 use vbc_editor::screen::Geometry;
@@ -990,7 +992,7 @@ fn a_panel_answers_the_display_motions_as_an_editor_does_however_the_window_wrap
     for wrapping in &WRAPPINGS {
         let geometry = laid_out(wrapping);
         for case in DISPLAY_MOTIONS {
-            let mut panel = Panel::laid_out_in(WRAPPED, geometry.clone());
+            let mut panel = Panel::laid_out_in(said(WRAPPED), geometry.clone());
             for key in keys(case.keys) {
                 panel.press(key)?;
                 assert_eq!(
@@ -1074,7 +1076,18 @@ fn no_pair_of_the_keys_a_reader_reaches_for_is_refused_or_answered_differently()
 /// A newly created panel showing [`TRANSCRIPT`] under `policy`, laid out in a window narrow
 /// enough for its lines to wrap.
 fn panel(policy: Policy) -> Panel {
-    Panel::laid_out_in(TRANSCRIPT, window()).governed_by(policy)
+    Panel::laid_out_in(said(TRANSCRIPT), window()).governed_by(policy)
+}
+
+/// # Returns
+///
+/// A transcript of the one thing `said` was, which is what a panel is over now that it holds the
+/// blocks that were said rather than a string of them. One message block holds the whole of the
+/// fixture, so the text a panel is laid out over is the fixture byte for byte.
+fn said(text: &str) -> Transcript {
+    [Block::new(Kind::Message(Role::Assistant), text.to_owned())]
+        .into_iter()
+        .collect()
 }
 
 /// # Returns

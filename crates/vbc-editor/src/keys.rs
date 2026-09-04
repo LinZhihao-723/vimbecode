@@ -52,6 +52,8 @@ use modalkit::env::vim::VimMode;
 use modalkit::key::TerminalKey;
 use modalkit::keybindings::InputKey;
 
+use crate::chat::dispatch::Command as Chat;
+
 /// The character the display motions and the case operators hang off in vim, and the one the
 /// table is built with where a caller asks for no other.
 pub const PREFIX: char = 'g';
@@ -139,6 +141,14 @@ pub enum Step {
 
     /// Start a visual selection of a shape, or end the one that already has that shape.
     Visual(TargetShape),
+
+    /// Ask the caller for a command over a transcript's own structure.
+    ///
+    /// modalkit's editing actions address a text, and a transcript's blocks, folds and structural
+    /// yanks are not addressed in a text's coordinates at all, so there is no action for the table
+    /// to emit. The sequence is read here all the same, so that `yac` and `za` are entries of the
+    /// one table beside `dw` rather than keys a second reader beside it recognizes.
+    Chat(Chat),
 }
 
 /// One entry of the table: the keys it is reached by, the mode they are read in, and what they do.
@@ -312,6 +322,7 @@ pub struct Keys {
     reading_register: bool,
     unbound: Option<Vec<TerminalKey>>,
     queue: VecDeque<(Action, EditContext)>,
+    asked: VecDeque<Chat>,
 }
 
 impl Keys {
@@ -343,6 +354,7 @@ impl Keys {
             reading_register: false,
             unbound: None,
             queue: VecDeque::new(),
+            asked: VecDeque::new(),
         }
     }
 
@@ -406,6 +418,14 @@ impl Keys {
     /// and [`None`] once they are exhausted.
     pub fn pop(&mut self) -> Option<(Action, EditContext)> {
         self.queue.pop_front()
+    }
+
+    /// # Returns
+    ///
+    /// The next command over a transcript's structure the keys typed so far completed, and
+    /// [`None`] once they are exhausted.
+    pub fn pop_chat(&mut self) -> Option<Chat> {
+        self.asked.pop_front()
     }
 
     /// # Returns
@@ -542,6 +562,17 @@ impl Keys {
                     self.change(change);
                 }
                 self.emit(emits, *mode);
+            }
+            Step::Chat(command) => {
+                self.operator = None;
+                self.asked.push_back(*command);
+                let next = self.postmode.take().unwrap_or(self.mode);
+                self.take();
+                self.mode = next;
+                if VimMode::Normal == next {
+                    self.shape = None;
+                    self.insert = None;
+                }
             }
         }
     }

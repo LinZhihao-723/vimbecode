@@ -64,6 +64,14 @@ const UPPER_CASED: &str = "GUTTER";
 const TYPED_INSERT: &[u8] = b"i";
 const INSERTING: &str = "INSERT";
 
+/// The key that moves the keys to the transcript panel, what its status line says once they are
+/// there, and a word of the exchange it draws that nothing else the program shows holds. It is
+/// typed from insert mode on purpose: a panel reachable only from normal mode is a panel insert
+/// mode hides.
+const TYPED_TRANSCRIPT: &[u8] = b"\x14";
+const READING: &str = "TRANSCRIPT";
+const DRAWN_TRANSCRIPT: &str = "todo!";
+
 /// The interrupt the program is stopped by once it is in a mode its own `q` is text in.
 const INTERRUPT: &[u8] = b"\x03";
 
@@ -148,7 +156,8 @@ fn written(app: &App, area: Rect) -> Result<Vec<u8>> {
 }
 
 /// Validation 4: the program builds, takes a terminal over, draws a frame into it, edits its text
-/// by the vim keys typed at it, says which mode it is in, gives the terminal back and stops.
+/// by the vim keys typed at it, says which mode it is in, reaches the transcript panel from a
+/// keystroke, gives the terminal back and stops.
 #[test]
 fn the_binary_draws_a_frame_types_vim_keys_and_quits() -> Result<()> {
     let Some(mut editor) = start()? else {
@@ -167,10 +176,11 @@ fn the_binary_draws_a_frame_types_vim_keys_and_quits() -> Result<()> {
 
     let mut written: Vec<u8> = Vec::new();
     let mut typed = 0;
-    let waypoints: [(&str, &[u8]); 3] = [
+    let waypoints: [(&str, &[u8]); 4] = [
         (ENTER_ALTERNATE_SCREEN, TYPED_EDIT),
         (UPPER_CASED, TYPED_INSERT),
-        (INSERTING, INTERRUPT),
+        (INSERTING, TYPED_TRANSCRIPT),
+        (READING, INTERRUPT),
     ];
     loop {
         match chunks.recv_timeout(PATIENCE) {
@@ -204,7 +214,7 @@ fn the_binary_draws_a_frame_types_vim_keys_and_quits() -> Result<()> {
         typed,
         "the program answered {typed} of the keys typed at it: {seen:?}"
     );
-    for answer in [UPPER_CASED, INSERTING] {
+    for answer in [UPPER_CASED, INSERTING, READING, DRAWN_TRANSCRIPT] {
         assert!(
             holds(&written, answer),
             "the program drew none of `{answer}`, so the keys typed at it reached no engine: \

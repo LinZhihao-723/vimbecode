@@ -48,9 +48,6 @@ use crate::chat::selection::{Mode, Selection, Source};
 use crate::chat::transcript::Transcript;
 use crate::engine::{Held, Shape};
 
-/// The key a structural yank is typed after, which is vim's own yank operator.
-pub const PREFIX: char = 'y';
-
 /// What is written between the sources of two blocks a yank spans, which is the one line break the
 /// rows of the second follow the rows of the first across.
 pub const BLOCK_SEPARATOR: char = LINE_SEPARATOR;
@@ -64,18 +61,6 @@ pub const YANK: char = '0';
 /// The register standing for the system clipboard, which a yank in the transcript panel mirrors
 /// into and which a put never reads.
 pub const CLIPBOARD: char = '+';
-
-/// The key each structural yank is bound to after [`PREFIX`] and the `a` that follows it.
-const BINDINGS: [(char, Structure); 4] = [
-    ('c', Structure::Code),
-    ('d', Structure::Diff),
-    ('m', Structure::Message),
-    ('t', Structure::ToolResult),
-];
-
-/// The key naming the scope of a structural yank, which is `a` because a structural yank takes a
-/// whole thing that was said.
-const SCOPE: char = 'a';
 
 /// What a patch names the file either side of the edit, whose leading component `git apply` strips
 /// before it looks for the file.
@@ -106,36 +91,6 @@ pub enum Structure {
 }
 
 impl Structure {
-    /// Reads a sequence of typed keys as a structural yank.
-    ///
-    /// # Returns
-    ///
-    /// What `keys` are: a structural yank, the start of one, or neither.
-    #[must_use]
-    pub fn read(keys: &str) -> Reading {
-        let mut typed = keys.chars();
-        for expected in [PREFIX, SCOPE] {
-            match typed.next() {
-                None => return Reading::Pending,
-                Some(key) if key != expected => return Reading::Unbound,
-                Some(_) => {}
-            }
-        }
-        let Some(key) = typed.next() else {
-            return Reading::Pending;
-        };
-        if typed.next().is_some() {
-            return Reading::Unbound;
-        }
-
-        BINDINGS
-            .iter()
-            .find(|(bound, _)| key == *bound)
-            .map_or(Reading::Unbound, |(_, structure)| {
-                Reading::Bound(*structure)
-            })
-    }
-
     /// # Returns
     ///
     /// The text object the structure resolves through, or `None` for the diff, which is no object
@@ -150,19 +105,6 @@ impl Structure {
 
         Some(Object::new(Scope::Inner, kind))
     }
-}
-
-/// What a sequence of typed keys turned out to be.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum Reading {
-    /// The keys are a structural yank.
-    Bound(Structure),
-
-    /// The keys are the start of a structural yank and not yet one.
-    Pending,
-
-    /// The keys are no structural yank.
-    Unbound,
 }
 
 /// What was taken out of a transcript: the text, and the layout a put would reinsert it with.
@@ -515,7 +457,7 @@ mod tests {
     use crate::chat::transcript::Transcript;
     use crate::engine::{Held, Shape};
 
-    use super::{patch, Reading, Registers, Structure, Yank, CLIPBOARD, UNNAMED, YANK};
+    use super::{patch, Registers, Structure, Yank, CLIPBOARD, UNNAMED, YANK};
 
     /// The blocks of the fixture transcript, named by where they sit in it.
     const ASKED: usize = 0;
@@ -530,30 +472,6 @@ mod tests {
     /// The text that edit replaced, and the text it wrote.
     const BEFORE: &str = "fn main() {}\n";
     const AFTER: &str = "fn main() {\n    todo!();\n}\n";
-
-    #[test]
-    fn every_structural_yank_is_read_from_the_keys_it_is_bound_to() {
-        for (keys, structure) in [
-            ("yac", Structure::Code),
-            ("yam", Structure::Message),
-            ("yat", Structure::ToolResult),
-            ("yad", Structure::Diff),
-        ] {
-            assert_eq!(Reading::Bound(structure), Structure::read(keys));
-        }
-
-        for keys in ["", "y", "ya"] {
-            assert_eq!(Reading::Pending, Structure::read(keys));
-        }
-
-        for keys in ["yax", "yic", "yc", "ay", "yaca", "cay", "y a c"] {
-            assert_eq!(
-                Reading::Unbound,
-                Structure::read(keys),
-                "{keys:?} was read as a structural yank"
-            );
-        }
-    }
 
     #[test]
     fn a_structural_yank_takes_the_thing_without_what_delimits_it() {
