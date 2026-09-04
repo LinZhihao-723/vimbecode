@@ -37,6 +37,14 @@
 //! than about this seam, and `the_cursor_an_undo_leaves_is_modalkits_rather_than_vims` pins it
 //! with both numbers so that an engine which starts placing it where vim does fails this file.
 //!
+//! One shape of change is out of this file's reach rather than out of its interest, and is named
+//! here so that it is not mistaken for covered. A shift reaching more than one logical line -- a
+//! `>5gj` out of a line that wraps -- is undone correctly and then panics on the `C-r` behind the
+//! `u`, inside the rope diff modalkit reconstructs an older buffer with. It is not the seam's:
+//! `2>>`, `>j` and `Vj>` over the same text panic in exactly the same place, and none of the three
+//! reaches the shim at all. Nothing here is tuned around it; the sample holds the shifts that
+//! reach one line until the crash below it is fixed.
+//!
 //! Two changes are repeated by `.` in a way that already disagrees with vim before any undo is
 //! typed -- a `d$` over a line the first one emptied, and a `3dd` over a text with fewer than
 //! three lines left -- so an undo after either would be reporting the repeat rather than the undo.

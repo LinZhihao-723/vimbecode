@@ -32,6 +32,13 @@
 //! scrolled window by the rows it would otherwise land within -- so each case is replayed with it
 //! set and unset, and vim is told about it in the same words.
 //!
+//! Which rows those are is not the same as which rows the window holds. A window whose next line
+//! takes more rows than it has left draws none of that line and leaves the rest of its rows to the
+//! marker that says so, and vim counts those rows as rows no line is drawn in -- so the half `M`
+//! is counted against is a half of the rows the window drew. A window ten rows tall drawing five
+//! answers `M` two lines above where a half of ten would put it, which is what
+//! `the_rows_a_line_too_tall_to_draw_leaves_over_are_rows_no_line_is_drawn_in` replays.
+//!
 //! Every case is required to disagree with an engine that was handed no window, which is what says
 //! the case turns on the viewport having been wired through rather than on the answer being the
 //! same either way.
@@ -105,8 +112,46 @@ const WIDE: &str = concat!(
     "十五行\n",
 );
 
+/// A text whose sixth line takes more rows than the window below has left for it. vim draws the
+/// five lines above it and fills the rest of its rows with the marker that says a line was left
+/// undrawn, and it counts those rows as empty ones -- so `M` measures its half against the five
+/// rows the window drew rather than against the ten it holds. A window that called those rows
+/// drawn answers `M` two lines further down.
+const BRIMMING: &str = concat!(
+    "aa one\n",
+    "bb two\n",
+    "cc three\n",
+    "dd four\n",
+    "ee five\n",
+    "ff six is a line long enough that this window is left with no room in it at all to draw a \
+     single row of it\n",
+    "gg seven\n",
+    "hh eight\n",
+    "ii nine\n",
+    "    jj ten\n",
+    "kk eleven\n",
+    "ll twelve\n",
+    "mm thirteen\n",
+    "nn fourteen\n",
+    "oo fifteen\n",
+);
+
 /// The texts every case is replayed against, each named for what makes it worth replaying.
+///
+/// [`BRIMMING`] is not among them. The two engines do not scroll it alike -- its sixth line is
+/// taller than the rows a window has left for it, and this viewport will anchor part-way down such
+/// a line where vim will not -- so it is replayed by a test of its own, at the top of the text,
+/// where the two are looking at the same window.
 const TEXTS: [(&str, &str); 2] = [("mixed", MIXED), ("wide", WIDE)];
+
+/// The line vim's `M` names on [`BRIMMING`] with the window at the top of it, counted from zero.
+const BRIMMING_MIDDLE: u64 = 2;
+
+/// The last line the window draws of [`BRIMMING`] resting at the top of it, counted from zero,
+/// which is what `L` names there. A half counted against the ten rows the window holds rather than
+/// against the five it drew names this line instead of [`BRIMMING_MIDDLE`], which is what makes
+/// the text worth replaying.
+const BRIMMING_BOTTOM: u64 = 4;
 
 /// The cells the window every case is drawn into is wide.
 const COLUMNS: u16 = 20;
@@ -293,6 +338,47 @@ fn a_linewise_delete_rests_where_modalkit_rests_whatever_named_its_lines() -> an
             where_it_left_the_cursor(&ours),
             "`{keys}` deletes whole lines without a motion this seam answers and now rests where \
              vim rests, so the reason written down for the divergence above no longer describes it"
+        );
+    }
+
+    Ok(())
+}
+
+#[test]
+fn the_rows_a_line_too_tall_to_draw_leaves_over_are_rows_no_line_is_drawn_in() -> anyhow::Result<()>
+{
+    let vim = VimDriver::new()?;
+    let mut standing = typed(BRIMMING, "", 0);
+    let scrolled = vim.run_case(&case(BRIMMING, "", 0))?;
+
+    assert_eq!(
+        (
+            scrolled.screen_text.row(0).unwrap_or_default().trim_end(),
+            Some(scrolled.display_position.row)
+        ),
+        (top_row(&mut standing).as_str(), cursor_row(&mut standing)),
+        "the window this application rests at the top of the brimming text on is not the window \
+         vim rests on, so nothing counted against it says anything about vim"
+    );
+    let named = vim.run_case(&case(BRIMMING, "M", 0))?.cursor.line;
+    let last = vim.run_case(&case(BRIMMING, "L", 0))?.cursor.line;
+
+    assert_eq!(
+        (BRIMMING_MIDDLE, BRIMMING_BOTTOM),
+        (named, last),
+        "vim no longer answers `M` with line {BRIMMING_MIDDLE} of a window whose last drawn line \
+         is line {BRIMMING_BOTTOM}, so the text no longer tells a half of the rows the window drew \
+         from a half of the rows it holds"
+    );
+    for motion in MOTIONS {
+        let state = vim.run_case(&case(BRIMMING, motion, 0))?;
+        let ours = typed(BRIMMING, motion, 0);
+
+        assert_eq!(
+            state.buffer,
+            written(&ours),
+            "`{motion}` took something other than what vim took on the brimming text, whose \
+             window leaves half its rows to the marker that says a line was too tall to draw"
         );
     }
 

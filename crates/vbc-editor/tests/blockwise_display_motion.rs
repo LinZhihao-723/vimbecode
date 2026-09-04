@@ -28,13 +28,17 @@
 //! modalkit leaves it where the leading cursor finished typing. It is the same answer for a block
 //! a logical `j` drew, so it is a gap in blockwise insert rather than in this seam.
 //!
-//! **A block whose far edge a display motion could not reach is stepped back from somewhere else.**
-//! A `gj` onto a row too short for the column it wanted leaves vim's block reaching the end of
-//! that line, and an `h` behind it steps back from the column the motion wanted rather than from
-//! where the cursor was left; the seam carries no wanted column into modalkit's selection, so its
-//! block steps back from the cursor and stops one grapheme short of vim's. The mechanism -- which
-//! column vim measures a block's far edge from once a motion has run out of row -- is not
-//! established here, and nothing has been tuned to cancel it.
+//! **A block whose far edge a display motion could not reach is drawn to a different column.**
+//! vim measures a block's far edge from the column the motion asked for -- its `curswant` -- and
+//! this seam hands modalkit the grapheme the row it landed on clamped the cursor back to, because
+//! a selection modalkit holds names two places in a text and has nowhere to keep a column the text
+//! does not reach. So a `gj` onto a row shorter than the column it wanted draws a block one column
+//! wider than vim's, reaching a line vim's block does not touch; an `h` behind it steps back from
+//! the two different columns; and an `A` past the end of the row vim pads out to its wanted column
+//! where this engine appends at the line's end. It takes no `h` and no wide character: the pins
+//! below hold it on ASCII with a bare `gj`, on CJK with an `A`, and on both with the step back.
+//! The logical motion spelled the same way agrees with vim in every one of them, which is what
+//! says the column is what the two disagree about. Nothing has been tuned to cancel it.
 
 mod notation;
 mod outcome;
@@ -181,10 +185,23 @@ const PINNED_INSERT_CURSORS: [Pinned; 2] = [
     ("<C-v>gjlAXX<Esc>", (0, 23), (0, 0)),
 ];
 
-/// The blocks whose far edge was set by a display motion that ran out of the row it landed on and
-/// then stepped back from, pinned with what each engine deletes: the text, the keys, what this
-/// engine leaves and what vim leaves.
-const PINNED_EDGES: [(&str, &str, &str, &str); 2] = [
+/// The blocks whose far edge was set by a display motion that ran out of the row it landed on,
+/// pinned with what each engine writes: the text, the keys, what this engine leaves and what vim
+/// leaves. The first two take no step back and no wide character, which is what says the
+/// divergence is the column the block is drawn to rather than the step back or the width.
+const PINNED_EDGES: [(&str, &str, &str, &str); 4] = [
+    (
+        "wrapped",
+        "j5l<C-v>gjd",
+        "abcdefghijklmnopqrstuvwxyz0123456789\nseco line here\nthir\n",
+        "abcdefghijklmnopqrstuvwxyz0123456789\nsecon line here\nthird\n",
+    ),
+    (
+        "wide",
+        "3l<C-v>gjlAXX<Esc>",
+        "你好世界一二三四五六七八九十XX\n第二行的中文文字在这里\n第三行\n",
+        "你好世界一二三四五六七八九十 XX\n第二行的中文文字在这里\n第三行\n",
+    ),
     (
         "wide",
         "5l<C-v>gjhd",
@@ -197,6 +214,16 @@ const PINNED_EDGES: [(&str, &str, &str, &str); 2] = [
         "the qg\nsecon\nthird line\nfourth\n",
         "the q\nsecon\nthird line\nfourth\n",
     ),
+];
+
+/// The logical motions the pinned blocks above are spelled with in place of their display ones,
+/// each of which agrees with vim. A pin that stopped agreeing there would be a pin about something
+/// other than the column a display motion leaves a block wanting.
+const PINNED_EDGE_TWINS: [(&str, &str); 4] = [
+    ("wrapped", "j5l<C-v>jd"),
+    ("wide", "3l<C-v>jlAXX<Esc>"),
+    ("wide", "5l<C-v>jhd"),
+    ("paragraph", "j5l<C-v>khd"),
 ];
 
 /// One pinned case: the keys, the line and column this engine rests on, and the line and column
@@ -376,31 +403,53 @@ fn the_cursor_a_blockwise_insert_leaves_is_modalkits_rather_than_vims() -> anyho
 }
 
 #[test]
-fn a_block_stepped_back_from_a_motion_that_ran_out_of_row_is_a_known_divergence(
-) -> anyhow::Result<()> {
+fn a_block_a_motion_ran_out_of_row_in_is_drawn_to_a_column_of_its_own() -> anyhow::Result<()> {
     let vim = VimDriver::new()?;
 
     for (name, keys, ours, theirs) in PINNED_EDGES {
-        let text = TEXTS
-            .into_iter()
-            .find(|(named, _text)| *named == name)
-            .expect("the pinned case names a text this file holds")
-            .1;
+        let text = text_named(name);
 
         assert_eq!(
             ours,
             replayed(text, keys)?.text,
-            "`{keys}` on the {name} text no longer takes what this divergence says it takes"
+            "`{keys}` on the {name} text no longer writes what this divergence says it writes"
         );
         assert_eq!(
             theirs,
             vim_outcome(&vim, text, keys)?.text,
-            "`{keys}` on the {name} text no longer takes what vim was measured taking, so the \
+            "`{keys}` on the {name} text no longer writes what vim was measured writing, so the \
              reason written down for the divergence no longer describes it"
+        );
+    }
+    for (name, keys) in PINNED_EDGE_TWINS {
+        let text = text_named(name);
+
+        assert_eq!(
+            vim_outcome(&vim, text, keys)?.text,
+            replayed(text, keys)?.text,
+            "`{keys}` on the {name} text is the logical twin of a pinned block and now disagrees \
+             with vim too, so the pin above is no longer about the column a display motion leaves \
+             a block wanting"
         );
     }
 
     Ok(())
+}
+
+/// # Returns
+///
+/// The text this file holds under `name`.
+///
+/// # Panics
+///
+/// Panics if no text here is named that, so that a pin naming one that was renamed fails rather
+/// than being replayed against another.
+fn text_named(name: &str) -> &'static str {
+    TEXTS
+        .into_iter()
+        .find(|(named, _text)| *named == name)
+        .expect("the pinned case names a text this file holds")
+        .1
 }
 
 /// # Returns

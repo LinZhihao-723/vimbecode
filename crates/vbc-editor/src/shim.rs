@@ -241,8 +241,10 @@ struct Drawn {
     /// The last line the window draws every row of, which `L` counts back from.
     bottom: usize,
 
-    /// The rows at the bottom of the window that no line is drawn in, which a window taller than
-    /// the rest of its text has and which `M` measures its half against.
+    /// The rows at the bottom of the window that no line is drawn in, which `M` measures its half
+    /// against. A window taller than the rest of its text has them, and so does one whose next
+    /// line takes more rows than it has left: vim fills those rows with the marker that says a
+    /// line was left undrawn and counts them as empty either way.
     empty: usize,
 
     /// Whether the window draws the last line of the text, which is what says a cursor has no
@@ -496,11 +498,7 @@ impl Shim {
         Drawn {
             top,
             bottom,
-            empty: if bottom == last {
-                height.saturating_sub(used)
-            } else {
-                0
-            },
+            empty: height.saturating_sub(used),
             ends: bottom == last,
         }
     }
@@ -892,6 +890,18 @@ mod tests {
         "five",
         "six",
         "  seven",
+    ];
+
+    /// A text whose fourth line takes more rows than the window below has left for it, so the
+    /// window draws three of its five rows and leaves the other two to the marker that says a line
+    /// was too tall to draw.
+    const BRIMMING: [&str; 6] = [
+        "one",
+        "two",
+        "three",
+        "abcdefghijklmnopqrstuvwxyz0123",
+        "five",
+        "six",
     ];
 
     /// The place the motions counted against a window are taken from, which they ignore: each of
@@ -1585,6 +1595,19 @@ mod tests {
             .map(|landing| landing.at.line),
             "the window drew the last row of the wrapped line alone, so it reached four lines \
              further down the text than a window anchored to the whole of that line does"
+        );
+    }
+
+    #[test]
+    fn the_rows_a_line_the_window_could_not_draw_leaves_over_are_rows_no_line_is_drawn_in() {
+        let held = text(&BRIMMING);
+
+        assert_eq!(
+            Some(1),
+            in_window(MovePosition::Middle, 1, &held, true).map(|at| at.line),
+            "the window drew three of its five rows and left the other two to the marker that \
+             says a line was too tall to draw, so the half `M` is counted against is a half of \
+             the three rather than of the five"
         );
     }
 
