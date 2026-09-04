@@ -29,9 +29,10 @@
 //! end of a file, above a line of one, three times over with a count, and above with `P`.
 //!
 //! The last two cases are the guard, and they are what `shared_registers.rs` cannot be. One walks
-//! every way an application can be built -- every ordering of the builders, a transcript replaced
-//! by another, a file opened off the disk -- and requires the crossing of each, so a constructor
-//! that forgets the register file fails here however green the component tests are. The other
+//! every way an application can be built -- the panel it is built holding before any transcript
+//! replaces it, every ordering of the builders, a transcript replaced by another, a file opened
+//! off the disk -- and requires the crossing of each, so a constructor that forgets the register
+//! file fails here however green the component tests are. The other
 //! reads the source that builds the application and requires that it builds exactly one register
 //! file: every engine and every panel it constructs beyond the first is handed that one, which is
 //! the property a constructor written next year is held to without anyone remembering to add it
@@ -319,6 +320,15 @@ fn every_way_an_application_is_built_hands_both_halves_the_one_register_file() -
     let directory = tempfile::tempdir()?;
     let path = directory.path().join(OPENED_FILE);
     fs::write(&path, format!("{FILE}\n"))?;
+
+    let mut bare = App::new(Buffer::from_text(FILE));
+    press(&mut bare, "yy");
+
+    assert_eq!(
+        Some(format!("{FILE}\n")),
+        bare.panel().register('"').map(|held| held.text),
+        "the panel an application is built holding keeps registers the file editor cannot read"
+    );
 
     let built = vec![
         (
