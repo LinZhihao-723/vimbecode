@@ -13,7 +13,8 @@
 //! text just as surely through a local the extent was hoisted into: `while offset <= end` walks a
 //! document whenever `end` was bound from one, and a guard that reads only the loop's own header
 //! is defeated by moving the call that measures the text one line up. So a name bound from the
-//! whole of a text stands for one wherever it is read, for as long as the block that bound it.
+//! whole of a text stands for one wherever it is read, for as long as the block that bound it, and
+//! so does a name bound from that name, since passing an extent along says nothing about the walk.
 //!
 //! Comments and the text of literals are left out, which is what keeps a guard from firing on a
 //! word that was only ever written about.
@@ -172,10 +173,11 @@ pub fn words(source: &str) -> Vec<Word> {
                 index += 1;
             }
             ';' => {
+                let bound = hoisted(&frames).cloned();
                 let frame = frames
                     .last_mut()
                     .expect("the outermost frame is never closed");
-                if let Some(name) = hoisted(&frame.header).cloned() {
+                if let Some(name) = bound {
                     frame.bound.push(name);
                 }
                 frame.header.clear();
@@ -238,8 +240,9 @@ impl Path {
 
     /// # Returns
     ///
-    /// Whether the path sits inside a module that is compiled only for the tests, which is what
-    /// separates a module the application reaches from one only its own tests name.
+    /// Whether the path is written where the tests alone are compiled, which is what separates a
+    /// module the application reaches from one only its own tests name. A module the attribute
+    /// stands above is one such place, and so is a single import the attribute stands above.
     #[must_use]
     pub fn tested(&self) -> bool {
         self.tested
@@ -259,7 +262,6 @@ pub fn paths(source: &str) -> Vec<Path> {
     let characters: Vec<char> = source.chars().collect();
     let mut paths = Vec::new();
     let mut walk = Walk::default();
-    let mut test = false;
     let mut index = 0;
 
     while index < characters.len() {
@@ -284,16 +286,14 @@ pub fn paths(source: &str) -> Vec<Path> {
                 let (end, attribute) = attribute(&characters, index);
                 index = end;
                 walk.flush(&mut paths);
-                test |= "cfg(test)" == attribute;
+                walk.attribute(&attribute);
             }
             ':' if Some(&':') == characters.get(index + 1) => {
                 walk.join();
                 index += 2;
             }
             '{' => {
-                let opens_a_test = test && !walk.joins();
-                test &= !opens_a_test;
-                walk.open(opens_a_test, &mut paths);
+                walk.open(&mut paths);
                 index += 1;
             }
             '}' => {
@@ -302,7 +302,7 @@ pub fn paths(source: &str) -> Vec<Path> {
             }
             ';' => {
                 walk.flush(&mut paths);
-                test = false;
+                walk.plain();
                 index += 1;
             }
             character if starts_a_word(character) => {
@@ -348,6 +348,7 @@ struct Walk {
     joined: bool,
     declaration: bool,
     declaring: bool,
+    attributed: bool,
 }
 
 impl Walk {
@@ -356,11 +357,16 @@ impl Walk {
         self.joined = true;
     }
 
-    /// # Returns
-    ///
-    /// Whether the walk is waiting on what a `::` joins.
-    fn joins(&self) -> bool {
-        self.joined
+    /// Reads an attribute, which says the item it is written above is compiled only for the tests
+    /// where it is the one saying so. That item is a module as often as it is a single import, and
+    /// an import the tests alone are given is no less test-only for having no module around it.
+    fn attribute(&mut self, attribute: &str) {
+        self.attributed |= "cfg(test)" == attribute;
+    }
+
+    /// Reads the end of an item, which is as far as an attribute above it reaches.
+    fn plain(&mut self) {
+        self.attributed = false;
     }
 
     /// Reads a word, which either continues the path being walked or starts one of its own.
@@ -379,7 +385,7 @@ impl Walk {
 
     /// Reads an open brace, which brackets the branches of a `use` tree where a `::` is waiting on
     /// it and a block of code otherwise.
-    fn open(&mut self, test: bool, paths: &mut Vec<Path>) {
+    fn open(&mut self, paths: &mut Vec<Path>) {
         if self.joined {
             self.joined = false;
             let mut prefix = self.groups.concat();
@@ -391,6 +397,8 @@ impl Walk {
         }
 
         self.flush(paths);
+        let test = self.attributed;
+        self.plain();
         self.braces.push(Brace::Block { test });
     }
 
@@ -399,6 +407,8 @@ impl Walk {
         self.flush(paths);
         if let Some(Brace::Group) = self.braces.pop() {
             self.groups.pop();
+        } else {
+            self.plain();
         }
     }
 
@@ -415,13 +425,12 @@ impl Walk {
 
         let mut segments = self.groups.concat();
         segments.extend(branch);
-        paths.push(Path {
-            segments,
-            tested: self
+        let tested = self.attributed
+            || self
                 .braces
                 .iter()
-                .any(|brace| matches!(brace, Brace::Block { test: true })),
-        });
+                .any(|brace| matches!(brace, Brace::Block { test: true }));
+        paths.push(Path { segments, tested });
     }
 }
 
@@ -444,9 +453,10 @@ fn opens_a_repetition(delimiter: char, frames: &[Frame]) -> bool {
     let Some(frame) = frames.last() else {
         return false;
     };
-    let over_a_whole_text = frame.header.iter().any(|word| {
-        WHOLE_TEXT.contains(&word.as_str()) || frames.iter().any(|outer| outer.bound.contains(word))
-    });
+    let over_a_whole_text = frame
+        .header
+        .iter()
+        .any(|word| names_a_whole_text(word, frames));
     match delimiter {
         '{' => {
             over_a_whole_text
@@ -468,11 +478,13 @@ fn opens_a_repetition(delimiter: char, frames: &[Frame]) -> bool {
 
 /// # Returns
 ///
-/// The name a statement binds the whole of a text to, or [`None`] where the statement binds no
-/// such name. `let end = source.len();` binds one, and a loop reading `end` afterwards walks the
-/// text `source` holds however far from the loop the measurement was written.
-fn hoisted(header: &[String]) -> Option<&String> {
-    let mut words = header.iter();
+/// The name the statement a frame has reached the end of binds the whole of a text to, or [`None`]
+/// where the statement binds no such name. `let end = source.len();` binds one, and a loop reading
+/// `end` afterwards walks the text `source` holds however far from the loop the measurement was
+/// written. A statement binding one such name to another binds one too, so passing the extent
+/// along a chain of locals says no less about the loop that walks to the last of them.
+fn hoisted(frames: &[Frame]) -> Option<&String> {
+    let mut words = frames.last()?.header.iter();
     if Some("let") != words.next().map(String::as_str) {
         return None;
     }
@@ -483,8 +495,19 @@ fn hoisted(header: &[String]) -> Option<&String> {
     }
 
     words
-        .any(|word| WHOLE_TEXT.contains(&word.as_str()))
+        .any(|word| names_a_whole_text(word, frames))
         .then_some(name)
+}
+
+/// # Returns
+///
+/// Whether a word names the whole of a text, which it does by being one of the words that name one
+/// and by being a local one was bound to in a block that is still open.
+fn names_a_whole_text(word: &str, frames: &[Frame]) -> bool {
+    WHOLE_TEXT.contains(&word)
+        || frames
+            .iter()
+            .any(|frame| frame.bound.iter().any(|bound| bound == word))
 }
 
 /// # Returns

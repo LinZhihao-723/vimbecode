@@ -124,6 +124,32 @@ impl Block {
 }
 ";
 
+/// The same offence with the bound passed along one local further: the extent is measured into
+/// `end`, and the loop walks to a name `end` was handed to. Nothing the loop reads was measured
+/// from the text, and a scan that follows the extent only as far as the name it was first bound to
+/// is defeated by writing one more line.
+const ALIASED_WHOLE_TEXT_LAYOUT: &str = "\
+impl Block {
+    pub fn render(&self, window: RowWindow, wrapping: &Wrapping) -> Rendered {
+        let source = self.body.source();
+        let end = source.len();
+        let limit = end;
+        let wanted = window.rows;
+        let mut offset = 0;
+        let mut drawn = 0;
+
+        while offset <= limit && drawn < wanted {
+            let text = line_at(source, offset);
+            let laid_out = line::lay_out(text, wrapping.width(), wrapping.metrics());
+            drawn += laid_out.len();
+            offset += text.len();
+        }
+
+        Rendered { rows: drawn }
+    }
+}
+";
+
 /// A renderer that walks the rows a window asked for rather than the lines of a text. Its bounds
 /// are hoisted into locals exactly as the offence above hoists its own, and the difference is
 /// where they were measured: a window, which is bounded, rather than a text, which is not. This is
@@ -179,6 +205,11 @@ mod orphan_tests {
     }
 }
 ";
+
+/// A source reaching for that module under an attribute that compiles the import for the tests
+/// alone, which is the same offence as an import inside a `#[cfg(test)]` module with no module
+/// around it to say so.
+const A_TEST_IMPORT_REACHES_THE_ORPHAN: &str = "#[cfg(test)]\nuse crate::orphan;\n";
 
 /// A crate root handing a module of its own out under another name, which is a path a run reaches
 /// the module through rather than a declaration of it.
@@ -563,6 +594,31 @@ fn a_renderer_whose_loop_bound_was_hoisted_above_it_is_caught() {
 }
 
 #[test]
+fn a_renderer_whose_loop_bound_was_passed_along_a_second_local_is_caught() {
+    // Neither the loop's header nor the statement binding what it walks to names anything of the
+    // text, which is what a scan following the extent one hop let through.
+    for line in ALIASED_WHOLE_TEXT_LAYOUT
+        .lines()
+        .filter(|line| line.trim_start().starts_with("while ") || line.contains("let limit"))
+    {
+        for word in guard::shape::WHOLE_TEXT {
+            assert!(
+                !line.contains(word),
+                "`{}` names `{word}`, so it is not the dodge this is about",
+                line.trim()
+            );
+        }
+    }
+
+    let fixture = Fixture::of(&guard::workspace());
+    fixture.append(RENDERER, ALIASED_WHOLE_TEXT_LAYOUT);
+    let findings =
+        guard::scan_for_whole_text_layouts(fixture.root()).expect("the fixture is scanned");
+
+    assert_eq!(vec!["lay_out"], added(&findings, RENDERER));
+}
+
+#[test]
 fn a_hoisted_bound_the_tests_walk_is_not_an_offence() {
     let fixture = Fixture::of(&guard::workspace());
     fixture.append(
@@ -618,6 +674,30 @@ fn a_module_only_its_own_tests_import_is_caught() {
     assert!(
         words(&findings).contains(&"vbc_editor::orphan"),
         "a module imported only where a crate's tests are compiled was read as one a run reaches"
+    );
+}
+
+#[test]
+fn a_module_only_an_import_written_for_the_tests_reaches_is_caught() {
+    let fixture = orphaned(Some(A_TEST_IMPORT_REACHES_THE_ORPHAN));
+    let findings = guard::reach::unreachable(fixture.root()).expect("the fixture is scanned");
+
+    assert!(
+        words(&findings).contains(&"vbc_editor::orphan"),
+        "a module imported under an attribute that compiles the import for the tests alone was \
+         read as one a run reaches"
+    );
+}
+
+#[test]
+fn an_import_written_below_one_the_tests_alone_are_given_still_reaches() {
+    let fixture = orphaned(Some(A_TEST_IMPORT_REACHES_THE_ORPHAN));
+    fixture.append(RENDERER, REACHES_THE_ORPHAN);
+    let findings = guard::reach::unreachable(fixture.root()).expect("the fixture is scanned");
+
+    assert!(
+        !words(&findings).contains(&"vbc_editor::orphan"),
+        "an attribute standing above one import was read as standing above the ones below it too"
     );
 }
 

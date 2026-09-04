@@ -10,8 +10,9 @@
 //! remembering to say so. The edges are the paths one source names in another module: a `use`
 //! tree, a path written out where it is called, an import branch shared under a brace. What is not
 //! an edge is a declaration, because `pub mod chat;` hands a module to the compiler without any
-//! code reaching for it, and neither is a path only a `#[cfg(test)]` module names, because a
-//! module its own tests import is exactly the module this exists to name.
+//! code reaching for it, and neither is a path written where the tests alone are compiled, whether
+//! that is a `#[cfg(test)]` module or a single import under the same attribute, because a module
+//! its own tests import is exactly the module this exists to name.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
