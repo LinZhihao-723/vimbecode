@@ -476,6 +476,11 @@ fn a_quit_typed_while_a_put_waits_still_stops() -> Result<()> {
     }
 
     assert_eq!(
+        Outcome::Stops,
+        outcome,
+        "the held `q` came back as something other than the end of the session"
+    );
+    assert_eq!(
         before,
         written(&app),
         "a put the clipboard never answered inserted something"
