@@ -6,7 +6,7 @@
       "minor": 1,
       "patch": 697
     },
-    "corpus_hash": "4c711d9a5e19c7817332b2943f80dcd30ea8da18eee5de67e915c143b02d7bfd"
+    "corpus_hash": "7971e8f18de6d202d971a2ec6d5484e5c6af6a927425440b2c048f8ba736ee5c"
   },
   "cases": {
     "anchor-walk-w20-last-line": {
@@ -1257,6 +1257,45 @@
         "~"
       ]
     },
+    "matrix-tab-w20-ts4-carried": {
+      "buffer": "\tone\ttwo\tthree\tfour\tfive\tsix\tseven\teight\tnine\tten\televen\ttwelve\nplain tail\n",
+      "cursor": {
+        "line": 0,
+        "column": 62
+      },
+      "display_position": {
+        "row": 4,
+        "column": 1
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "    one two three",
+        "four    five    six",
+        "seven   eight   nine",
+        "    ten eleven  twel",
+        "ve",
+        "plain tail",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
     "matrix-tab-w20-ts4-plain": {
       "buffer": "\t\tthe tab indented sentence that wraps a number of times in a narrow window and runs past the eightieth column\n\tanother tab indented line that also wraps before it ends\nplain tail\n",
       "cursor": {
@@ -1321,6 +1360,45 @@
         "lso wraps before it",
         "ends",
         "plain tail",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
+    "matrix-tab-w20-ts8-carried": {
+      "buffer": "\tone\ttwo\tthree\tfour\tfive\tsix\tseven\teight\tnine\tten\televen\ttwelve\nplain tail\n",
+      "cursor": {
+        "line": 0,
+        "column": 62
+      },
+      "display_position": {
+        "row": 5,
+        "column": 1
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "        one     two",
+        "    three   four",
+        "five    six     seve",
+        "n   eight   nine",
+        "ten     eleven  twel",
+        "ve",
+        "plain tail",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
         "~",
         "~",
         "~",
@@ -1569,6 +1647,123 @@
         "~"
       ]
     },
+    "matrix-tab-w24-ts8-carried": {
+      "buffer": "\tone\ttwo\tthree\tfour\tfive\tsix\tseven\teight\tnine\tten\televen\ttwelve\nplain tail\n",
+      "cursor": {
+        "line": 0,
+        "column": 62
+      },
+      "display_position": {
+        "row": 4,
+        "column": 5
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "        one     two",
+        "three   four    five",
+        "six     seven   eight",
+        "nine    ten     eleven",
+        "twelve",
+        "plain tail",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
+    "matrix-tab-w24-ts8-carried-breakindent": {
+      "buffer": "\tone\ttwo\tthree\tfour\tfive\tsix\tseven\teight\tnine\tten\televen\ttwelve\nplain tail\n",
+      "cursor": {
+        "line": 0,
+        "column": 62
+      },
+      "display_position": {
+        "row": 5,
+        "column": 21
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "        one     two",
+        "    three       four",
+        "    five        six",
+        "    seven       eight",
+        "    nine        ten",
+        "    eleven      twelve",
+        "plain tail",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
+    "matrix-tab-w24-ts8-carried-showbreak": {
+      "buffer": "\tone\ttwo\tthree\tfour\tfive\tsix\tseven\teight\tnine\tten\televen\ttwelve\nplain tail\n",
+      "cursor": {
+        "line": 0,
+        "column": 62
+      },
+      "display_position": {
+        "row": 4,
+        "column": 7
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "        one     two",
+        "> three four    five",
+        "> six   seven   eight",
+        "> nine  ten     eleven",
+        "> twelve",
+        "plain tail",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
     "matrix-tab-w24-ts8-linebreak": {
       "buffer": "\tone\ttwo\tthree\tfour\tfive\tsix\tseven\teight\tnine\tten\televen\ttwelve\nplain tail\n",
       "cursor": {
@@ -1709,6 +1904,84 @@
         "> nted line that also wr",
         "> aps before it ends",
         "plain tail",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
+    "matrix-tab-w28-ts8-straddle": {
+      "buffer": "    abcdefghijklmnopqrstuv\ttail words that carry on wrapping past the row\nplain tail\n",
+      "cursor": {
+        "line": 0,
+        "column": 72
+      },
+      "display_position": {
+        "row": 2,
+        "column": 21
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "    abcdefghijklmnopqrstuv",
+        "    tail words that carry on",
+        " wrapping past the row",
+        "plain tail",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
+    "matrix-tab-w28-ts8-straddle-breakindent": {
+      "buffer": "    abcdefghijklmnopqrstuv\ttail words that carry on wrapping past the row\nplain tail\n",
+      "cursor": {
+        "line": 0,
+        "column": 72
+      },
+      "display_position": {
+        "row": 3,
+        "column": 5
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "    abcdefghijklmnopqrstuv",
+        "        tail words that carr",
+        "    y on wrapping past the r",
+        "    ow",
+        "plain tail",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
         "~",
         "~",
         "~",
@@ -2102,6 +2375,45 @@
         "eightieth",
         "column",
         "short tail",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
+    "matrix-w12-linebreak-long-first-word": {
+      "buffer": "    antidisestablishmentarian words follow it and wrap again\nplain tail\n",
+      "cursor": {
+        "line": 0,
+        "column": 59
+      },
+      "display_position": {
+        "row": 5,
+        "column": 4
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "    antidise",
+        "stablishment",
+        "arian words",
+        "follow it",
+        "and wrap",
+        "again",
+        "plain tail",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
         "~",
         "~",
         "~",

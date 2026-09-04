@@ -25,7 +25,7 @@ const CURSOR_COLUMNS_ANCHORED: usize = 101;
 
 /// The number of cases whose first screen row the widths here account for, which is the sample
 /// that cross-check is worth.
-const FIRST_ROWS_ANCHORED: usize = 128;
+const FIRST_ROWS_ANCHORED: usize = 136;
 
 /// The cases whose cursor vim draws at another column than the width of the text before it, with
 /// the reason.
@@ -69,13 +69,21 @@ const CURSOR_ON_A_TAB: [&str; 1] = ["tab-leading-indent-ts8"];
 ///
 /// A case that does not wrap scrolls its window sideways instead, which puts its cursor here for
 /// the same reason.
-const CURSOR_PAST_THE_FIRST_ROW: [&str; 46] = [
+const CURSOR_PAST_THE_FIRST_ROW: [&str; 54] = [
     "cjk-wide-cell-straddles-edge",
+    "matrix-tab-w20-ts4-carried",
+    "matrix-tab-w20-ts8-carried",
+    "matrix-tab-w24-ts8-carried",
+    "matrix-tab-w24-ts8-carried-breakindent",
+    "matrix-tab-w24-ts8-carried-showbreak",
     "matrix-tab-w24-ts8-linebreak",
+    "matrix-tab-w28-ts8-straddle",
+    "matrix-tab-w28-ts8-straddle-breakindent",
     "matrix-tab-w40-ts8-linebreak",
     "matrix-w12-breakindent",
     "matrix-w12-breakindent-showbreak",
     "matrix-w12-linebreak",
+    "matrix-w12-linebreak-long-first-word",
     "matrix-w12-nowrap",
     "matrix-w12-plain",
     "matrix-w12-showbreak",

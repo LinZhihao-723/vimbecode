@@ -24,12 +24,12 @@ use vbc_oracle::state::EditorState;
 /// The number of cases whose cursor cell this mapping reproduces, which is the sample the
 /// cross-check is worth. A case added to the corpus lands in the sample or in one of the lists
 /// below, and either way this number moves.
-const CURSORS_ANCHORED: usize = 133;
+const CURSORS_ANCHORED: usize = 141;
 
 /// The number of cases whose text holds a logical line drawn on more than one row with another
 /// line under it, which is the shape that makes the rows a walk crosses differ from the lines it
 /// crosses.
-const WRAPPED_LINE_ABOVE_A_LATER_LINE: usize = 53;
+const WRAPPED_LINE_ABOVE_A_LATER_LINE: usize = 61;
 
 /// The number of cases whose cursor vim draws below a wrapped line, so that the walk from the top
 /// of the window has to count that line's rows rather than the line itself.
@@ -79,7 +79,7 @@ const CURSOR_DIVERGENCES: [(&str, &str); 6] = [
 ];
 
 /// The number of cases whose every position this mapping draws where vim drew it.
-const SCREENS_ANCHORED: usize = 133;
+const SCREENS_ANCHORED: usize = 141;
 
 /// The cases whose recorded screen holds something other than the graphemes this crate lays out,
 /// with the reason.

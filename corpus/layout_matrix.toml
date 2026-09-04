@@ -364,3 +364,19 @@ keys = "$"
 viewport_width = 80
 tags = ["ascii", "nowrap"]
 options = { wrap = false }
+
+# Outside the grid: a word-wrapped line whose first word is longer than the room left beside its
+# indent, which is the one shape that reaches the rule keeping a row from ending on the leading
+# run of 'breakat' characters.
+
+[[case]]
+id = "matrix-w12-linebreak-long-first-word"
+description = "A word-wrapped row whose indented first word is too long for the room beside the indent."
+buffer = """
+    antidisestablishmentarian words follow it and wrap again
+plain tail
+"""
+keys = "$"
+viewport_width = 12
+tags = ["ascii", "wrap", "linebreak"]
+options = { linebreak = true }

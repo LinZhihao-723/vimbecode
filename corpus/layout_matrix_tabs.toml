@@ -11,6 +11,14 @@
 # cases crossing them are pinned as divergences rather than left out. Their cursor is left on
 # the wrapped line itself, since a case that disagrees with vim about where the rows are is
 # not one a walk across those rows can be read from.
+#
+# The `carried` and `straddle` cases below put tabs in the middle of a wrapped line rather than
+# only at its start, which is what reaches the two rules a leading indent alone never does: a tab
+# is measured from the columns already drawn rather than from the start of its own row, and a tab
+# that runs off the end of a row is drawn across the boundary rather than moved whole. `straddle`
+# is the narrower of the two -- a row boundary that is not a tab stop, with a decoration on the
+# row the tab lands on -- since nothing else tells the carried width from the width a tab drawn
+# at the boundary would have.
 
 [[case]]
 id = "matrix-tab-w20-ts8-plain"
@@ -266,3 +274,84 @@ keys = "$"
 viewport_width = 40
 tags = ["tab", "wrap", "linebreak"]
 options = { linebreak = true }
+
+[[case]]
+id = "matrix-tab-w20-ts8-carried"
+description = "Words separated by tabs at 20 columns, whose tabs reach a stop past the row they open."
+buffer = """
+	one	two	three	four	five	six	seven	eight	nine	ten	eleven	twelve
+plain tail
+"""
+keys = "$"
+viewport_width = 20
+tags = ["tab", "wrap"]
+
+[[case]]
+id = "matrix-tab-w20-ts4-carried"
+description = "The same tab-separated words at 20 columns with a tabstop of four, which lands elsewhere."
+buffer = """
+	one	two	three	four	five	six	seven	eight	nine	ten	eleven	twelve
+plain tail
+"""
+keys = "$"
+viewport_width = 20
+tags = ["tab", "wrap"]
+options = { tabstop = 4 }
+
+[[case]]
+id = "matrix-tab-w24-ts8-carried"
+description = "The same tab-separated words at 24 columns, a width the tab stops divide."
+buffer = """
+	one	two	three	four	five	six	seven	eight	nine	ten	eleven	twelve
+plain tail
+"""
+keys = "$"
+viewport_width = 24
+tags = ["tab", "wrap"]
+
+[[case]]
+id = "matrix-tab-w24-ts8-carried-breakindent"
+description = "The same tab-separated words at 24 columns with the indent repeated onto every continuation row."
+buffer = """
+	one	two	three	four	five	six	seven	eight	nine	ten	eleven	twelve
+plain tail
+"""
+keys = "$"
+viewport_width = 24
+tags = ["tab", "wrap", "breakindent"]
+options = { breakindent = true }
+
+[[case]]
+id = "matrix-tab-w24-ts8-carried-showbreak"
+description = "The same tab-separated words at 24 columns with a marker in front of every continuation row."
+buffer = """
+	one	two	three	four	five	six	seven	eight	nine	ten	eleven	twelve
+plain tail
+"""
+keys = "$"
+viewport_width = 24
+tags = ["tab", "wrap", "showbreak"]
+options = { showbreak = "> " }
+
+[[case]]
+id = "matrix-tab-w28-ts8-straddle"
+description = "A tab that runs off the end of the row it starts on and is drawn across the boundary."
+buffer = """
+    abcdefghijklmnopqrstuv	tail words that carry on wrapping past the row
+plain tail
+"""
+keys = "$"
+viewport_width = 28
+tags = ["tab", "wrap"]
+
+[[case]]
+id = "matrix-tab-w28-ts8-straddle-breakindent"
+description = "The same straddling tab with a repeated indent in front of the row it lands on."
+buffer = """
+    abcdefghijklmnopqrstuv	tail words that carry on wrapping past the row
+plain tail
+"""
+keys = "$"
+viewport_width = 28
+tags = ["tab", "wrap", "breakindent"]
+options = { breakindent = true }

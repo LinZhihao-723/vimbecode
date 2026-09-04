@@ -35,7 +35,7 @@ use crate::screen::{broken_claims, BLANK};
 /// The number of cases whose whole screen the renderer reproduces, which is the sample the
 /// cross-check against vim is worth and is the count `line_oracle` asserts for the layout
 /// underneath it.
-const SCREENS_ANCHORED: usize = 133;
+const SCREENS_ANCHORED: usize = 141;
 
 /// The cases whose window scrolls sideways rather than wrapping, which a viewport decides and a
 /// row renderer therefore says nothing about.

@@ -22,7 +22,7 @@ use vbc_oracle::state::{EditorState, ScreenText};
 /// The number of cases whose whole screen this module reproduces, which is the sample the
 /// cross-check is worth. A case added to the corpus lands in the sample or in one of the lists
 /// below, and either way this number moves.
-const SCREENS_ANCHORED: usize = 133;
+const SCREENS_ANCHORED: usize = 141;
 
 /// The cases whose window scrolls sideways rather than wrapping, which a viewport decides and a
 /// line layout therefore says nothing about.
