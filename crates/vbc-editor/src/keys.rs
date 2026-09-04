@@ -27,6 +27,16 @@
 //! [`Action`] together with the [`EditContext`] it runs under, which is what the engine above
 //! already runs, so nothing downstream of the seam can tell where the actions came from.
 //!
+//! One binding is not a step of that table at all. `.` repeats the last change, and what it
+//! repeats is the keys that made it rather than the actions they produced: the keys of a change
+//! are kept as they are typed, with the digits of their counts left out and the count they
+//! resolved to kept beside them, and `.` types them at the machine again with the count a caller
+//! typed in front of it standing in for the one they were typed with. So a repeat is measured
+//! where it is typed rather than where it was recorded -- an operator over a display motion walks
+//! the rows below the cursor it is repeated at, and the seam below this one answers it as it
+//! answers a motion typed by hand -- and a repeat is bound by nothing this table does not already
+//! bind.
+//!
 //! What is deliberately not bound: windows, tabs, scrolling, macros, marks, regular-expression
 //! search, command mode and select mode, because this editor drives none of them. Nor are the
 //! motions and the text objects modalkit's own text cannot answer, which are left unbound rather
@@ -37,7 +47,7 @@
 use std::collections::VecDeque;
 use std::str::FromStr;
 
-use editor_types::context::{EditContext, EditContextBuilder};
+use editor_types::context::{EditContext, EditContextBuilder, Resolve};
 use editor_types::prelude::{
     Case, Char, Count, CursorCloseTarget, CursorEnd, EditTarget, IndentChange, InsertStyle,
     JoinStyle, MoveDir1D, MoveDirMod, MovePosition, MoveType, PasteStyle, RangeType, Register,
@@ -138,6 +148,15 @@ pub enum Step {
         /// What the operator does when its own keys, or its last key alone, are typed again.
         doubled: Box<Step>,
     },
+
+    /// Type the keys of the last change at the machine again, which is what `.` does.
+    ///
+    /// A count typed in front of the repeat stands in for the count the change was typed with,
+    /// which is vim's rule for it, and the keys are read as though they were typed by hand, so
+    /// what a motion of the change is measured against is measured where the repeat is typed. A
+    /// repeat reached while one is already typing its keys again does nothing, which is what keeps
+    /// a table that binds this step where a change can reach it from typing itself forever.
+    Repeat,
 
     /// Start a visual selection of a shape, or end the one that already has that shape.
     Visual(TargetShape),
@@ -321,6 +340,11 @@ pub struct Keys {
     operator: Option<Operator>,
     reading_register: bool,
     unbound: Option<Vec<TerminalKey>>,
+    recorded: Vec<TerminalKey>,
+    counted: Option<usize>,
+    changing: bool,
+    repeating: bool,
+    repeated: Option<Repeated>,
     queue: VecDeque<(Action, EditContext)>,
     asked: VecDeque<Chat>,
 }
@@ -353,6 +377,11 @@ impl Keys {
             operator: None,
             reading_register: false,
             unbound: None,
+            recorded: Vec::new(),
+            counted: None,
+            changing: false,
+            repeating: false,
+            repeated: None,
             queue: VecDeque::new(),
             asked: VecDeque::new(),
         }
@@ -382,9 +411,11 @@ impl Keys {
     pub fn input_key(&mut self, typed: TerminalKey) {
         self.unbound = None;
         if self.reading_register {
+            self.recorded.push(typed);
             self.reading_register = false;
             let Some((register, append)) = register_of(typed) else {
                 self.unbound = Some(vec![self.bindings.register, typed]);
+                self.forget();
 
                 return;
             };
@@ -404,12 +435,14 @@ impl Keys {
             }
         }
         self.save_counting();
+        self.recorded.push(typed);
         if self.pending.is_empty() && self.registers() && typed == self.bindings.register {
             self.reading_register = true;
 
             return;
         }
         self.matched(typed);
+        self.settle();
     }
 
     /// # Returns
@@ -534,6 +567,22 @@ impl Keys {
                     doubled: (**doubled).clone(),
                 });
             }
+            Step::Repeat => {
+                self.operator = None;
+                let count = self.count.take();
+                let _discarded = self.take();
+                let repeated = self.repeated.clone();
+                self.forget();
+                let Some(repeated) = repeated.filter(|_| !self.repeating) else {
+                    return;
+                };
+                self.count = count.or(repeated.count);
+                self.repeating = true;
+                for again in repeated.keys {
+                    self.input_key(again);
+                }
+                self.repeating = false;
+            }
             Step::Visual(shape) => {
                 self.operator = None;
                 if Some(*shape) == self.shape {
@@ -603,6 +652,7 @@ impl Keys {
             return;
         }
         let context = self.take();
+        self.changing = self.changing || actions.iter().any(|action| changes(action, &context));
         for action in actions {
             self.queue.push_back((action, context.clone()));
         }
@@ -610,7 +660,11 @@ impl Keys {
     }
 
     /// Leaves the machine in `mode`, queueing what entering it asks for.
+    ///
+    /// An inserting mode is entered by a change however little is typed in it, which is what makes
+    /// `i<Esc>` a command `.` types again rather than one it passes over.
     fn goto(&mut self, mode: VimMode) {
+        self.changing = self.changing || VimMode::Insert == mode;
         let previous = self.mode;
         self.mode = mode;
         let actions = self.entered(previous);
@@ -711,6 +765,7 @@ impl Keys {
         ))
         .into();
         let context = self.take();
+        self.changing = true;
         self.queue.push_back((action, context));
     }
 
@@ -740,11 +795,50 @@ impl Keys {
         let _abandoned = self.take();
     }
 
+    /// Keeps the keys of a change that is complete as the keys `.` types again, and forgets the
+    /// keys of a command that changed nothing.
+    ///
+    /// A command is complete where the keys typed so far are waiting for none of what a command is
+    /// spelled with, which an inserting mode, a visual selection, a held operator, a half-typed
+    /// sequence, a register prefix and a count are each waiting for.
+    fn settle(&mut self) {
+        if self.unfinished() {
+            return;
+        }
+        if self.changing && !self.recorded.is_empty() {
+            self.repeated = Some(Repeated {
+                keys: std::mem::take(&mut self.recorded),
+                count: self.counted,
+            });
+        }
+        self.forget();
+    }
+
+    /// Forgets the keys typed at the command in progress, which are the keys of no change.
+    fn forget(&mut self) {
+        self.recorded.clear();
+        self.counted = None;
+        self.changing = false;
+    }
+
+    /// # Returns
+    ///
+    /// Whether the keys typed so far are in the middle of a command rather than at the end of one.
+    fn unfinished(&self) -> bool {
+        VimMode::Normal != self.mode
+            || !self.pending.is_empty()
+            || self.operator.is_some()
+            || self.reading_register
+            || self.counting.is_some()
+            || self.count.is_some()
+    }
+
     /// # Returns
     ///
     /// The context the actions of the sequence just completed run under, leaving the machine
     /// holding nothing of that sequence.
     fn take(&mut self) -> EditContext {
+        self.counted = self.counted.or(self.count);
         let search_char = self
             .charsearch
             .clone()
@@ -845,6 +939,14 @@ const INSERT_MODES: [VimMode; 1] = [VimMode::Insert];
 struct Operator {
     keys: Vec<TerminalKey>,
     doubled: Step,
+}
+
+/// The last change, in the terms `.` types it again: the keys it was typed by with the digits of
+/// its counts left out, and the count those digits resolved to.
+#[derive(Clone, Debug)]
+struct Repeated {
+    keys: Vec<TerminalKey>,
+    count: Option<usize>,
 }
 
 /// # Returns
@@ -1297,6 +1399,7 @@ fn normal_table() -> Vec<Entry> {
             ),
         ));
     }
+    entries.push(entry(&NORMAL_MODES, ".", Step::Repeat));
     entries.push(entry(
         &NORMAL_MODES,
         "<Esc>",
@@ -1829,6 +1932,22 @@ fn any_of(edges: &[Edge], keys: &[TerminalKey]) -> Option<char> {
 
 /// # Returns
 ///
+/// Whether running `action` under `context` could leave the text other than it was, which is what
+/// makes the keys that produced it the keys `.` types again. A motion and a yank are the edits vim
+/// does not count as changes, and an undo, a redo and a checkpoint are not edits at all.
+fn changes(action: &Action, context: &EditContext) -> bool {
+    let Action::Editor(editor) = action else {
+        return false;
+    };
+    match editor {
+        EditorAction::Edit(operation, _) => !context.resolve(operation).is_readonly(),
+        EditorAction::InsertText(_) => true,
+        _ => false,
+    }
+}
+
+/// # Returns
+///
 /// The digit `typed` names, and [`None`] where it names none.
 fn digit_of(typed: TerminalKey) -> Option<usize> {
     typed
@@ -1880,6 +1999,17 @@ mod tests {
         (produced, machine.mode())
     }
 
+    /// # Returns
+    ///
+    /// The count every edit of `produced` runs with, in the order the edits were produced.
+    fn counted(produced: &[(Action, EditContext)]) -> Vec<Option<usize>> {
+        produced
+            .iter()
+            .filter(|(action, _context)| matches!(action, Action::Editor(EditorAction::Edit(_, _))))
+            .map(|(_action, context)| context.get_count())
+            .collect()
+    }
+
     #[test]
     fn a_sequence_names_the_prefix_and_a_key_of_any_kind_apart_from_the_keys_it_spells() {
         assert_eq!(
@@ -1898,6 +2028,21 @@ mod tests {
         let (produced, _mode) = produced("2d3w");
 
         assert_eq!(Some(6), produced[0].1.get_count());
+    }
+
+    #[test]
+    fn a_count_in_front_of_a_repeat_stands_in_for_every_count_the_change_was_typed_with() {
+        let (produced, _mode) = produced("2d3w4.");
+
+        assert_eq!(vec![Some(6), Some(4)], counted(&produced));
+    }
+
+    #[test]
+    fn a_repeat_with_no_change_behind_it_asks_for_nothing() {
+        let (produced, mode) = produced("w.");
+
+        assert_eq!(vec![None], counted(&produced));
+        assert_eq!(VimMode::Normal, mode);
     }
 
     #[test]
