@@ -1002,7 +1002,7 @@ mod tests {
 
         let whole = drawn(&text, Options::new(), WIDTH);
         let scrolled = window(&text, WIDTH, WRAPPED, WRAPPED / 2);
-        assert_eq!(WRAPPED, scrolled.start(), "the window did not scroll");
+        assert_eq!(Some(WRAPPED), scrolled.start(), "the window did not scroll");
         assert_eq!(
             WRAPPED / 2,
             scrolled.rows().len(),
