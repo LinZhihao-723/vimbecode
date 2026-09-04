@@ -572,7 +572,7 @@ impl<'transcript> View<'transcript> {
     /// Measured in release at eighty columns, counting an open hundred-thousand-line block of plain
     /// lines asks the allocator for nothing at all and takes 1.0 ms; counting one of tab-indented
     /// lines, whose rows cannot be read off their lengths, asks for 942 MB in 2.7 million calls and
-    /// takes 186 ms, holding a line of it at a time rather than every row of it at once. Drawing
+    /// takes 200 ms, holding a line of it at a time rather than every row of it at once. Drawing
     /// either block to count the rows it came back with asked for 1.2 GB in 13.6 million calls and
     /// took 507 ms. The same step above a closed fold costs nothing at either length, so a fold
     /// costs nothing to walk over however much it hides.

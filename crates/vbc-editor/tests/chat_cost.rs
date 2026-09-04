@@ -50,10 +50,10 @@
 //! were counted rather than laid out, the second of them asked for 228 MB in 626,364 calls and the
 //! third for 452 MB in 1,238,864. Counting the rows of that block asks for nothing at all and takes
 //! 1.0 ms, where drawing it to count them asked for 1.2 GB in 13.6 million calls and took 507 ms.
-//! The same three windows of a hundred thousand tab-indented lines ask for 121 KB, 236 MB and
-//! 467 MB and take 62 µs, 48 ms and 95 ms, holding 24,952 bytes at once at every one of the three
-//! against the 24,454 the plain fixture holds; counting that block asks for 942 MB in 2.7 million
-//! calls and takes 186 ms, and holds 5,193 bytes where counting the plain one holds none.
+//! The same three windows of a hundred thousand tab-indented lines ask for 219,420 bytes, 236 MB
+//! and 467 MB and take 59 µs, 48 ms and 102 ms, holding 24,952 bytes at once at every one of the
+//! three against the 24,454 the plain fixture holds; counting that block asks for 942 MB in 2.7
+//! million calls and takes 200 ms, and holds 5,193 bytes where counting the plain one holds none.
 //! Four thousand lines diffed against four thousand with nothing in common cost 56 ms and 2.4 MB;
 //! twenty thousand against twenty thousand cost 10 ms and 11 MB past the bound, and 3.6 ms with one
 //! line inserted, which the common head and tail match off to a middle of one line either side.

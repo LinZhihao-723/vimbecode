@@ -26,7 +26,7 @@
 //! `'breakindent'` -- is laid out to be counted and thrown away again. A walk over such a block
 //! therefore still holds one line at a time, which is what keeps a frame's memory bounded, but it
 //! asks the allocator for what it steps over: twenty rows at row 99,000 of a hundred thousand
-//! tab-indented lines ask for 467 MB in 1.3 million calls and take 95 ms. Bounding that as well
+//! tab-indented lines ask for 467 MB in 1.3 million calls and take 102 ms. Bounding that as well
 //! needs either a row index, which [`vbc_layout::anchor`] exists to do without, or a [`RowWindow`]
 //! naming where it starts rather than which row it starts at. `chat_cost.rs` measures both what
 //! holds here and what does not, rather than taking either on trust.
@@ -285,7 +285,7 @@ impl Block {
     /// counted, so the count holds no row of the block whatever it is written from. In release at
     /// eighty columns, counting a hundred-thousand-line block of plain lines asks the allocator for
     /// nothing at all and takes 1.0 ms, and counting one of tab-indented lines asks for 942 MB in
-    /// 2.7 million calls and takes 186 ms while holding a line of it at a time; drawing either to
+    /// 2.7 million calls and takes 200 ms while holding a line of it at a time; drawing either to
     /// count its rows asked for 1.2 GB in 13.6 million calls, held every row of it at once, and
     /// took 507 ms.
     ///
