@@ -26,8 +26,8 @@ use vbc_editor::chat::fold::{self, Folds, Position as FoldPosition, Tag, View};
 use vbc_editor::chat::object::Position;
 use vbc_editor::chat::selection::{Mode, Motion, Selection, Source};
 use vbc_editor::chat::transcript::Transcript;
-use vbc_editor::chat::yank::{patch, Registers, Structure, Yank, CLIPBOARD, UNNAMED, YANK};
-use vbc_editor::engine::{Held, Shape};
+use vbc_editor::chat::yank::{file, patch, Structure, Yank, CLIPBOARD, UNNAMED, YANK};
+use vbc_editor::engine::{Held, Registers, Shape};
 use vbc_editor::gutter::{Label, Options as GutterOptions};
 use vbc_editor::style::Span;
 
@@ -403,17 +403,20 @@ fn a_plain_yank_reaches_the_clipboards_register_and_a_plain_put_reads_the_unname
         .expect("the fixture holds a question");
     let source = Source::new(block.source(), Metrics::default());
     let selection = Selection::new(Mode::Linewise, source, 0);
-    let mut registers = Registers::new();
-    registers.yank(&Yank::selected(block, &selection, Metrics::default()));
+    let registers = Registers::new();
+    file(
+        &registers,
+        &Yank::selected(block, &selection, Metrics::default()),
+    );
 
     let yanked = Held {
         text: ASKED_TEXT.to_owned(),
         shape: Shape::Linewise,
     };
-    assert_eq!(Some(&yanked), registers.get(UNNAMED));
-    assert_eq!(Some(&yanked), registers.get(YANK));
+    assert_eq!(Some(yanked.clone()), registers.get(UNNAMED));
+    assert_eq!(Some(yanked.clone()), registers.get(YANK));
     assert_eq!(
-        Some(&yanked),
+        Some(yanked.clone()),
         registers.get(CLIPBOARD),
         "a plain yank did not reach the clipboard's register"
     );
@@ -422,13 +425,13 @@ fn a_plain_yank_reaches_the_clipboards_register_and_a_plain_put_reads_the_unname
         text: "what the desktop last copied".to_owned(),
         shape: Shape::Charwise,
     };
-    registers.fill(CLIPBOARD, copied.clone());
+    registers.fill(CLIPBOARD, &copied);
 
-    assert_eq!(Some(&copied), registers.get(CLIPBOARD));
+    assert_eq!(Some(copied), registers.get(CLIPBOARD));
     assert_eq!(
-        Some(&yanked),
-        registers.put(),
-        "a plain put read the clipboard's register"
+        Some(yanked),
+        registers.get(UNNAMED),
+        "what the desktop copied reached the register a plain put reads"
     );
 }
 

@@ -36,7 +36,9 @@
 //! and a place in that text is a block and a byte of that block's source. That is the coordinate
 //! `iac`, `yac` and `za` are already addressed in, which is what lets the keys the one table binds
 //! them to be run here against the transcript itself rather than against a picture of it. A yank
-//! taken that way fills the registers a plain yank fills, so there is one store to read.
+//! taken that way fills the registers a plain yank fills, so there is one store to read. That store
+//! is the file editor's own wherever the two were handed the same register file, because a reader
+//! who yanks a code block out of an answer means to paste it into a file.
 //!
 //! Both keybinding machines read through the same table, the engine's included. The panel replays
 //! at the engine the keys it held back while a sequence completed, so a table that answered `z`
@@ -63,8 +65,8 @@ use crate::chat::fold::{
 use crate::chat::object::{Kind as ObjectKind, Object, Position};
 use crate::chat::selection::{Mode, Selection, Source};
 use crate::chat::transcript::Transcript;
-use crate::chat::yank::{Registers, Structure, Yank};
-use crate::engine::{Engine, Error, Held, Position as Caret, Shape};
+use crate::chat::yank::{self, Structure, Yank};
+use crate::engine::{Engine, Error, Held, Position as Caret, Registers, Shape};
 use crate::event::KeyEvent;
 use crate::keys::Keys;
 use crate::screen::Geometry;
@@ -214,7 +216,6 @@ pub struct Panel {
     keys: Keys,
     agreed: Keys,
     held: Vec<KeyEvent>,
-    registers: Registers,
     resting: Position,
     refusal: Option<Refusal>,
     notice: Option<String>,
@@ -272,6 +273,17 @@ impl Panel {
     #[must_use]
     pub fn governed_by(mut self, policy: Policy) -> Self {
         self.policy = policy;
+
+        self
+    }
+
+    /// # Returns
+    ///
+    /// The same panel yanking into `registers` rather than into a file of its own, so that `yac`
+    /// here is what `p` puts in the file editor handed the same registers.
+    #[must_use]
+    pub fn sharing(mut self, registers: Registers) -> Self {
+        self.engine = self.engine.sharing(registers);
 
         self
     }
@@ -553,7 +565,6 @@ impl Panel {
             agreed: keys.clone(),
             keys,
             held: Vec::new(),
-            registers: Registers::new(),
             resting: Position::new(0, 0),
             refusal: None,
             notice: None,
@@ -618,16 +629,7 @@ impl Panel {
 
             return;
         };
-        self.registers.yank(&yank);
-        let filled: Vec<(char, Held)> = self
-            .registers
-            .held()
-            .iter()
-            .map(|(name, held)| (*name, held.clone()))
-            .collect();
-        for (name, held) in filled {
-            self.engine.fill(name, &held);
-        }
+        yank::file(self.engine.register_file(), &yank);
     }
 
     /// Opens or closes the folds at the cursor and lays the engine out over what they now leave

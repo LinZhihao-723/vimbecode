@@ -17,6 +17,14 @@
 //! text. Everything a layout has no say in reaches the text exactly as it did before that shim
 //! existed, and an engine can be built without one, which is what the seam is compared against.
 //!
+//! The registers are the one thing an engine is the authority on that it need not be the only
+//! authority on. vim has one register file and this editor has more than one engine: the file a
+//! reader is writing and the transcript panel beside it. So a [`Registers`] is a handle rather
+//! than a value, and two engines handed the same one yank into and put from the very same
+//! registers, which is what makes `yac` in the panel and `p` in the file the gesture it reads
+//! like. An engine handed nobody else's keeps a file to itself, which is what an engine whose run
+//! is compared against another engine's needs.
+//!
 //! The size of the window an engine is laid out in is handed on to modalkit all the same, because
 //! a screen line is a screen line only relative to some window, and a motion counted in them has
 //! nowhere to land without one.
@@ -57,10 +65,13 @@
 //! abandonment to be inferred.
 
 use std::borrow::Cow;
+use std::cell::Cell;
 use std::collections::BTreeMap;
 use std::error::Error as StdError;
-use std::fmt::{Display, Formatter, Result as FmtResult};
+use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
+use std::mem;
 use std::num::NonZeroUsize;
+use std::rc::Rc;
 
 use crossterm::event::{KeyCode, KeyModifiers};
 use editor_types::context::{EditContextBuilder, Resolve};
@@ -75,7 +86,7 @@ use modalkit::editing::buffer::{CursorGroupId, EditBuffer};
 use modalkit::editing::context::EditContext;
 use modalkit::editing::cursor::{Cursor, CursorGroup, CursorState};
 use modalkit::editing::rope::EditRope;
-use modalkit::editing::store::{RegisterCell, RegisterPutFlags, Store};
+use modalkit::editing::store::{RegisterCell, RegisterPutFlags, RegisterStore, Store};
 use modalkit::env::vim::VimMode;
 use modalkit::key::TerminalKey;
 use vbc_layout::position::LogicalPosition;
@@ -94,6 +105,11 @@ const READ_BACK: [char; 38] = [
     '"', '-', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f', 'g',
     'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z',
 ];
+
+/// The registers standing for the desktop's clipboards, which a plain put never reads. Writing one
+/// of them leaves the unnamed register as it stood, so that what another window copied is never
+/// what `p` comes back with.
+const CLIPBOARDS: [char; 2] = ['*', '+'];
 
 /// The identifier modalkit files the one text an engine edits under.
 const ONLY_TEXT: &str = "vimbecode";
@@ -165,6 +181,135 @@ pub struct Held {
     pub shape: Shape,
 }
 
+/// The registers a yank fills and a put reads back, which is one file however many engines are
+/// typed at.
+///
+/// vim has one register file and vimbecode has more than one engine: the file the reader edits and
+/// the transcript panel beside it are each a text with its own cursor and its own mode. What a
+/// reader takes out of one of them they mean to put into the other, so `yac` in the panel and `p`
+/// in the file editor read the same registers or the gesture the editor exists for does not work.
+///
+/// A file is therefore a handle rather than a value: cloning one does not copy the registers, and
+/// every engine handed the same file yanks into and puts from the very registers the others do.
+/// An engine handed no file of somebody else's keeps one to itself, which is what an engine whose
+/// run is compared against another engine's needs.
+///
+/// What a handle holds is moved rather than aliased. modalkit reads and writes registers through a
+/// store it owns outright, so a read and an edit each take the registers out, work on what they
+/// took, and put them back; two engines never hold them at once because only one of them is
+/// running a keystroke at a time.
+#[derive(Clone, Default)]
+pub struct Registers {
+    held: Rc<Cell<RegisterStore>>,
+}
+
+impl Registers {
+    /// Factory function.
+    ///
+    /// # Returns
+    ///
+    /// A newly created register file, every register of it holding nothing.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// # Returns
+    ///
+    /// What the register named `name` holds, or [`None`] where it holds nothing.
+    #[must_use]
+    pub fn get(&self, name: char) -> Option<Held> {
+        self.read(|held| holding(held, name))
+    }
+
+    /// Writes `held` into the register named `name`, as a yank into that register would.
+    ///
+    /// A yank into a register fills the unnamed one as well, which is what makes `"ayy` and then
+    /// `p` put what was yanked. A write to one of the desktop's clipboards does not, because what
+    /// another window copied is not something the reader yanked.
+    pub fn fill(&self, name: char, held: &Held) {
+        let flags = if CLIPBOARDS.contains(&name) {
+            RegisterPutFlags::NOTEXT
+        } else {
+            RegisterPutFlags::NONE
+        };
+        let cell = RegisterCell::new(held.shape.into(), EditRope::from(held.text.as_str()));
+        let mut file = self.held.take();
+        let _ = file.put(&slot(name), cell, flags);
+        self.held.set(file);
+    }
+
+    /// # Returns
+    ///
+    /// What every register holding text holds, keyed by the name it is addressed by. A register
+    /// holding nothing is left out, as it is on the side an engine is compared against.
+    #[must_use]
+    pub fn held(&self) -> BTreeMap<char, Held> {
+        self.read(|file| {
+            let mut held = BTreeMap::new();
+            for name in READ_BACK {
+                if let Some(register) = holding(file, name) {
+                    held.insert(name, register);
+                }
+            }
+
+            held
+        })
+    }
+
+    /// Lends the registers to `store` for as long as `run` edits through it.
+    ///
+    /// modalkit reads and writes registers through the store it is handed, and a store owns its
+    /// register file outright, so the shared one is moved into the store for the length of an edit
+    /// and moved back out after it. Nothing but that edit runs between the two moves, and an edit
+    /// reaches a register no other way.
+    ///
+    /// # Type Parameters
+    ///
+    /// * `OutcomeType` - What running the edit answers with.
+    ///
+    /// # Returns
+    ///
+    /// What `run` answered with.
+    fn lent<OutcomeType>(
+        &self,
+        store: &mut Store<EmptyInfo>,
+        run: impl FnOnce(&mut Store<EmptyInfo>) -> OutcomeType,
+    ) -> OutcomeType {
+        store.registers = self.held.take();
+        let outcome = run(store);
+        self.held.set(mem::take(&mut store.registers));
+
+        outcome
+    }
+
+    /// Takes the registers out for as long as `read` looks at them, and puts them back.
+    ///
+    /// # Type Parameters
+    ///
+    /// * `OutcomeType` - What reading the registers answers with.
+    ///
+    /// # Returns
+    ///
+    /// What `read` answered with.
+    fn read<OutcomeType>(&self, read: impl FnOnce(&RegisterStore) -> OutcomeType) -> OutcomeType {
+        let file = self.held.take();
+        let outcome = read(&file);
+        self.held.set(file);
+
+        outcome
+    }
+}
+
+impl Debug for Registers {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> FmtResult {
+        formatter
+            .debug_struct("Registers")
+            .field("held", &self.held())
+            .finish()
+    }
+}
+
 /// A vim engine: the keys typed at it so far, the text they have edited, and what they left in the
 /// registers.
 ///
@@ -176,6 +321,7 @@ pub struct Engine {
     store: Store<EmptyInfo>,
     group: CursorGroupId,
     window: ViewportContext<Cursor>,
+    registers: Registers,
     shim: Option<Shim>,
     shift: Shift,
 }
@@ -245,6 +391,26 @@ impl Engine {
         self.keys = Keys::new(bindings);
 
         self
+    }
+
+    /// # Returns
+    ///
+    /// The same engine yanking into and putting from `registers` rather than from a file of its
+    /// own, so that what it yanks every other engine handed that file can put.
+    #[must_use]
+    pub fn sharing(mut self, registers: Registers) -> Self {
+        self.registers = registers;
+
+        self
+    }
+
+    /// # Returns
+    ///
+    /// The register file the engine yanks into and puts from, which is a handle another engine can
+    /// be handed to share it.
+    #[must_use]
+    pub fn register_file(&self) -> &Registers {
+        &self.registers
     }
 
     /// # Returns
@@ -396,22 +562,12 @@ impl Engine {
     /// own by, this reads whichever register was asked for, the clipboard's among them.
     #[must_use]
     pub fn register(&self, name: char) -> Option<Held> {
-        let cell = self.store.registers.get(&slot(name)).ok()?;
-        let text = cell.value.to_string();
-
-        (!text.is_empty()).then(|| Held {
-            text,
-            shape: cell.shape.into(),
-        })
+        self.registers.get(name)
     }
 
     /// Writes `held` into the register named `name`, as a yank the engine ran itself would.
     pub fn fill(&mut self, name: char, held: &Held) {
-        let cell = RegisterCell::new(held.shape.into(), EditRope::from(held.text.as_str()));
-        let _ = self
-            .store
-            .registers
-            .put(&slot(name), cell, RegisterPutFlags::NONE);
+        self.registers.fill(name, held);
     }
 
     /// Replaces the text being edited with `text`, leaving the registers as they stand.
@@ -460,25 +616,7 @@ impl Engine {
     /// holding nothing is left out, as it is on the side an engine is compared against.
     #[must_use]
     pub fn registers(&self) -> BTreeMap<char, Held> {
-        let mut held = BTreeMap::new();
-        for name in READ_BACK {
-            let Ok(cell) = self.store.registers.get(&slot(name)) else {
-                continue;
-            };
-            let text = cell.value.to_string();
-            if text.is_empty() {
-                continue;
-            }
-            held.insert(
-                name,
-                Held {
-                    text,
-                    shape: cell.shape.into(),
-                },
-            );
-        }
-
-        held
+        self.registers.held()
     }
 
     /// # Returns
@@ -933,12 +1071,19 @@ impl Engine {
     ///
     /// * [`Error::Unrunnable`] if the action could not be run against the text.
     fn apply(&mut self, editor: &EditorAction, context: &EditContext) -> Result<(), Error> {
-        self.text
-            .editor_command(
-                editor,
-                &(self.group, &self.window, context),
-                &mut self.store,
-            )
+        let Self {
+            text,
+            store,
+            group,
+            window,
+            registers,
+            ..
+        } = self;
+
+        registers
+            .lent(store, |store| {
+                text.editor_command(editor, &(*group, &*window, context), store)
+            })
             .map(|_info| ())
             .map_err(|error| Error::Unrunnable {
                 action: format!("{editor:?}"),
@@ -993,6 +1138,7 @@ impl Engine {
             store: Store::default(),
             group,
             window,
+            registers: Registers::new(),
             shim,
             shift: Shift::default().with_tab_stop(geometry.metrics().tab_stop()),
         }
@@ -1163,6 +1309,19 @@ fn sorted(one: usize, other: usize) -> (usize, usize) {
 
 /// # Returns
 ///
+/// What the register named `name` of `file` holds, or [`None`] where it holds nothing.
+fn holding(file: &RegisterStore, name: char) -> Option<Held> {
+    let cell = file.get(&slot(name)).ok()?;
+    let text = cell.value.to_string();
+
+    (!text.is_empty()).then(|| Held {
+        text,
+        shape: cell.shape.into(),
+    })
+}
+
+/// # Returns
+///
 /// The register modalkit addresses by the name vim addresses it by.
 fn slot(name: char) -> Slot {
     match name {
@@ -1182,6 +1341,10 @@ mod tests {
     /// an accented letter written as a combining sequence, and a plain letter.
     const CLUSTERED: &str = "\u{1f468}\u{200d}\u{1f469}\u{200d}\u{1f467}e\u{301}x";
 
+    /// The text one engine yanks out of, and the text the other puts into.
+    const YANKED: &str = "the line that was taken";
+    const PUT_INTO: &str = "the file it is put into";
+
     #[test]
     fn a_character_inside_a_cluster_is_reported_as_the_cluster_it_falls_in() {
         assert_eq!(0, grapheme_offset(CLUSTERED, 0));
@@ -1196,5 +1359,55 @@ mod tests {
         assert_eq!(3, grapheme_offset(CLUSTERED, 8));
         assert_eq!(3, grapheme_offset(CLUSTERED, 99));
         assert_eq!(0, grapheme_offset("", 0));
+    }
+
+    #[test]
+    fn two_engines_handed_one_file_yank_into_and_put_from_the_same_registers() {
+        let registers = Registers::new();
+        let mut one = Engine::new(YANKED).sharing(registers.clone());
+        let mut other = Engine::new(PUT_INTO).sharing(registers);
+        typing(&mut one, "yy");
+        typing(&mut other, "p");
+
+        assert_eq!(format!("{PUT_INTO}\n{YANKED}\n"), other.text());
+    }
+
+    #[test]
+    fn an_engine_handed_no_file_of_anybody_elses_keeps_its_registers_to_itself() {
+        let mut one = Engine::new(YANKED);
+        let mut other = Engine::new(PUT_INTO);
+        typing(&mut one, "yy");
+        typing(&mut other, "p");
+
+        assert_eq!(None, other.register('"'));
+        assert_eq!(format!("{PUT_INTO}\n"), other.text());
+    }
+
+    #[test]
+    fn what_the_desktop_copied_never_reaches_the_register_a_plain_put_reads() {
+        let registers = Registers::new();
+        let yanked = Held {
+            text: YANKED.to_owned(),
+            shape: Shape::Linewise,
+        };
+        let copied = Held {
+            text: "what the desktop last copied".to_owned(),
+            shape: Shape::Charwise,
+        };
+        registers.fill('"', &yanked);
+        for name in CLIPBOARDS {
+            registers.fill(name, &copied);
+
+            assert_eq!(Some(copied.clone()), registers.get(name));
+        }
+
+        assert_eq!(Some(yanked), registers.get('"'));
+    }
+
+    /// Types the characters of `keys` at `engine`, one at a time.
+    fn typing(engine: &mut Engine, keys: &str) {
+        engine
+            .press_all(keys.chars().map(typed))
+            .expect("the engine runs the keys of these cases");
     }
 }
