@@ -21,7 +21,7 @@ mod fuzz;
 use std::fs;
 use std::num::NonZeroU32;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Mutex;
 
 use proptest::strategy::{Strategy, ValueTree};
 use proptest::test_runner::{Config, TestRunner};
@@ -125,17 +125,45 @@ const COVERAGE_CASES: usize = 2_000;
 /// arm turns this into a failing test rather than a smaller number nobody reads.
 const HARD_SHAPE_CASES: usize = 420;
 
-/// A layout that draws every view the way the reference layout does and counts the views it was
-/// asked to draw, so that a sharded search can be shown to run every case it was given rather than
-/// to lose a shard's share of them.
+/// A layout that draws every view the way the reference layout does and records the views it was
+/// asked to draw, so that a sharded search can be shown to run every case it was given, and to run
+/// each of them on the shard whose own seed generates it.
+///
+/// Counting the views is not enough on its own: a search that ran one shard's cases on all sixteen
+/// shards would draw as many views as one that ran sixteen shards' worth, and would search a
+/// sixteenth of what it reported.
 #[derive(Debug, Default)]
-struct CountsViews {
-    drawn: AtomicUsize,
+struct RecordsViews {
+    views: Mutex<Vec<String>>,
 }
 
-impl Layout for CountsViews {
+impl RecordsViews {
+    /// # Returns
+    ///
+    /// The views this layout was asked to draw, sorted, since the shards of one search draw theirs
+    /// at the same time and in no order between them.
+    ///
+    /// # Panics
+    ///
+    /// Panics if a shard panicked while recording a view.
+    fn drawn(&self) -> Vec<String> {
+        let mut drawn = self
+            .views
+            .lock()
+            .expect("a shard does not panic while recording a view")
+            .clone();
+        drawn.sort();
+
+        drawn
+    }
+}
+
+impl Layout for RecordsViews {
     fn lay_out(&self, view: View<'_>) -> Screen {
-        self.drawn.fetch_add(1, Ordering::Relaxed);
+        self.views
+            .lock()
+            .expect("a shard does not panic while recording a view")
+            .push(describe(view));
 
         WholeDocumentLayout.lay_out(view)
     }
@@ -155,6 +183,29 @@ impl Layout for CountsViews {
     ) -> Option<LogicalPosition> {
         WholeDocumentLayout.logical_position(view, position)
     }
+}
+
+/// # Returns
+///
+/// A view's text, window and cursor written out, which tells the cases one shard searched apart
+/// from the cases another did.
+fn describe(view: View<'_>) -> String {
+    format!(
+        "{} cursor at {} in {:?}",
+        view.viewport,
+        view.cursor,
+        view.buffer.lines()
+    )
+}
+
+/// # Returns
+///
+/// The share of [`SHARDED_CASES`] the shard at `index` searches, counted the way a search that
+/// shares its remainder out rather than dropping it has to count it.
+fn share(index: u32) -> u32 {
+    let shards = SOAK_SHARDS.get();
+
+    SHARDED_CASES / shards + u32::from(index < SHARDED_CASES % shards)
 }
 
 /// Draws cases from the generator a search runs over, so that what a search covers can be measured
@@ -589,12 +640,39 @@ fn the_reference_layout_survives_a_million_cases() {
 
 #[test]
 fn a_sharded_search_runs_every_case_it_is_given() {
-    let layout = CountsViews::default();
+    let layout = RecordsViews::default();
     if let Err(failure) = sharded_search(&layout, SEED, SHARDED_CASES, SOAK_SHARDS) {
-        panic!("the counting layout broke an invariant:\n{failure}");
+        panic!("the recording layout broke an invariant:\n{failure}");
     }
 
-    assert_eq!(SHARDED_CASES as usize, layout.drawn.load(Ordering::Relaxed));
+    assert_eq!(SHARDED_CASES as usize, layout.drawn().len());
+}
+
+#[test]
+fn a_sharded_search_searches_what_its_shards_searched() {
+    let sharded = RecordsViews::default();
+    if let Err(failure) = sharded_search(&sharded, SEED, SHARDED_CASES, SOAK_SHARDS) {
+        panic!("the recording layout broke an invariant:\n{failure}");
+    }
+
+    let mut by_shard: Vec<String> = (0..SOAK_SHARDS.get())
+        .flat_map(|shard| {
+            let layout = RecordsViews::default();
+            if let Err(failure) = search(&layout, SEED.shard(shard), share(shard)) {
+                panic!("the recording layout broke an invariant:\n{failure}");
+            }
+
+            layout.drawn()
+        })
+        .collect();
+    by_shard.sort();
+
+    assert_eq!(
+        by_shard,
+        sharded.drawn(),
+        "a sharded search did not search the cases its shards' own seeds generate, so it searches \
+         fewer cases than it is given"
+    );
 }
 
 #[test]
