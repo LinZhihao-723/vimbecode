@@ -17,14 +17,30 @@
 //! which is most of vim: the seam is worth having only if it is invisible to everything but the
 //! motions it is for.
 //!
-//! What the shim answers is the motions counted against a line's own rows: `gj` and `gk` a number
-//! of screen lines away, `g0` and `g$` along the screen line the cursor is on, and `g^` at its
-//! first word. `H`, `M` and `L` are counted against the window a text is scrolled inside
-//! rather than against the text, so they are recognised and measured here and left to modalkit
-//! until the seam is handed that window. A window with `'wrap'` unset draws one row of a line and
+//! What the shim answers is the motions counted against a line's own rows -- `gj` and `gk` a
+//! number of screen lines away, `g0` and `g$` along the screen line the cursor is on, and `g^` at
+//! its first word -- together with the motions counted against the window the text is scrolled
+//! inside, which are `H`, `M` and `L`. A window with `'wrap'` unset draws one row of a line and
 //! scrolls it sideways, so the row a motion is counted against there is the viewport's to say as
 //! well; a line is laid out here as a wrapped line whatever the window does with it, and the
 //! answer is right only for a window that wraps.
+//!
+//! `H`, `M` and `L` are counted against a window rather than against a text, so the seam has to be
+//! handed the one the text is scrolled inside; a shim nobody has told answers them against a
+//! window resting at the top of the text, which is where one starts. What each of them names is
+//! counted in the display rows the window draws rather than in the lines it holds -- `M` is the
+//! line halfway down the rows, not the line halfway down the lines -- and that is what makes them
+//! the layout engine's: modalkit divides a character count by the window's width to guess at how
+//! many rows a line takes, and reads a viewport this engine never wrote to.
+//!
+//! They are also the one family the seam answers in whole lines. Each lands on the first non-blank
+//! of a line the window draws, which makes an operator over one linewise: `dH` takes every line
+//! from the top of the window down to the cursor's own and fills a linewise register with them.
+//!
+//! `'scrolloff'` is part of that answer rather than a decoration on it. vim pulls a cursor away
+//! from the edge of a window it would otherwise land against, counting the rows it pulls it over
+//! rather than the lines, and it does so for a cursor move alone: an operator waiting on the
+//! motion takes the line the window's edge names and no other. Both halves are measured here.
 //!
 //! Which motions the seam is for is a decision rather than an observation, so it is written down
 //! here as one. Every motion modalkit can hand it is classified: one whose answer is counted in
@@ -42,9 +58,9 @@
 //! the line they land on is a position in a text. The column they keep is not one -- vim carries a
 //! screen column across a vertical motion where modalkit carries a character index -- and that is
 //! a seam of its own, held to vim by a test that pins the divergence rather than left to be
-//! rediscovered. And an intercepted motion the shim does not answer is still answered by modalkit,
-//! so it is as wrong today as it was before the seam existed; what separates it from a refused one
-//! is that it is measured and on its way to an answer.
+//! rediscovered. And every motion the audit intercepts is answered here: the one shape that
+//! reaches the seam's own match without a measurement behind it is a screen-line position naming
+//! the middle of a row, which the audit refuses as `gm` before it is ever taken.
 //!
 //! What the shim measures costs the logical lines a motion steps through and nothing else. It lays
 //! each of them out as the walk reaches it, on the motion that asked for it, and keeps none of
@@ -66,17 +82,17 @@
 //! in whatever line it is measured against. Carrying a number instead was measured against vim
 //! and moved forty-eight cases off it that were on it.
 //!
-//! A motion this seam measures and then leaves to modalkit forgets that column as anything else
-//! does. `H`, `M` and `L` move the cursor whoever answers them, and vim sets `curswant` from each,
-//! so a chain reaching past one would be walking down a column vim had already forgotten.
+//! `H`, `M` and `L` forget that column as anything else does. vim sets `curswant` from each of
+//! them, so a chain reaching past one would be walking down a column vim had already forgotten.
 //!
-//! What a motion is answered with is a place together with the two facts an operator applied over
-//! it turns on and a cursor moved by it does not: whether the grapheme landed on is part of what
-//! the operator takes, which is what separates `g$` from `gj`, and whether the walk travelled the
-//! whole count it was asked for, because vim abandons an operator whose motion ran out of text.
-//! What is done with the place is not the shim's -- it knows nothing about operators, marks or
-//! registers -- but a place alone is not enough to decide an edit from, so both facts are reported
-//! rather than left to be inferred from where the answer landed.
+//! What a motion is answered with is a place together with the three facts an operator applied
+//! over it turns on and a cursor moved by it does not: whether what it takes is whole lines, which
+//! is what separates `H` from every other motion here; whether the grapheme landed on is part of
+//! what it takes, which is what separates `g$` from `gj`; and whether the walk travelled the whole
+//! count it was asked for, because vim abandons an operator whose motion ran out of text. What is
+//! done with the place is not the shim's -- it knows nothing about operators, marks or registers
+//! -- but a place alone is not enough to decide an edit from, so the three are reported rather
+//! than left to be inferred from where the answer landed.
 
 use std::borrow::Cow;
 
@@ -84,6 +100,7 @@ use editor_types::prelude::{Count, EditTarget, MoveDir1D, MovePosition, MoveType
 use modalkit::actions::EditorAction;
 use vbc_layout::line::{self, DisplayRow};
 use vbc_layout::position::{DisplayPosition, LogicalPosition};
+use vbc_layout::viewport::Viewport;
 use vbc_layout::width::graphemes;
 
 use crate::screen::{row_index, Geometry};
@@ -152,17 +169,22 @@ pub enum Classification {
 /// Where a screen motion goes, in the terms a cursor moved by it and an operator applied over it
 /// are both decided from.
 ///
-/// A cursor needs the place alone. An operator needs two more facts about the walk that reached
-/// it: whether the grapheme landed on is part of what the operator takes, and whether the walk
-/// travelled the whole count it was asked for, because vim abandons an operator whose motion ran
-/// out of text.
+/// A cursor needs the place alone. An operator needs three more facts about the walk that reached
+/// it: whether what it takes is whole lines, whether the grapheme landed on is part of what it
+/// takes, and whether the walk travelled the whole count it was asked for, because vim abandons an
+/// operator whose motion ran out of text.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Landing {
     /// The place in the logical text the motion reached.
     pub at: LogicalPosition,
 
+    /// Whether an operator applied over the motion takes the whole of every line between the
+    /// cursor and the place reached. `H`, `M` and `L` are the motions it takes them over.
+    pub linewise: bool,
+
     /// Whether the grapheme reached is part of what an operator applied over the motion takes.
-    /// `g$` takes it and `gj`, `gk`, `g0` and `g^` stop in front of it.
+    /// `g$` takes it and `gj`, `gk`, `g0` and `g^` stop in front of it. A linewise motion carries
+    /// whole lines whatever this says.
     pub inclusive: bool,
 
     /// Whether the walk travelled the whole count the motion was asked for, which a walk that ran
@@ -209,11 +231,32 @@ enum Wanted {
     FirstWord,
 }
 
-/// The seam itself: the layout the engine's screen motions are measured in, the motions it has
-/// taken so far, and the column the chain of them is walking down.
+/// The lines a window draws, which is what a motion counted against the window is measured
+/// against.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct Drawn {
+    /// The line the window is anchored to, which `H` counts down from.
+    top: usize,
+
+    /// The last line the window draws every row of, which `L` counts back from.
+    bottom: usize,
+
+    /// The rows at the bottom of the window that no line is drawn in, which a window taller than
+    /// the rest of its text has and which `M` measures its half against.
+    empty: usize,
+
+    /// Whether the window draws the last line of the text, which is what says a cursor has no
+    /// rows below it for `'scrolloff'` to want.
+    ends: bool,
+}
+
+/// The seam itself: the layout the engine's screen motions are measured in, the window the text is
+/// scrolled inside, the motions the seam has taken so far, and the column the chain of them is
+/// walking down.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Shim {
     geometry: Geometry,
+    viewport: Viewport,
     intercepted: Vec<Intercepted>,
     wanted: Option<Wanted>,
 }
@@ -223,11 +266,13 @@ impl Shim {
     ///
     /// # Returns
     ///
-    /// A newly created shim measuring the motions it takes in `geometry`, having taken none.
+    /// A newly created shim measuring the motions it takes in `geometry`, against a window resting
+    /// at the top of the text, having taken none.
     #[must_use]
     pub fn new(geometry: Geometry) -> Self {
         Self {
             geometry,
+            viewport: Viewport::new(),
             intercepted: Vec::new(),
             wanted: None,
         }
@@ -239,6 +284,24 @@ impl Shim {
     #[must_use]
     pub fn geometry(&self) -> &Geometry {
         &self.geometry
+    }
+
+    /// Measures the motions counted against a window in `viewport`, which is where the text is
+    /// scrolled to now.
+    ///
+    /// `H`, `M` and `L` name a line of the window rather than a line of the text, so a seam that
+    /// has not been told where the window is answers them against the top of the text. Nothing
+    /// else the shim measures reads the viewport.
+    pub fn scrolled_to(&mut self, viewport: Viewport) {
+        self.viewport = viewport;
+    }
+
+    /// # Returns
+    ///
+    /// The window the motions counted against one are measured against.
+    #[must_use]
+    pub fn viewport(&self) -> Viewport {
+        self.viewport
     }
 
     /// # Returns
@@ -281,7 +344,8 @@ impl Shim {
     }
 
     /// Takes the screen motion `motion`, resolved to the count `count`, with the cursor standing
-    /// at `at` in `text`, and answers it from the layout engine.
+    /// at `at` in `text`, and answers it from the layout engine. `bare` says the motion has no
+    /// operator waiting on it, which is what decides whether `'scrolloff'` moves the answer.
     ///
     /// # Type Parameters
     ///
@@ -298,6 +362,7 @@ impl Shim {
         count: usize,
         at: LogicalPosition,
         text: &TextType,
+        bare: bool,
     ) -> Option<Landing> {
         let rows = self.lay_out(at.line, text);
         let row = row_index(&rows, at.grapheme);
@@ -312,7 +377,12 @@ impl Shim {
         });
 
         let (steps, direction, wanted) = match motion {
-            ScreenMotion::ViewportPos(_) | ScreenMotion::LinePos(MovePosition::Middle) => {
+            ScreenMotion::ViewportPos(position) => {
+                self.wanted = None;
+
+                return Some(self.in_window(position, count, bare, text));
+            }
+            ScreenMotion::LinePos(MovePosition::Middle) => {
                 self.wanted = None;
 
                 return None;
@@ -339,12 +409,224 @@ impl Shim {
 
         Some(Landing {
             at: LogicalPosition { line, grapheme },
+            linewise: false,
             inclusive: match motion {
                 ScreenMotion::LinePos(MovePosition::End) => true,
                 _ => matches!(wanted, Wanted::End { inclusive: true }),
             },
             complete: steps == travelled,
         })
+    }
+
+    /// Answers the motion counted against the window the text is scrolled inside that names
+    /// `position`, asked for with the count `count`, where `bare` says no operator is waiting on
+    /// it.
+    ///
+    /// # Type Parameters
+    ///
+    /// * `TextType` - The text the window draws.
+    ///
+    /// # Returns
+    ///
+    /// Where the motion goes, which is the first non-blank of a line the window draws.
+    fn in_window<TextType: Text>(
+        &self,
+        position: MovePosition,
+        count: usize,
+        bare: bool,
+        text: &TextType,
+    ) -> Landing {
+        let last = text.line_count().saturating_sub(1);
+        let drawn = self.drawn(text);
+        let named = match position {
+            MovePosition::Beginning => (drawn.top + count.saturating_sub(1)).min(last),
+            MovePosition::Middle => self.halfway(&drawn, text),
+            MovePosition::End => drawn.bottom.saturating_sub(count.saturating_sub(1)),
+        }
+        .max(drawn.top);
+        let line = if bare {
+            self.corrected(named, &drawn, text)
+        } else {
+            named
+        };
+
+        Landing {
+            at: LogicalPosition {
+                line,
+                grapheme: self.first_word_of(line, text),
+            },
+            linewise: true,
+            inclusive: false,
+            complete: true,
+        }
+    }
+
+    /// # Type Parameters
+    ///
+    /// * `TextType` - The text the window draws.
+    ///
+    /// # Returns
+    ///
+    /// The lines the window draws of `text`, walked from the row the viewport is anchored to down
+    /// to the bottom of the window.
+    ///
+    /// The line the window is anchored to is drawn whether or not the window has the rows for the
+    /// whole of it, which is what makes the walk's first step unconditional; every line after it
+    /// is drawn only where the rows it takes are all there, as vim draws one.
+    fn drawn<TextType: Text>(&self, text: &TextType) -> Drawn {
+        let last = text.line_count().saturating_sub(1);
+        let top = self.viewport.anchor().min(last);
+        let height = self.geometry.window().height().get();
+        let mut bottom = top;
+        let mut used = 0;
+        loop {
+            let rows = self.rows_of(bottom, top, text);
+            if top < bottom && height < used + rows {
+                bottom -= 1;
+
+                break;
+            }
+            used += rows;
+            if bottom == last || height <= used {
+                break;
+            }
+            bottom += 1;
+        }
+
+        Drawn {
+            top,
+            bottom,
+            empty: if bottom == last {
+                height.saturating_sub(used)
+            } else {
+                0
+            },
+            ends: bottom == last,
+        }
+    }
+
+    /// # Type Parameters
+    ///
+    /// * `TextType` - The text the window draws.
+    ///
+    /// # Returns
+    ///
+    /// The line halfway down the rows the window draws, which is vim's `M`.
+    ///
+    /// The walk runs over the lines of the text rather than over the lines the window draws, and
+    /// steps back off a line whose rows the window had no room for, because that is the walk vim
+    /// runs: a window whose second line is taller than the rows it has left answers `M` with its
+    /// first line rather than with the line it could not draw.
+    fn halfway<TextType: Text>(&self, drawn: &Drawn, text: &TextType) -> usize {
+        let last = text.line_count().saturating_sub(1);
+        let height = self.geometry.window().height().get();
+        let half = height.saturating_sub(drawn.empty).div_ceil(2);
+        let mut line = drawn.top;
+        let mut used = 0;
+        while line < last {
+            if drawn.top < line && half <= used {
+                break;
+            }
+            used += self.rows_of(line, drawn.top, text);
+            if half <= used {
+                break;
+            }
+            line += 1;
+        }
+        if drawn.top < line && height < used {
+            line -= 1;
+        }
+
+        line
+    }
+
+    /// # Type Parameters
+    ///
+    /// * `TextType` - The text the window draws.
+    ///
+    /// # Returns
+    ///
+    /// The line `'scrolloff'` leaves a cursor sent to `line` on, which is `line` itself wherever
+    /// the window already draws enough rows on both sides of it.
+    ///
+    /// The rows wanted above and below are taken from the window's own ends: a window drawing the
+    /// first line of the text wants none above it, one drawing the last wants none below, and each
+    /// of those two caps what the other side may ask for. What is then counted off each end of the
+    /// window is display rows rather than lines, one line at a time from whichever end is further
+    /// from what it wants, until both ends have what they asked for or the two meet.
+    fn corrected<TextType: Text>(&self, line: usize, drawn: &Drawn, text: &TextType) -> usize {
+        let height = self.geometry.window().height().get();
+        let mut above_wanted = self.geometry.window().scrolloff();
+        let mut below_wanted = above_wanted;
+        if 0 == drawn.top {
+            above_wanted = 0;
+            below_wanted = below_wanted.min(height / 2);
+        }
+        if drawn.ends {
+            below_wanted = 0;
+            above_wanted = above_wanted.min((height - 1) / 2);
+        }
+        if drawn.top + above_wanted <= line && line + below_wanted <= drawn.bottom {
+            return line;
+        }
+
+        let mut top = drawn.top;
+        let mut bottom = drawn.bottom;
+        let mut above = 0;
+        let mut below = 0;
+        while (above < above_wanted || below < below_wanted) && top < bottom {
+            if below < below_wanted && (below <= above || above_wanted <= above) {
+                below += self.rows_of(bottom, drawn.top, text);
+                bottom -= 1;
+            }
+            if above < above_wanted && (above < below || below_wanted <= below) {
+                above += self.rows_of(top, drawn.top, text);
+                top += 1;
+            }
+        }
+        if bottom <= top {
+            return top.min(bottom);
+        }
+        if line < top && 0 < drawn.top {
+            return top;
+        }
+        if bottom < line && !drawn.ends {
+            return bottom;
+        }
+
+        line
+    }
+
+    /// # Type Parameters
+    ///
+    /// * `TextType` - The text the window draws.
+    ///
+    /// # Returns
+    ///
+    /// The display rows the window draws the logical line at `index` in, which is the rows the
+    /// line lays out into less the rows of `top` the viewport is scrolled past.
+    fn rows_of<TextType: Text>(&self, index: usize, top: usize, text: &TextType) -> usize {
+        let rows = self.lay_out(index, text).len();
+        if index != top {
+            return rows;
+        }
+
+        rows.saturating_sub(self.viewport.vertical_offset()).max(1)
+    }
+
+    /// # Type Parameters
+    ///
+    /// * `TextType` - The text the line is read from.
+    ///
+    /// # Returns
+    ///
+    /// The first grapheme of the logical line at `index` that is not a blank, which is that line's
+    /// last grapheme where every one of them is and its first where it holds none at all.
+    fn first_word_of<TextType: Text>(&self, index: usize, text: &TextType) -> usize {
+        let line = text.line(index).unwrap_or_default();
+        let held = graphemes(&line).count();
+
+        first_word(&line).min(held.saturating_sub(1))
     }
 
     /// Walks `steps` display rows in `direction`, starting from the row `row` of the logical line
@@ -599,6 +881,26 @@ mod tests {
     /// column carried down from the line above can land in the middle of.
     const STRADDLED: [&str; 2] = ["0123456789", "abcd\tefgh"];
 
+    /// A text longer than the window below draws, whose third line takes three of its five rows
+    /// and whose last line is indented, so a window over it holds fewer lines than rows and a
+    /// motion counted against it lands past the first column.
+    const SCROLLED: [&str; 7] = [
+        "one",
+        "two",
+        "abcdefghijklmnopqrstuvwxyz",
+        "four",
+        "five",
+        "six",
+        "  seven",
+    ];
+
+    /// The place the motions counted against a window are taken from, which they ignore: each of
+    /// them names a line of the window rather than a line a step away from the cursor.
+    const TOP: LogicalPosition = LogicalPosition {
+        line: 0,
+        grapheme: 0,
+    };
+
     /// The columns the decorated measurements below are made in. Half of the window and half of a
     /// decorated row's own text are different columns there, which is what makes the two rules a
     /// row can be stepped back from tell each other apart.
@@ -701,6 +1003,7 @@ mod tests {
                 grapheme: 6,
             },
             &text(&[WIDE]),
+            true,
         );
 
         assert_eq!(
@@ -724,6 +1027,7 @@ mod tests {
                 grapheme: 5,
             },
             &text(&["abc"]),
+            true,
         );
 
         assert_eq!(
@@ -814,11 +1118,11 @@ mod tests {
         };
         let held = text(&RAGGED);
         let first = shim
-            .intercept(ScreenMotion::Line(MoveDir1D::Next), 3, at, &held)
+            .intercept(ScreenMotion::Line(MoveDir1D::Next), 3, at, &held, true)
             .expect("a screen line down is answered")
             .at;
         let second = shim
-            .intercept(ScreenMotion::Line(MoveDir1D::Next), 1, first, &held)
+            .intercept(ScreenMotion::Line(MoveDir1D::Next), 1, first, &held, true)
             .expect("a screen line down is answered")
             .at;
 
@@ -838,7 +1142,7 @@ mod tests {
         };
         let held = text(&RAGGED);
         let first = shim
-            .intercept(ScreenMotion::Line(MoveDir1D::Next), 3, at, &held)
+            .intercept(ScreenMotion::Line(MoveDir1D::Next), 3, at, &held, true)
             .expect("a screen line down is answered")
             .at;
         shim.note(
@@ -849,7 +1153,7 @@ mod tests {
             true,
         );
         let second = shim
-            .intercept(ScreenMotion::Line(MoveDir1D::Next), 1, first, &held)
+            .intercept(ScreenMotion::Line(MoveDir1D::Next), 1, first, &held, true)
             .expect("a screen line down is answered")
             .at;
 
@@ -870,12 +1174,13 @@ mod tests {
                     grapheme: 0,
                 },
                 &held,
+                true,
             )
             .expect("a screen line down is answered")
             .at;
         shim.note(&stepped_down(), true);
         let second = shim
-            .intercept(ScreenMotion::Line(MoveDir1D::Next), 1, first, &held)
+            .intercept(ScreenMotion::Line(MoveDir1D::Next), 1, first, &held, true)
             .expect("a screen line down is answered")
             .at;
 
@@ -903,12 +1208,13 @@ mod tests {
                     grapheme: 7,
                 },
                 &held,
+                true,
             )
             .expect("a screen line down is answered")
             .at;
         shim.note(&stepped_down(), true);
         let second = shim
-            .intercept(ScreenMotion::Line(MoveDir1D::Next), 1, first, &held)
+            .intercept(ScreenMotion::Line(MoveDir1D::Next), 1, first, &held, true)
             .expect("a screen line down is answered")
             .at;
 
@@ -929,12 +1235,13 @@ mod tests {
                     grapheme: 0,
                 },
                 &held,
+                true,
             )
             .expect("a screen line down is answered")
             .at;
         shim.note(&stepped_down(), false);
         let second = shim
-            .intercept(ScreenMotion::Line(MoveDir1D::Next), 1, first, &held)
+            .intercept(ScreenMotion::Line(MoveDir1D::Next), 1, first, &held, true)
             .expect("a screen line down is answered")
             .at;
 
@@ -960,6 +1267,7 @@ mod tests {
                     grapheme: 0,
                 },
                 &text(&RAGGED),
+                true,
             )
             .expect("a screen line down is answered")
             .at;
@@ -974,7 +1282,7 @@ mod tests {
     }
 
     #[test]
-    fn a_motion_left_to_modalkit_ends_the_chain() {
+    fn a_motion_counted_against_the_window_ends_the_chain() {
         let mut shim = Shim::new(geometry());
         let held = text(&RAGGED);
         shim.note(&ended_a_line(), true);
@@ -984,17 +1292,22 @@ mod tests {
         };
 
         assert_eq!(
-            None,
+            Some(LogicalPosition {
+                line: 0,
+                grapheme: 0,
+            }),
             shim.intercept(
                 ScreenMotion::ViewportPos(MovePosition::Beginning),
                 1,
                 at,
-                &held
+                &held,
+                true,
             )
+            .map(|landing| landing.at)
         );
 
         let below = shim
-            .intercept(ScreenMotion::Line(MoveDir1D::Next), 3, at, &held)
+            .intercept(ScreenMotion::Line(MoveDir1D::Next), 3, at, &held, true)
             .expect("a screen line down is answered")
             .at;
 
@@ -1021,6 +1334,7 @@ mod tests {
                     grapheme: 0,
                 },
                 &text(&RAGGED),
+                true,
             )
             .expect("a screen line down is answered")
             .at;
@@ -1043,11 +1357,11 @@ mod tests {
         };
         let held = text(&RAGGED);
         let end = shim
-            .intercept(ScreenMotion::LinePos(MovePosition::End), 0, at, &held)
+            .intercept(ScreenMotion::LinePos(MovePosition::End), 0, at, &held, true)
             .expect("the end of a screen line is answered")
             .at;
         let below = shim
-            .intercept(ScreenMotion::Line(MoveDir1D::Next), 3, end, &held)
+            .intercept(ScreenMotion::Line(MoveDir1D::Next), 3, end, &held, true)
             .expect("a screen line down is answered")
             .at;
 
@@ -1209,6 +1523,7 @@ mod tests {
                         grapheme: 5,
                     },
                     &held,
+                    true,
                 )
                 .map(|landing| landing.at),
             "a column in the near half of a decorated row's own text was stepped back from, which \
@@ -1217,19 +1532,182 @@ mod tests {
     }
 
     #[test]
-    fn a_motion_counted_against_the_window_is_left_to_modalkit() {
+    fn a_motion_counted_against_the_window_names_a_line_the_window_draws() {
+        let held = text(&SCROLLED);
+
         assert_eq!(
-            None,
-            answered(
-                ScreenMotion::ViewportPos(MovePosition::Middle),
+            [Some(0), Some(2), Some(2)],
+            [
+                MovePosition::Beginning,
+                MovePosition::Middle,
+                MovePosition::End,
+            ]
+            .map(|position| in_window(position, 1, &held, true).map(|at| at.line)),
+            "the window draws three of its five rows out of one line, so the line halfway down its \
+             rows is the last line it draws rather than the middle of the three"
+        );
+    }
+
+    #[test]
+    fn a_motion_counted_against_a_scrolled_window_counts_from_where_the_window_is() {
+        let held = text(&SCROLLED);
+        let mut shim = Shim::new(geometry());
+        shim.scrolled_to(Viewport::anchored_at(1, 0));
+
+        assert_eq!(
+            [Some(1), Some(2), Some(3)],
+            [
+                MovePosition::Beginning,
+                MovePosition::Middle,
+                MovePosition::End,
+            ]
+            .map(|position| shim
+                .intercept(ScreenMotion::ViewportPos(position), 1, TOP, &held, true)
+                .map(|landing| landing.at.line))
+        );
+    }
+
+    #[test]
+    fn a_window_scrolled_part_way_down_a_line_draws_the_rows_it_has_left_of_it() {
+        let held = text(&SCROLLED);
+        let mut shim = Shim::new(geometry());
+        shim.scrolled_to(Viewport::anchored_at(2, 2));
+
+        assert_eq!(
+            Some(6),
+            shim.intercept(
+                ScreenMotion::ViewportPos(MovePosition::End),
                 1,
-                LogicalPosition {
-                    line: 0,
+                TOP,
+                &held,
+                true,
+            )
+            .map(|landing| landing.at.line),
+            "the window drew the last row of the wrapped line alone, so it reached four lines \
+             further down the text than a window anchored to the whole of that line does"
+        );
+    }
+
+    #[test]
+    fn a_count_walks_down_from_the_top_of_the_window_and_up_from_its_bottom() {
+        let held = text(&SCROLLED);
+
+        assert_eq!(
+            [Some(1), Some(2), Some(1), Some(0)],
+            [
+                (MovePosition::Beginning, 2),
+                (MovePosition::Beginning, 3),
+                (MovePosition::End, 2),
+                (MovePosition::End, 3),
+            ]
+            .map(|(position, count)| in_window(position, count, &held, true).map(|at| at.line)),
+            "a count larger than the lines the window draws is clamped to its far end"
+        );
+    }
+
+    #[test]
+    fn a_motion_counted_against_the_window_lands_on_the_first_word_of_its_line() {
+        let held = text(&SCROLLED);
+        let mut shim = Shim::new(geometry());
+        shim.scrolled_to(Viewport::anchored_at(6, 0));
+
+        assert_eq!(
+            Some(LogicalPosition {
+                line: 6,
+                grapheme: 2,
+            }),
+            shim.intercept(
+                ScreenMotion::ViewportPos(MovePosition::Beginning),
+                1,
+                TOP,
+                &held,
+                true,
+            )
+            .map(|landing| landing.at)
+        );
+    }
+
+    #[test]
+    fn an_operator_over_a_motion_counted_against_the_window_takes_whole_lines() {
+        let held = text(&SCROLLED);
+
+        assert_eq!(
+            Some(Landing {
+                at: LogicalPosition {
+                    line: 2,
                     grapheme: 0,
                 },
-                &text(&RAGGED),
+                linewise: true,
+                inclusive: false,
+                complete: true,
+            }),
+            Shim::new(geometry()).intercept(
+                ScreenMotion::ViewportPos(MovePosition::End),
+                1,
+                TOP,
+                &held,
+                false,
             )
         );
+    }
+
+    #[test]
+    fn scrolloff_pulls_a_cursor_off_the_top_of_the_window_and_leaves_an_operator_alone() {
+        let held = text(&SCROLLED);
+        let mut shim = Shim::new(geometry().with_scrolloff(1));
+        shim.scrolled_to(Viewport::anchored_at(1, 0));
+        let landed = |bare| {
+            shim.clone()
+                .intercept(
+                    ScreenMotion::ViewportPos(MovePosition::Beginning),
+                    1,
+                    TOP,
+                    &held,
+                    bare,
+                )
+                .map(|landing| landing.at.line)
+        };
+
+        assert_eq!(
+            (Some(2), Some(1)),
+            (landed(true), landed(false)),
+            "an operator waiting on the motion takes the line the window's own edge names"
+        );
+    }
+
+    #[test]
+    fn scrolloff_wants_no_rows_above_a_window_drawing_the_first_line_of_the_text() {
+        let held = text(&SCROLLED);
+
+        assert_eq!(
+            Some(0),
+            Shim::new(geometry().with_scrolloff(1))
+                .intercept(
+                    ScreenMotion::ViewportPos(MovePosition::Beginning),
+                    1,
+                    TOP,
+                    &held,
+                    true,
+                )
+                .map(|landing| landing.at.line),
+            "a window at the top of the text has no rows above it to keep the cursor off"
+        );
+    }
+
+    /// # Returns
+    ///
+    /// Where a shim measuring in [`geometry`], against a window at the top of the text, answers
+    /// the motion counted against that window naming `position`, asked for with the count `count`
+    /// over `held`, where `bare` says no operator is waiting on it.
+    fn in_window(
+        position: MovePosition,
+        count: usize,
+        held: &Lines,
+        bare: bool,
+    ) -> Option<LogicalPosition> {
+        Shim::new(geometry())
+            .intercept(ScreenMotion::ViewportPos(position), count, TOP, held, bare)
+            .map(|landing| landing.at)
     }
 
     /// # Returns
@@ -1255,7 +1733,7 @@ mod tests {
         at: LogicalPosition,
         held: &Lines,
     ) -> Option<Landing> {
-        Shim::new(geometry()).intercept(motion, count, at, held)
+        Shim::new(geometry()).intercept(motion, count, at, held, true)
     }
 
     /// # Returns

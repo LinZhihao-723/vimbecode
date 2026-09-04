@@ -99,6 +99,7 @@ use modalkit::editing::store::{RegisterCell, RegisterPutFlags, RegisterStore, St
 use modalkit::env::vim::VimMode;
 use modalkit::key::TerminalKey;
 use vbc_layout::position::LogicalPosition;
+use vbc_layout::viewport::Viewport;
 use vbc_layout::width::graphemes;
 
 use crate::event::{Event, KeyEvent};
@@ -451,8 +452,24 @@ impl Engine {
         }
         self.window.dimensions = (geometry.columns().get(), geometry.window().height().get());
         self.shift = self.shift.with_tab_stop(geometry.metrics().tab_stop());
-        if self.shim.is_some() {
-            self.shim = Some(Shim::new(geometry));
+        if let Some(shim) = self.shim.as_ref() {
+            let mut resized = Shim::new(geometry);
+            resized.scrolled_to(shim.viewport());
+            self.shim = Some(resized);
+        }
+    }
+
+    /// Measures the motions counted against a window in `viewport`, which is where the text is
+    /// scrolled to now.
+    ///
+    /// `H`, `M` and `L` name a line of the window rather than a line of the text, so an engine
+    /// nobody has told where the window is answers them against the top of the text. An
+    /// application that scrolls its own window is the one that knows, and every keystroke it types
+    /// at the engine is typed at the window the reader was looking at when they typed it.
+    pub fn scrolled_to(&mut self, viewport: Viewport) {
+        self.window.corner = Cursor::new(viewport.anchor(), 0);
+        if let Some(shim) = self.shim.as_mut() {
+            shim.scrolled_to(viewport);
         }
     }
 
@@ -816,7 +833,8 @@ impl Engine {
     /// The first and last logical lines a screen motion's answer crosses. A screen motion stops on
     /// a row rather than on a line, and an exclusive one stopping in the first column of a line
     /// stops short of that line altogether, which is the rule that decides whether `>4gj` out of a
-    /// line taking three rows carries the line below it or leaves it where it was.
+    /// line taking three rows carries the line below it or leaves it where it was. A motion the
+    /// seam answers in whole lines names both of them itself and is not cut back that way.
     fn crossed(&mut self, landing: &Landing) -> (usize, usize) {
         let cursor = self.text.get_leader(self.group);
         let to = self.placed(landing.at);
@@ -825,7 +843,7 @@ impl Engine {
         } else {
             (cursor, to)
         };
-        if !landing.inclusive && 0 == far.x && near.y < far.y {
+        if !landing.linewise && !landing.inclusive && 0 == far.x && near.y < far.y {
             return (near.y, far.y - 1);
         }
 
@@ -999,11 +1017,12 @@ impl Engine {
     /// at the near end of what an operator applied over it takes.
     ///
     /// The rules deciding what an operator takes between two places are vim's rather than
-    /// modalkit's: `g$`, and any motion behind a `$`, takes the grapheme it stops on where the
-    /// others stop in front of theirs; an exclusive motion ending in the first column of a line
-    /// takes to the end of the line above instead; and a delete reaching from an indent to the end
-    /// of a later line takes whole lines. A motion that ran out of text leaves the operator undone
-    /// and carries the cursor alone, as vim does.
+    /// modalkit's: a motion the seam answers in whole lines carries every line between the two,
+    /// whatever column either of them stands in; `g$`, and any motion behind a `$`, takes the
+    /// grapheme it stops on where the others stop in front of theirs; an exclusive motion ending
+    /// in the first column of a line takes to the end of the line above instead; and a delete
+    /// reaching from an indent to the end of a later line takes whole lines. A motion that ran out
+    /// of text leaves the operator undone and carries the cursor alone, as vim does.
     ///
     /// # Returns
     ///
@@ -1021,6 +1040,11 @@ impl Engine {
         } else {
             (cursor, to)
         };
+        if landing.linewise {
+            self.text.set_leader(self.group, near);
+
+            return self.against(operator, far, true);
+        }
         if landing.inclusive {
             far = self.past(far);
         } else if 0 == far.x && near.y < far.y {
@@ -1151,7 +1175,7 @@ impl Engine {
             line: cursor.y,
             grapheme: grapheme_offset(&text.line(cursor.y).unwrap_or_default(), cursor.x),
         };
-        let landing = shim.intercept(motion, context.resolve(&count), at, text);
+        let landing = shim.intercept(motion, context.resolve(&count), at, text, bare);
         if !bare {
             shim.note(editor, false);
         }
