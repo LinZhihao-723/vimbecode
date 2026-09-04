@@ -33,6 +33,7 @@ use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use super::clip;
 use super::protocol::{self, Request, Response};
 
 /// The shortest a degraded clipboard is left alone for, whatever it is configured with. A failing
@@ -386,7 +387,8 @@ impl Helper {
     /// # Returns
     ///
     /// What the clipboard holds, on success, which includes [`Response::Failed`] for a clipboard
-    /// that could not be read.
+    /// that could not be read. Text is handed back with its line endings as [`clip::normalize`]
+    /// leaves them, because the clipboard's are the writer's rather than the buffer's.
     ///
     /// # Errors
     ///
@@ -394,7 +396,10 @@ impl Helper {
     ///
     /// * Forwards [`Helper::request`]'s return values on failure.
     pub fn read(&mut self) -> Result<Response, Error> {
-        self.request(&Request::Read)
+        match self.request(&Request::Read)? {
+            Response::Text(text) => Ok(Response::Text(clip::normalize(&text))),
+            response => Ok(response),
+        }
     }
 
     /// Asks the helper to put text on the clipboard.
