@@ -15,6 +15,10 @@
 //! run it, and the soaks are required to be the only tests of this crate the default run leaves
 //! out and to be declared in the targets that workflow names, since a soak moved into another
 //! source answers to the filter no better than a renamed one.
+//!
+//! The runner the workflow runs the suite with runs no doctest, so the same job is required to run
+//! the doctests itself: a runner that stops running a whole class of test reports the same green
+//! as one that ran them.
 
 mod fuzz;
 
@@ -111,10 +115,18 @@ const COMMENT: &str = "#";
 const SKIPPED: &str = "#[ignore";
 const TEST_FUNCTION: &str = "fn ";
 
-/// The flags that run a test the default run skips and no other, which is what the workflow has to
-/// name the soak with: a run that filtered every test out would report success just as loudly as
-/// one that searched.
-const SOAK_FLAGS: &str = "--include-ignored --exact";
+/// The flags that run a test the default run skips, and that fail a run whose filters matched
+/// nothing, which is what the workflow has to name the soak with: a run that filtered every test
+/// out would otherwise report success just as loudly as one that searched.
+const SOAK_FLAGS: &str = "--run-ignored all --no-tests fail";
+
+/// What opens the filter a soak is named to the runner through, which matches one test by its
+/// whole name rather than by a substring of it.
+const EXACTLY: &str = "-E 'test(=";
+
+/// The command the workflow runs the doctests with. The runner every other test is run by does not
+/// run them, so this is the only thing that does.
+const DOCTESTS: &str = "cargo test --workspace --doc";
 
 /// The seed the coverage tests draw their cases from, and the number they draw.
 const COVERAGE_SEED: Seed = Seed::new(0x636F_7665_7261_6765);
@@ -379,7 +391,7 @@ fn rests_past_a_full_row(input: &LayoutInput) -> bool {
 ///
 /// The command continuous integration must run one soak with, down to its flags.
 fn soak_command((target, test): (&str, &str)) -> String {
-    format!("cargo test -p vbc-layout --test {target} -- {SOAK_FLAGS} {test}")
+    format!("cargo nextest run -p vbc-layout --test {target} {SOAK_FLAGS} {EXACTLY}{test})'")
 }
 
 /// # Returns
@@ -400,7 +412,8 @@ fn workflow() -> String {
 
 /// # Returns
 ///
-/// What keeps `workflow` from running every soak on every pull request, empty if nothing does.
+/// What keeps `workflow` from running every soak, and the doctests its runner skips, on every pull
+/// request, empty if nothing does.
 fn unrun_by(workflow: &str) -> Vec<String> {
     let mut complaints = Vec::new();
     let job = job(workflow, WORKFLOW_JOB);
@@ -416,8 +429,11 @@ fn unrun_by(workflow: &str) -> Vec<String> {
         let excuse = excuse.trim();
         complaints.push(format!("`{WORKFLOW_JOB}` is excused by `{excuse}`"));
     }
-    for soak in SOAKS {
-        let command = soak_command(soak);
+    for command in SOAKS
+        .into_iter()
+        .map(soak_command)
+        .chain([DOCTESTS.to_owned()])
+    {
         if !run.contains(&command) {
             complaints.push(format!("`{WORKFLOW_JOB}` does not run `{command}`"));
         }
@@ -732,12 +748,12 @@ fn the_default_run_skips_the_soaks_and_nothing_else() {
 }
 
 #[test]
-fn continuous_integration_runs_the_soaks_on_every_pull_request() {
+fn continuous_integration_runs_the_soaks_and_the_doctests_on_every_pull_request() {
     assert_eq!(Vec::<String>::new(), unrun_by(&workflow()));
 }
 
 #[test]
-fn a_workflow_that_stopped_running_a_soak_is_caught() {
+fn a_workflow_that_stopped_running_a_soak_or_the_doctests_is_caught() {
     let workflow = workflow();
     let mut stopped = vec![
         excused_by(
@@ -745,7 +761,9 @@ fn a_workflow_that_stopped_running_a_soak_is_caught() {
             &format!("{CONDITION} \"github.event_name == 'push'\""),
         ),
         excused_by(&workflow, &format!("{FORGIVEN} true")),
-        workflow.replace(SOAK_FLAGS, "--exact"),
+        workflow.replace(SOAK_FLAGS, "--no-tests fail"),
+        workflow.replace(EXACTLY, "-E 'test("),
+        workflow.replace(DOCTESTS, "cargo test --workspace"),
         workflow.replace(&format!("{JOB_KEY}{WORKFLOW_JOB}:"), "  released:"),
         workflow.replace(PULL_REQUEST, "schedule:"),
     ];
@@ -760,7 +778,7 @@ fn a_workflow_that_stopped_running_a_soak_is_caught() {
         assert_ne!(
             Vec::<String>::new(),
             unrun_by(&workflow),
-            "a workflow that stopped running a soak was passed:\n{workflow}"
+            "a workflow that stopped running a test was passed:\n{workflow}"
         );
     }
 }

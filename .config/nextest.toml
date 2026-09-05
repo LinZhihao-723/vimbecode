@@ -1,0 +1,33 @@
+# How every run of this workspace's tests is reported. Nothing here changes what a test does; each
+# setting either buys a report that can be read, or refuses a report that would read better than
+# the run it describes.
+
+# The action a run takes when its filters matched no test at all became `fail` in 0.9.85, which is
+# what keeps a filter matching nothing from reporting success as loudly as one that ran the suite.
+# The workflow names each soak through such a filter, so a runner that predates it is refused here
+# rather than trusted.
+nextest-version = { required = "0.9.85", recommended = "0.9.143" }
+
+[profile.default]
+# Every test the run ran is reported by name, passed or failed, which is the report this runner is
+# used for: a class of test that stopped being run is a set of lines that stopped being printed.
+status-level = "pass"
+
+# A failure is printed where it happened and gathered again at the end, so the tail of a run is the
+# list of what to fix rather than somewhere to scroll back from.
+failure-output = "immediate-final"
+
+# A test still running after a minute is named while it runs, which is how the layout soaks report
+# that they are searching rather than hung. Nothing is terminated on this: the soaks are minutes of
+# search by design, and a timeout that killed them would be a soak lost to a runner setting.
+slow-timeout = { period = "60s" }
+
+# A test that failed is failed. Retrying would turn the wall-clock-sensitive tests green again
+# without anybody being told they had failed, which is the opposite of the report wanted here.
+retries = 0
+
+# What continuous integration runs the suite under. It differs from a run at a desk in one way: a
+# failing test does not end the run, so a red build names everything that is broken rather than the
+# first thing that was, and one push answers every question about the suite.
+[profile.ci]
+fail-fast = false
