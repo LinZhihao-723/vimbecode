@@ -46,11 +46,26 @@ jobs:
           sudo apt-get update
           sudo apt-get install --no-install-recommends --yes vim
 
+      # The runner is pinned rather than taken from `latest`, so the suite is run the same way on
+      # every commit and a new runner arrives as a change to this file that can be reverted.
+      - name: "Install the test runner"
+        run: |
+          curl --proto '=https' --tlsv1.2 --location --silent --show-error --fail \
+            https://get.nexte.st/0.9.143/linux \
+            | tar zxf - -C "$HOME/.cargo/bin"
+          cargo nextest --version
+
       - name: "Build the workspace"
         run: "cargo build --all"
 
       - name: "Run the tests"
-        run: "cargo test --all"
+        run: "cargo nextest run --workspace --profile ci"
+
+      # The runner above runs no doctest, so the doctests are run by cargo's own harness here or
+      # they are run nowhere at all. `layout_fuzz.rs` reads this workflow and requires this command
+      # the way it requires the soaks' below.
+      - name: "Run the doctests, which the test runner does not run"
+        run: "cargo test --workspace --doc"
 
       # The layout soaks are minutes of search rather than seconds, so they are the tests the run
       # above skips and this is where they are paid for: on every pull request, once.
@@ -59,13 +74,13 @@ jobs:
       # dropped without a test going red.
       - name: "Run the layout soak, which the default test run skips"
         run: |
-          cargo test -p vbc-layout --test layout_fuzz -- \
-            --include-ignored --exact the_reference_layout_survives_a_million_cases
+          cargo nextest run -p vbc-layout --test layout_fuzz --run-ignored all --no-tests fail \
+            -E 'test(=the_reference_layout_survives_a_million_cases)'
 
       - name: "Run the memory soak, which the default test run skips"
         run: |
-          cargo test -p vbc-layout --test layout_soak_memory -- \
-            --include-ignored --exact the_long_run_leaves_the_heap_where_it_found_it
+          cargo nextest run -p vbc-layout --test layout_soak_memory --run-ignored all \
+            --no-tests fail -E 'test(=the_long_run_leaves_the_heap_where_it_found_it)'
 
       # The baseline records the state vim ends every corpus case in, and only the vim installed
       # above is an authority for those states, so this is where they are checked strictly.
