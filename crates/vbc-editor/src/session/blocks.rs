@@ -127,7 +127,10 @@ const ARGUMENTS: [(&str, &str); 11] = [
 /// The characters a fence may be written with, the shortest run of one that opens or closes a
 /// fenced region, and the deepest such a run may be indented and still be read as a fence. These
 /// are the rules [`crate::chat::object`] reads a fence by, so a region this makes a block of is a
-/// region `iac` would have found inside one.
+/// region `iac` would have found inside one. What the two do with an indented fence differs by
+/// design: `iac` names a range of the prose it is resolved in and hands back the bytes in it, and
+/// a block is the code itself and holds it as a markdown reader would draw it, which is without
+/// the indentation the list around it was written under.
 const FENCES: [char; 2] = ['`', '~'];
 const FENCE: usize = 3;
 const INDENT: usize = 3;
