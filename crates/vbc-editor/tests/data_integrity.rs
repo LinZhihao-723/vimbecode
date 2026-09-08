@@ -294,6 +294,11 @@ fn the_interrupt_abandons_a_key_that_was_waiting_to_be_taken() {
 
 /// Validation 4: a `:w` writes back the bytes it read, whether or not the file ended in a line
 /// ending.
+///
+/// This is `'nofixendofline'` rather than the `'fixendofline'` vim has had on by default since
+/// 8.0, which would put the missing ending back. The whole fault being fixed here is a `:w` that
+/// changes a byte nobody asked it to change, and adding a byte is that fault whichever option
+/// name it is spelled under.
 #[test]
 fn a_write_keeps_the_last_line_ending_the_file_was_read_with() -> Result<()> {
     for read in [FIXTURE.to_owned(), format!("{FIXTURE}\n")] {
@@ -316,6 +321,36 @@ fn a_write_keeps_the_last_line_ending_the_file_was_read_with() -> Result<()> {
             "an edited text was written with a different last line ending than it was read with"
         );
     }
+
+    Ok(())
+}
+
+/// Validation 4: what a file of no bytes at all is written back as, which is the one place this
+/// editor writes bytes vim under `'nofixendofline'` does not.
+///
+/// vim tells a buffer it knows to be empty apart from a buffer holding one empty line, and this
+/// editor tells them apart only by the bytes it read. So a file of no bytes is read as a last
+/// line without an ending, and an edit typed into it is written without the ending vim would put
+/// there. What both write for a file nothing edited is the same nothing, which is the case a
+/// reader can reach without editing anything, and the divergence is one byte on a file that had
+/// none rather than a byte taken off a file that had one.
+#[test]
+fn a_file_of_no_bytes_is_written_back_as_the_exact_bytes_listed_here() -> Result<()> {
+    let untouched = TempDir::new()?;
+    let (mut app, path) = opened(&untouched, "")?;
+    typing(&mut app, ":w\r");
+
+    assert_eq!(b"", std::fs::read(&path)?.as_slice());
+
+    let edited = TempDir::new()?;
+    let (mut app, path) = opened(&edited, "")?;
+    typing(&mut app, "iabc\u{1b}:w\r");
+
+    assert_eq!(
+        b"abc",
+        std::fs::read(&path)?.as_slice(),
+        "vim writes `abc\\n` here and this editor writes `abc`; the divergence moved"
+    );
 
     Ok(())
 }
@@ -375,11 +410,13 @@ fn opened(held: &TempDir, read: &str) -> Result<(App, std::path::PathBuf)> {
 }
 
 /// Types the characters of `keys` at `app`, one at a time, a carriage return standing for the
-/// return key that enters a line typed at the status line.
+/// return key that enters a line typed at the status line and an escape for the key that leaves
+/// an inserting mode.
 fn typing(app: &mut App, keys: &str) {
     for character in keys.chars() {
         match character {
             '\r' => app.press(area(), KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
+            '\u{1b}' => app.press(area(), KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)),
             character => app.press(area(), typed(character)),
         };
     }

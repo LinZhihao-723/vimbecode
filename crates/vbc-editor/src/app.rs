@@ -282,8 +282,16 @@ impl App {
     /// rather than every one of them: the write puts exactly one back, and a read that stripped
     /// them all would let a file whose last lines are empty lose those lines to a `:w` that
     /// changed nothing. A file that ended in no line ending at all is remembered as such, as vim
-    /// remembers it in `'noendofline'`, because a `:w` that puts one there changes bytes nobody
-    /// asked it to change.
+    /// remembers it in `'noendofline'`, and it is written back that way rather than repaired,
+    /// because a `:w` that puts an ending there changes bytes nobody asked it to change. That is
+    /// vim under `'nofixendofline'` rather than vim as it ships, whose `'fixendofline'` adds the
+    /// ending on the way out; adding a byte is the same fault as dropping one, whichever option
+    /// name it is spelled under.
+    ///
+    /// A file of no bytes at all is read as a last line without an ending, because the bytes are
+    /// all this has to read it by. vim knows an empty buffer from a buffer holding one empty line
+    /// and would put an ending back once something was typed into it; `data_integrity.rs` asserts
+    /// what this writes there instead.
     ///
     /// # Errors
     ///
@@ -1423,7 +1431,7 @@ impl App {
     ///
     /// The bytes the editor would write the text out as, which is every line of it followed by a
     /// line ending, and the last ending left off where the file it was read from ended without
-    /// one, as vim writes a file with `'noendofline'`.
+    /// one, as vim writes a file with `'noendofline'` and `'nofixendofline'`.
     fn written(&self) -> String {
         let mut written = written(&self.text);
         if !self.endofline {
