@@ -696,7 +696,7 @@ fn the_editor_records_no_macro_for_a_repeat_to_be_typed_inside() {
 
     assert_eq!(Outcome::Continues, answered);
     assert_eq!(
-        Some("`@` takes an argument this editor does not implement"),
+        Some("`@` takes a key after it that this editor does not implement"),
         asked.notice(),
         "`@` runs a macro, so a repeat typed into one is a case this file would have to hold"
     );
@@ -711,7 +711,7 @@ fn the_editor_records_no_macro_for_a_repeat_to_be_typed_inside() {
         "`q` opens a recording rather than ending the program"
     );
     assert_eq!(
-        Some("`q` takes an argument this editor does not implement"),
+        Some("`q` takes a key after it that this editor does not implement"),
         recording.notice()
     );
 }

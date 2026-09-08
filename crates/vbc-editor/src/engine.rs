@@ -651,11 +651,11 @@ impl Engine {
 
     /// # Returns
     ///
-    /// How the table reads the argument vim gives `character`, in the mode the engine stands in,
-    /// as [`Keys::argument`] answers it.
+    /// How the table reads the key vim reads after `typed`, in the mode the engine stands in, as
+    /// [`Keys::argument`] answers it.
     #[must_use]
-    pub fn argument(&self, character: char) -> Option<Argument> {
-        self.keys.argument(character)
+    pub fn argument(&self, typed: TerminalKey) -> Option<Argument> {
+        self.keys.argument(typed)
     }
 
     /// # Returns

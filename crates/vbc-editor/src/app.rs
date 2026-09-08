@@ -742,9 +742,12 @@ impl App {
     /// worse than one that will not leave. It abandons a line being typed at the status line on
     /// its way, so that a refusal is said where that line would otherwise be drawn.
     ///
-    /// A key vim reads an argument after and this editor implements nothing for takes that
-    /// argument here rather than letting it through: `ma` names a mark this editor does not keep,
-    /// and an `a` handed on to normal mode opens insert mode instead.
+    /// A key vim reads a further key after and this editor implements nothing for takes that key
+    /// here rather than letting it through: `ma` names a mark this editor does not keep and `za`
+    /// opens a fold it does not fold, and an `a` handed on to normal mode opens insert mode
+    /// instead of either. The interrupt abandons a key waiting to be taken as it abandons a line
+    /// at the status line, because a command a reader stopped is not one whose next keystroke
+    /// belongs to it.
     ///
     /// # Returns
     ///
@@ -753,6 +756,7 @@ impl App {
         self.notice = None;
         if interrupts(key) {
             self.prompt = None;
+            self.taking = None;
 
             return self.stop(false);
         }
@@ -1431,17 +1435,10 @@ impl App {
 
     /// # Returns
     ///
-    /// Whether `key` is one vim reads an argument after that this editor implements nothing for,
-    /// so that the argument is the application's to consume rather than the engine's to run.
+    /// Whether `key` is one vim reads a further key after that this editor implements nothing for,
+    /// so that the further key is the application's to consume rather than the engine's to run.
     fn takes_argument(&self, key: KeyEvent) -> bool {
-        if !types(key) {
-            return false;
-        }
-        let KeyCode::Char(character) = key.code else {
-            return false;
-        };
-
-        Some(Argument::Unimplemented) == self.engine.argument(character)
+        Some(Argument::Unimplemented) == self.engine.argument(key.into())
     }
 
     /// Scrolls the window so that it draws the row the cursor rests on.
@@ -1565,10 +1562,10 @@ fn spelled(keys: &[TerminalKey]) -> String {
 
 /// # Returns
 ///
-/// What the status line says about a key vim reads an argument after that this editor implements
-/// nothing for, whose argument was taken rather than run.
+/// What the status line says about a key vim reads a further key after that this editor
+/// implements nothing for, whose further key was taken rather than run.
 fn unimplemented(keys: &str) -> String {
-    format!("`{keys}` takes an argument this editor does not implement")
+    format!("`{keys}` takes a key after it that this editor does not implement")
 }
 
 /// # Returns

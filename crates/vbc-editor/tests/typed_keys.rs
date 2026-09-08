@@ -333,7 +333,7 @@ fn a_scroll_key_that_a_sequence_is_waiting_on_never_reaches_the_window() {
 fn a_key_bound_to_nothing_says_so_and_a_bound_one_does_not() {
     let area = area(WIDE);
     let mut app = App::new(Buffer::from_text(TALL));
-    let outcome = app.press(area, KeyEvent::new(KeyCode::Char('Z'), KeyModifiers::NONE));
+    let outcome = app.press(area, KeyEvent::new(KeyCode::Char('Q'), KeyModifiers::NONE));
 
     assert_eq!(Outcome::Continues, outcome);
     assert_eq!(TALL, app.text().text());
@@ -344,7 +344,7 @@ fn a_key_bound_to_nothing_says_so_and_a_bound_one_does_not() {
         },
         app.cursor()
     );
-    assert_eq!(Some("`Z` is bound to nothing"), app.notice());
+    assert_eq!(Some("`Q` is bound to nothing"), app.notice());
 
     app.press(area, KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE));
 
