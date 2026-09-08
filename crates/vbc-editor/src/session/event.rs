@@ -10,8 +10,9 @@
 //! Two frames are worth naming even so. The init frame is the session announcing what it is, and
 //! it is where the identifier a forked session ended up running under is read from, and where the
 //! permission flag is checked for. The result frame is a turn ending, which is the only thing that
-//! says a turn is over: assistant frames stop arriving because there are no more, not because a
-//! last one is marked.
+//! says a turn is over -- assistant frames stop arriving because there are no more, not because a
+//! last one is marked -- and it is also the only account of what the turn cost and what it used,
+//! because nothing else on the wire adds up to either.
 
 use serde_json::Value;
 
@@ -127,7 +128,7 @@ impl Event {
 }
 
 /// Which frame an event is.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Kind {
     /// The session announcing itself, which it does once at the head of every turn.
     Init(Init),
@@ -200,8 +201,40 @@ impl Init {
     }
 }
 
+/// What a turn spent, as the result frame counts it.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct Usage {
+    /// The tokens the turn was charged for reading.
+    pub input: u64,
+
+    /// The tokens it wrote.
+    pub output: u64,
+
+    /// The tokens it was handed back rather than charged full price for.
+    pub reused: u64,
+
+    /// The tokens it put by to be handed back to a later turn.
+    pub stored: u64,
+}
+
+impl Usage {
+    /// # Returns
+    ///
+    /// What a result frame says its turn used, with a count the frame does not carry read as zero.
+    fn read(raw: &Value) -> Self {
+        let usage = raw.get("usage").unwrap_or(&Value::Null);
+
+        Self {
+            input: counted(usage, "input_tokens"),
+            output: counted(usage, "output_tokens"),
+            reused: counted(usage, "cache_read_input_tokens"),
+            stored: counted(usage, "cache_creation_input_tokens"),
+        }
+    }
+}
+
 /// How a turn ended.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Turn {
     /// Whether it ended by finishing, which is `success`, or some other way.
     pub subtype: String,
@@ -217,6 +250,12 @@ pub struct Turn {
 
     /// The tool calls that were denied over the turn.
     pub denials: usize,
+
+    /// What the session has spent on the conversation so far, in dollars.
+    pub cost: f64,
+
+    /// What the turn used.
+    pub usage: Usage,
 }
 
 impl Turn {
@@ -239,6 +278,11 @@ impl Turn {
                 .get("permission_denials")
                 .and_then(Value::as_array)
                 .map_or(0, Vec::len),
+            cost: raw
+                .get("total_cost_usd")
+                .and_then(Value::as_f64)
+                .unwrap_or_default(),
+            usage: Usage::read(raw),
         }
     }
 }
@@ -269,6 +313,13 @@ fn texts(raw: &Value, field: &str) -> Vec<String> {
                 .collect()
         })
         .unwrap_or_default()
+}
+
+/// # Returns
+///
+/// A count a frame carries, which is zero where the frame does not carry it.
+fn counted(raw: &Value, field: &str) -> u64 {
+    raw.get(field).and_then(Value::as_u64).unwrap_or_default()
 }
 
 /// # Returns

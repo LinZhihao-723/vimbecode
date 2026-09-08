@@ -22,7 +22,13 @@
 //! completed multi-turn session leaves no file on disk. [`spawn`] strips those and sets the one
 //! variable that has no flag, and does both to the [`std::process::Command`] rather than to the
 //! process, so nothing about this depends on how vimbecode itself was started.
+//!
+//! What comes back out of all that is a stream of frames, and what the chat panel reads is a
+//! sequence of blocks it already knows how to draw. [`blocks`] is the whole of the distance
+//! between the two: the panel learns no second model, and a transcript built there is one the
+//! folds, the text objects and the yanks read without being told a session was behind it.
 
+pub mod blocks;
 pub mod client;
 pub mod error;
 pub mod event;
