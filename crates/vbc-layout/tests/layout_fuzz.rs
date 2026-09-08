@@ -535,7 +535,7 @@ fn excused_by(workflow: &str, excuse: &str) -> String {
 ///
 /// The source is half of what a name is worth here, because the workflow names a test target as
 /// well as a test: a soak moved into another source of the crate answers to neither the name nor
-/// the target `--exact` is given, and a filter that matches nothing is the silence this gate
+/// the target it is filtered by, and a filter that matches nothing is the silence this gate
 /// exists to break.
 ///
 /// # Panics
