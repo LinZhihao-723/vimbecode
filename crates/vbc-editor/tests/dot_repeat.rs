@@ -696,18 +696,23 @@ fn the_editor_records_no_macro_for_a_repeat_to_be_typed_inside() {
 
     assert_eq!(Outcome::Continues, answered);
     assert_eq!(
-        Some("`@` is bound to nothing"),
+        Some("`@` takes an argument this editor does not implement"),
         asked.notice(),
         "`@` runs a macro, so a repeat typed into one is a case this file would have to hold"
     );
     assert_eq!(PROSE, asked.text().text());
 
     let mut recording = holding(PROSE);
+    let answered = recording.press(area(WIDE), KeyEvent::from(KeyCode::Char('q')));
 
     assert_eq!(
-        Outcome::Stops,
-        recording.press(area(WIDE), KeyEvent::from(KeyCode::Char('q'))),
+        Outcome::Continues,
+        answered,
         "`q` opens a recording rather than ending the program"
+    );
+    assert_eq!(
+        Some("`q` takes an argument this editor does not implement"),
+        recording.notice()
     );
 }
 

@@ -72,8 +72,16 @@ const TYPED_TRANSCRIPT: &[u8] = b"\x14";
 const READING: &str = "TRANSCRIPT";
 const DRAWN_TRANSCRIPT: &str = "todo!";
 
-/// The interrupt the program is stopped by once it is in a mode its own `q` is text in.
-const INTERRUPT: &[u8] = b"\x03";
+/// The keys the program is stopped by, each run of them written on its own: `<C-T>` back out of
+/// the transcript panel, the escape out of insert mode, and the ex command that leaves a text the
+/// keys above it edited and nothing wrote. The interrupt would not do, because it refuses an
+/// unwritten text exactly as `:q` does.
+const TYPED_QUIT: &[&[u8]] = &[b"\x14", b"\x1b", b":q!\r"];
+
+/// How long the program is left between two runs of the keys typed at it, because an escape a
+/// terminal reads in the same breath as the key after it is that key with alt held rather than an
+/// escape.
+const SETTLED: Duration = Duration::from_millis(200);
 
 /// A character of the built-in passage that no terminal measures by counting characters, which is
 /// what says the frame that reached the terminal went through the layout.
@@ -176,11 +184,11 @@ fn the_binary_draws_a_frame_types_vim_keys_and_quits() -> Result<()> {
 
     let mut written: Vec<u8> = Vec::new();
     let mut typed = 0;
-    let waypoints: [(&str, &[u8]); 4] = [
-        (ENTER_ALTERNATE_SCREEN, TYPED_EDIT),
-        (UPPER_CASED, TYPED_INSERT),
-        (INSERTING, TYPED_TRANSCRIPT),
-        (READING, INTERRUPT),
+    let waypoints: [(&str, &[&[u8]]); 4] = [
+        (ENTER_ALTERNATE_SCREEN, &[TYPED_EDIT]),
+        (UPPER_CASED, &[TYPED_INSERT]),
+        (INSERTING, &[TYPED_TRANSCRIPT]),
+        (READING, TYPED_QUIT),
     ];
     loop {
         match chunks.recv_timeout(PATIENCE) {
@@ -190,8 +198,11 @@ fn the_binary_draws_a_frame_types_vim_keys_and_quits() -> Result<()> {
                     if !holds(&written, seen) {
                         break;
                     }
-                    keys.write_all(next)?;
-                    keys.flush()?;
+                    for run in *next {
+                        keys.write_all(run)?;
+                        keys.flush()?;
+                        thread::sleep(SETTLED);
+                    }
                     typed += 1;
                 }
             }

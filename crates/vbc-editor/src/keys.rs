@@ -43,6 +43,14 @@
 //! than bound to a keystroke that reaches the text and quietly changes nothing -- the harder of
 //! the two to notice. `iw` and `aw` name one range apiece because modalkit's text draws no
 //! distinction between them.
+//!
+//! Some of what is not bound is not a key on its own. vim reads the key after `m`, `q`, `@`, `'`
+//! and `` ` `` as the name of a mark or a register rather than as a command, so a table that binds
+//! none of them leaves that name to be looked up as a command in its own right: the `a` of `ma`
+//! opens insert mode, and the `x` of `` `x `` deletes a character. [`ARGUMENTS`] names every key
+//! vim gives such an argument to and [`Bindings::argument`] says how this table reads each one, so
+//! a caller can consume an argument nothing binds rather than run it, and so a binding added for
+//! one of them without the argument it takes is a binding that can be found.
 
 use std::collections::VecDeque;
 use std::str::FromStr;
@@ -71,6 +79,32 @@ pub const PREFIX: char = 'g';
 /// The character a register is named after in vim, which is the one the table reads a register
 /// prefix by.
 pub const REGISTER_PREFIX: char = '"';
+
+/// Every character vim reads the key after as an argument rather than as a command of its own:
+/// the character searches, the replace, the [`REGISTER_PREFIX`], the mark that is set and the two
+/// the marks are jumped to by, and the two ends of a macro.
+///
+/// `Z` and `z` are not among them. The key after either is a command vim chooses between rather
+/// than a name it reads, so a table that binds neither drops one key rather than running it.
+pub const ARGUMENTS: [char; 11] = ['f', 'F', 't', 'T', 'r', '"', 'm', 'q', '@', '\'', '`'];
+
+/// How a table reads the key after one of [`ARGUMENTS`].
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Argument {
+    /// The table binds the pair, so the argument is the last key of a sequence.
+    Read,
+
+    /// The machine reads the argument itself, ahead of the table, which is what a register prefix
+    /// is.
+    Prefix,
+
+    /// Nothing binds the key, so its argument is a key a caller has to consume rather than run.
+    Unimplemented,
+
+    /// The table binds the key to a sequence that reads no argument, which is a binding that lets
+    /// vim's own argument through as a command of its own.
+    Leaked,
+}
 
 /// One key of a bound sequence.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -256,6 +290,38 @@ impl Bindings {
     #[must_use]
     pub fn entries(&self) -> &[Binding] {
         &self.entries
+    }
+
+    /// # Returns
+    ///
+    /// How a sequence read in `mode` and begun by `character` reads the key vim gives that
+    /// character as an argument, and [`None`] where vim gives it none.
+    #[must_use]
+    pub fn argument(&self, mode: VimMode, character: char) -> Option<Argument> {
+        if !ARGUMENTS.contains(&character) {
+            return None;
+        }
+        let typed = key(character);
+        if self.register == typed {
+            return Some(Argument::Prefix);
+        }
+        let mut begun = self
+            .entries
+            .iter()
+            .filter(|binding| {
+                binding.mode == mode
+                    && binding.operator.is_none()
+                    && Some(&Edge::Key(typed)) == binding.keys.first()
+            })
+            .peekable();
+        if begun.peek().is_none() {
+            return Some(Argument::Unimplemented);
+        }
+        if begun.all(|binding| Some(&Edge::Any) == binding.keys.get(1)) {
+            return Some(Argument::Read);
+        }
+
+        Some(Argument::Leaked)
     }
 
     /// Binds `keys` in `mode` to `step`, replacing whatever those keys were bound to in it.
@@ -469,6 +535,15 @@ impl Keys {
     #[must_use]
     pub fn unbound(&self) -> Option<&[TerminalKey]> {
         self.unbound.as_deref()
+    }
+
+    /// # Returns
+    ///
+    /// How the table reads the argument vim gives `character`, in the mode the machine stands in,
+    /// as [`Bindings::argument`] answers it.
+    #[must_use]
+    pub fn argument(&self, character: char) -> Option<Argument> {
+        self.bindings.argument(self.mode, character)
     }
 
     /// Looks `typed` up in the table, firing what it completes and abandoning what it kills.
@@ -2046,6 +2121,33 @@ mod tests {
 
         assert_eq!(vec![None], counted(&produced));
         assert_eq!(VimMode::Normal, mode);
+    }
+
+    #[test]
+    fn an_argument_key_bound_without_its_argument_is_a_binding_that_leaks_it() {
+        let mut bindings = Bindings::vim();
+
+        assert_eq!(
+            Some(Argument::Unimplemented),
+            bindings.argument(VimMode::Normal, 'm')
+        );
+        assert_eq!(
+            Some(Argument::Read),
+            bindings.argument(VimMode::Normal, 'f')
+        );
+        assert_eq!(
+            Some(Argument::Prefix),
+            bindings.argument(VimMode::Normal, REGISTER_PREFIX)
+        );
+        assert_eq!(None, bindings.argument(VimMode::Normal, 'j'));
+
+        bindings.bind(VimMode::Normal, "m", Step::Repeat);
+
+        assert_eq!(
+            Some(Argument::Leaked),
+            bindings.argument(VimMode::Normal, 'm'),
+            "a key bound without the argument vim reads after it lets that argument through"
+        );
     }
 
     #[test]
