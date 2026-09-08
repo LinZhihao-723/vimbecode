@@ -9,10 +9,13 @@
 //! to take it, `zR` to open what is folded, and `p` on the other side of `<C-T>` to put what was
 //! taken into the file.
 //!
-//! Two of the cases are about what the panel must not have lost. `yac` takes the code the session
-//! sent, byte for byte and without the fences it arrived inside, and `yat` takes the text a tool
-//! wrote and none of the escapes that coloured it -- a leak of either is a reader pasting
-//! something they did not read.
+//! Three of the cases are about what the panel must not have lost. `yac` takes the code the
+//! session sent, byte for byte and without the fences it arrived inside, and `yat` takes the text
+//! a tool wrote and none of the escapes that coloured it -- a leak of either is a reader pasting
+//! something they did not read. And the nesting the frames arrived tagged with reaches the panel:
+//! what a subagent said is a line of the panel once the call that started it is opened and not
+//! before, which a panel handed the blocks without their tags would draw beside what the session
+//! itself said.
 //!
 //! The last is the cost the anchored panel was built for, spelled against a session rather than
 //! against a fixture. A conversation grows without bound, so a frame drawn deep in a long one has
@@ -59,6 +62,10 @@ const WROTE: &str = "   Compiling vimbecode v0.0.0\n    Finished `dev` profile i
 
 /// The byte an escape sequence opens with, which is the one byte a yank may not hand back.
 const ESCAPE: char = '\u{1b}';
+
+/// What the subagent the recorded session started said, which is a line of the panel only once
+/// the call that started it has been opened.
+const REPORTED: &str = "Running the suite now.";
 
 /// The rows of the folded panel the reader walks down to: the first line of the code the answer
 /// fenced, and, once every fold is open, the first line of what the build wrote.
@@ -130,6 +137,28 @@ fn a_session_is_what_the_panel_draws() -> Result<()> {
         drawn.iter().any(|row| row.starts_with("+--")),
         "nothing the session said folded away, so the panel drew a thinking block and a tool \
          result in full: {drawn:?}"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn what_a_subagent_said_is_folded_away_under_the_call_that_started_it() -> Result<()> {
+    let mut app = reading(None)?;
+
+    assert!(
+        !app.panel().text().lines().any(|line| REPORTED == line),
+        "what the subagent said is drawn beside what the session said, so the panel was handed \
+         the blocks of the conversation without the calls they arrived beneath: {:?}",
+        app.panel().text()
+    );
+
+    press(&mut app, "zR");
+
+    assert!(
+        app.panel().text().lines().any(|line| REPORTED == line),
+        "opening every fold did not reach what the subagent said: {:?}",
+        app.panel().text()
     );
 
     Ok(())

@@ -5,12 +5,14 @@
 //! observed to behave, and the observation is only worth what it was taken from, so it is taken
 //! again here: a `claude` on the path, a login behind it, and a model at the end of it.
 //!
-//! The last three go further than the client. A session is asked for a fenced code block and the
+//! The last four go further than the client. A session is asked for a fenced code block and the
 //! transcript is required to hold that code as a block of its own, byte for byte; a session is
 //! asked to run a command that writes colour and the block its output becomes is required to hold
-//! none of the escapes that coloured it; and `yac` is typed at the application over the blocks a
-//! real reply became, put into the file with `p`, and the file is read back. Nothing in those
-//! three constructs a block: what the panel is asked to answer is what a model actually said.
+//! none of the escapes that coloured it; a session is talked to until it has something to compact
+//! and then asked to compact it, and the transcript is required to be no longer for it; and `yac`
+//! is typed at the application over the blocks a real reply became, put into the file with `p`,
+//! and the file is read back. Nothing in those four constructs a block: what the panel is asked to
+//! answer is what a model actually said.
 //!
 //! That is also why they are ignored by default. They cost a model call and a network, and they
 //! are red on a machine with no login rather than absent -- which is the point of ignoring them
@@ -32,7 +34,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::layout::Rect;
 use vbc_editor::app::{App, Focus};
 use vbc_editor::chat::block::{Block, Kind};
-use vbc_editor::session::blocks::Conversation;
+use vbc_editor::session::blocks::{Conversation, Reason};
 use vbc_editor::session::client::Client;
 use vbc_editor::session::event::Event;
 use vbc_editor::session::identity::{Identity, SessionId};
@@ -70,6 +72,23 @@ const COLOURED_WORD: &str = "red";
 
 /// The byte an escape sequence opens with, which is the one byte a block's source may not hold.
 const ESCAPE: char = '\u{1b}';
+
+/// What a session is told before it is asked to compact, which is enough turns that a compaction
+/// has something to do, and the command that asks for one.
+const SAID: [&str; 6] = [
+    "Say the word one and nothing else.",
+    "Say the word two and nothing else.",
+    "Say the word three and nothing else.",
+    "Say the word four and nothing else.",
+    "Say the word five and nothing else.",
+    "Say the word six and nothing else.",
+];
+const COMPACT: &str = "/compact";
+
+/// The opening of the summary a compaction replaces a history with, and the wrapper the hook it
+/// runs has its stdout forwarded inside. Both arrive as user frames carrying no `is_meta`.
+const SUMMARISED: &str = "This session is being continued from a previous conversation";
+const HOOKED: &str = "<local-command-stdout>";
 
 /// The file the reader has open behind the transcript, which is where a put lands.
 const FILE: &str = "a file the reader left open";
@@ -226,6 +245,60 @@ fn a_real_reply_becomes_a_code_block_holding_exactly_what_was_sent() -> Result<(
         fenced.contains(&FENCED),
         "no block of the transcript holds the code the session sent; it holds {fenced:?}"
     );
+
+    Ok(())
+}
+
+/// Validation 5, at the end a recording cannot reach on its own: a real `/compact` writes the
+/// summary it replaced the history with, and the stdout of the hook it runs, as user frames that
+/// carry no `is_meta` at all. Neither is a word the reader typed, so the turn has to leave the
+/// transcript exactly as long as it found it.
+///
+/// The compaction is required to have happened rather than allowed to have been declined. A
+/// session with too little to compact writes none of the frames this is about, so a case that took
+/// a refusal for an answer would report a transcript full of summary as a quiet success.
+#[test]
+#[ignore = "starts a real Claude Code session, so it needs the binary, a login and a network"]
+fn a_real_compaction_puts_none_of_what_it_wrote_into_the_transcript() -> Result<()> {
+    let mut session = Client::start(&Spawn::new(Identity::default()).with_model(MODEL))?;
+    let mut conversation = Conversation::new();
+    for said in SAID {
+        conversation.asked(said);
+        conversation.read_all(&session.turn(said, TURN)?);
+    }
+    let before = conversation.transcript().len();
+
+    conversation.read_all(&session.turn(COMPACT, TURN)?);
+    session.finish(ENDING)?;
+
+    assert_eq!(
+        vec![(before, Reason::Compacted)],
+        conversation
+            .breaks()
+            .iter()
+            .map(|broken| (broken.after(), broken.reason()))
+            .collect::<Vec<(usize, Reason)>>(),
+        "the session did not compact its history, so this case read none of the frames a \
+         compaction writes"
+    );
+    assert_eq!(
+        before,
+        conversation.transcript().len(),
+        "compacting the history said something, so a frame the client wrote to its own history \
+         was read as a turn somebody took"
+    );
+    for (index, block) in conversation.transcript().blocks().iter().enumerate() {
+        assert!(
+            !block.source().contains(SUMMARISED),
+            "block {index} holds the summary the history was replaced by, as something the \
+             reader asked"
+        );
+        assert!(
+            !block.source().contains(HOOKED),
+            "block {index} holds the stdout of the hook the compaction ran, as something the \
+             reader asked"
+        );
+    }
 
     Ok(())
 }

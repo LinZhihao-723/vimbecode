@@ -10,15 +10,25 @@
 //! whose prose fences a code block, a `Bash` call whose result still carries the escapes the
 //! command wrote, an `Edit` call carrying the text it replaced and the text it wrote, a subagent
 //! whose every frame is tagged with the call that started it and whose own call is tagged the same
-//! way one level further in, the `conversation_reset` frame `/clear` leaves behind, and the
-//! `is_meta` answer a local command comes back as.
+//! way one level further in, the `conversation_reset` frame `/clear` leaves behind, the `is_meta`
+//! answer a local command comes back as, a reply that fenced its code inside a numbered list, and
+//! both ends a `/compact` reports through -- the one that replaced a history and the one that
+//! answered that it had too little to replace. The frames are as they were written, with one
+//! exception stated here: the two the compaction wrote carry a summary and a hook's stdout that
+//! run to thousands of bytes, and each is kept to its first 240 and an ellipsis. What is asserted
+//! about them is that they become no block at all, which is a claim their length says nothing
+//! about.
 //!
-//! Four claims are what the cases are for. A code block is the code that was sent and not the
-//! prose it arrived inside. A tool result holds the text a terminal would have shown and none of
-//! the bytes that coloured it. A tool call and the result answering it pair up, and a subagent's
-//! work folds away beneath the call that started it at whatever depth it happened. And `/clear` is
-//! a break in the history rather than a turn Claude took, told apart by the frame the child writes
-//! rather than by reading the words in it.
+//! Five claims are what the cases are for. A code block is the code that was sent and not the
+//! prose it arrived inside, nor the indentation the list around it was written under. A tool
+//! result holds the text a terminal would have shown and none of the bytes that coloured it. A
+//! tool call and the result answering it pair up, and a subagent's work folds away beneath the
+//! call that started it at whatever depth it happened. `/clear` and a compaction that succeeded
+//! are breaks in the history rather than turns Claude took, told apart by the frames the child
+//! writes rather than by reading the words in them. And what the client writes to its own history
+//! is nobody's turn: a compaction forwards the summary it replaced the history with and the stdout
+//! of the hook it ran as user frames carrying no `is_meta` at all, and a transcript that read them
+//! would answer `/compact` with a thousand words of summary attributed to the reader.
 
 #![cfg(target_os = "linux")]
 
@@ -40,10 +50,20 @@ use vbc_editor::style::Span;
 /// against everywhere else.
 const STUB: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/session/stub.sh");
 
-/// The turns it replays: one whole answer, the `/clear` that follows it, and a local command's own
-/// response.
+/// The turns it replays: one whole answer, an answer whose code is fenced inside a list, the
+/// `/clear` that follows one, a `/compact` that replaced the history and a `/compact` that could
+/// not, and a local command's own response.
 const ANSWERED: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/session/answered.ndjson");
+const LISTED: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/session/listed.ndjson");
 const CLEARED: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/session/cleared.ndjson");
+const COMPACTED: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/tests/session/compacted.ndjson"
+);
+const UNCOMPACTED: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/tests/session/uncompacted.ndjson"
+);
 const LOCAL: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/session/local.ndjson");
 
 /// The identifier every session here is started under.
@@ -98,6 +118,19 @@ const OUTPUT_TOKENS: u64 = 96;
 /// The identifier the session announces itself under before and after `/clear`.
 const FIRST: &str = "0f9c1c8a-0000-4000-8000-000000000001";
 const SECOND: &str = "0f9c1c8a-0000-4000-8000-000000000002";
+
+/// What the reader asked the listed answer for, and the blocks that answer becomes: the item the
+/// code was written under, and the code itself, which the fence was indented two spaces and the
+/// code was not.
+const LISTED_ASKED: &str = "show me a numbered list with the code under it";
+const ITEM: &str = "1. do this: \u{2014}";
+const INDENTED: &str = "fn main() {}";
+
+/// The opening of the summary a compaction replaces a history with, and the wrapper the hook it
+/// runs has its stdout forwarded inside. Both arrive as user frames that carry no `is_meta`, and
+/// neither is a word the reader typed.
+const SUMMARISED: &str = "This session is being continued from a previous conversation";
+const HOOKED: &str = "<local-command-stdout>";
 
 #[test]
 fn a_sessions_answer_becomes_the_blocks_the_panel_reads() -> Result<()> {
@@ -314,6 +347,110 @@ fn clearing_the_history_leaves_a_break_rather_than_a_turn_nobody_took() -> Resul
         Some(SECOND),
         conversation.session_id(),
         "the session went on being read as the conversation the clear threw away"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn a_compaction_leaves_a_break_and_none_of_the_summary_it_wrote() -> Result<()> {
+    let directory = TempDir::new()?;
+    let mut session = replaying(directory.path(), &[ANSWERED, COMPACTED])?;
+
+    let mut conversation = Conversation::new();
+    conversation.asked(ASKED);
+    conversation.read_all(&session.turn(ASKED, TURN)?);
+    let said = conversation.transcript().len();
+
+    conversation.read_all(&session.turn("/compact", TURN)?);
+
+    assert_eq!(
+        vec![(said, Reason::Compacted)],
+        conversation
+            .breaks()
+            .iter()
+            .map(|broken| (broken.after(), broken.reason()))
+            .collect::<Vec<(usize, Reason)>>(),
+        "a compaction that replaced the history left no break where it replaced it"
+    );
+    assert_eq!(
+        said,
+        conversation.transcript().len(),
+        "compacting the history said something, so a frame the client wrote to its own history \
+         was read as a turn somebody took"
+    );
+
+    for (index, block) in conversation.transcript().blocks().iter().enumerate() {
+        assert!(
+            !block.source().contains(SUMMARISED),
+            "block {index} holds the summary the history was replaced by, as something the \
+             reader asked"
+        );
+        assert!(
+            !block.source().contains(HOOKED),
+            "block {index} holds the stdout of the hook the compaction ran, as something the \
+             reader asked"
+        );
+    }
+
+    Ok(())
+}
+
+#[test]
+fn a_compaction_that_could_not_happen_leaves_the_history_whole() -> Result<()> {
+    let directory = TempDir::new()?;
+    let mut session = replaying(directory.path(), &[ANSWERED, UNCOMPACTED])?;
+
+    let mut conversation = Conversation::new();
+    conversation.asked(ASKED);
+    conversation.read_all(&session.turn(ASKED, TURN)?);
+    let said = conversation.transcript().len();
+
+    conversation.read_all(&session.turn("/compact", TURN)?);
+
+    assert_eq!(
+        &[] as &[Break],
+        conversation.breaks(),
+        "the conversation was cut in half for a compaction that reported it could not happen"
+    );
+    assert_eq!(
+        said,
+        conversation.transcript().len(),
+        "the refusal the client answered with was read as a turn Claude took"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn the_indentation_a_fence_was_written_under_is_no_part_of_the_code_it_holds() -> Result<()> {
+    let directory = TempDir::new()?;
+    let mut session = replaying(directory.path(), &[LISTED])?;
+
+    let mut conversation = Conversation::new();
+    conversation.read_all(&session.turn(LISTED_ASKED, TURN)?);
+
+    assert_eq!(
+        vec![
+            Kind::Message(Role::Assistant),
+            Kind::Code {
+                language: Some("rust".to_owned())
+            },
+        ],
+        conversation
+            .transcript()
+            .blocks()
+            .iter()
+            .map(Block::kind)
+            .cloned()
+            .collect::<Vec<Kind>>()
+    );
+    assert_eq!(ITEM, source(&conversation, 0)?);
+    assert_eq!(
+        INDENTED,
+        source(&conversation, 1)?,
+        "the code block holds the spaces the list indented the fence by, so a reader who yanked \
+         it would put it back one indent deeper than it was sent"
     );
 
     Ok(())

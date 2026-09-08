@@ -40,9 +40,16 @@
 //! prose. And the deltas of `stream_event` are passed over, because a completed `assistant` frame
 //! follows every stream of them and a transcript that appended both would hold everything twice.
 //!
-//! What the user themselves asked never comes back at all -- the child echoes no prompt -- so a
-//! question is in the transcript because the side that sent it put it there, which is what
-//! [`Conversation::asked`] is for.
+//! What the user themselves asked never comes back at all -- the child echoes no prompt, and a
+//! resumed session replays none of the history it was resumed into -- so a question is in the
+//! transcript because the side that sent it put it there, which is what [`Conversation::asked`] is
+//! for. That is also why a user frame the conversation itself is the parent of contributes no
+//! prose: what such a frame carries is the client writing to its own history rather than a reader
+//! typing. A compaction writes two of them, neither marked `is_meta` and neither anything anybody
+//! said -- the summary the history was replaced by, and the stdout of the hook the compaction ran
+//! -- and a transcript that read them would answer `/compact` with a thousand words of summary
+//! attributed to the reader. The prose a user frame does carry is what a subagent was told to do,
+//! and that arrives beneath the call that started the subagent.
 
 use serde_json::Value;
 
@@ -337,7 +344,7 @@ impl Conversation {
 
         let beneath = parent(raw);
         if let Some(plain) = plain(raw) {
-            self.asked_beneath(plain, beneath.as_deref());
+            self.told(plain, beneath.as_deref());
             return;
         }
 
@@ -352,7 +359,7 @@ impl Conversation {
                     let block = Block::from_ansi(BlockKind::ToolResult, &reported(item));
                     self.push(block, Tag::new(answers, under));
                 }
-                TEXT_ITEM => self.asked_beneath(named(item, TEXT_ITEM), beneath.as_deref()),
+                TEXT_ITEM => self.told(named(item, TEXT_ITEM), beneath.as_deref()),
                 _ => {}
             }
         }
@@ -369,10 +376,18 @@ impl Conversation {
         }
     }
 
-    /// Appends what was said to a subagent, or to the session itself, as a message from the user.
-    fn asked_beneath(&mut self, said: &str, beneath: Option<&str>) {
+    /// Appends what a subagent was told to do, beneath the call `beneath` that started it.
+    ///
+    /// A user frame the conversation itself is the parent of says nothing: its prose is the client
+    /// writing to its own history -- a compaction's summary, a hook's stdout -- and never a
+    /// question a reader asked, so `said` is passed over where `beneath` names no call.
+    fn told(&mut self, said: &str, beneath: Option<&str>) {
+        let Some(beneath) = beneath else {
+            return;
+        };
+
         let block = Block::new(BlockKind::Message(Role::User), said.to_owned());
-        self.push(block, Tag::new(None, beneath.map(str::to_owned)));
+        self.push(block, Tag::new(None, Some(beneath.to_owned())));
     }
 
     /// Reads one call to a tool into the block it is: the diff an edit already carries, or the
@@ -419,12 +434,14 @@ impl Conversation {
     }
 }
 
-/// A fence that has been opened: the character it was written with, how long its run is, what
-/// language it named, and the byte its body starts at.
+/// A fence that has been opened: the character it was written with, how long its run is, how deep
+/// the line it was written on was indented, what language it named, and the byte its body starts
+/// at.
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct Opened {
     mark: char,
     run: usize,
+    indent: usize,
     language: Option<String>,
     body: usize,
 }
@@ -609,7 +626,7 @@ fn written(said: &str) -> Vec<(BlockKind, String)> {
                     BlockKind::Code {
                         language: fence.language.clone(),
                     },
-                    bodied(&said[fence.body..start]),
+                    bodied(&said[fence.body..start], fence.indent),
                 ));
                 open = None;
                 prose = offset;
@@ -623,7 +640,7 @@ fn written(said: &str) -> Vec<(BlockKind, String)> {
             BlockKind::Code {
                 language: fence.language,
             },
-            bodied(&said[fence.body..]),
+            bodied(&said[fence.body..], fence.indent),
         )),
         None => prosaic(&mut blocks, &said[prose..]),
     }
@@ -635,7 +652,7 @@ fn written(said: &str) -> Vec<(BlockKind, String)> {
 ///
 /// The fence a line opens, or `None` where the line opens none.
 fn opens(line: &str) -> Option<Opened> {
-    let (mark, run, rest) = fenced(line)?;
+    let (mark, run, indent, rest) = fenced(line)?;
     if FENCE > run {
         return None;
     }
@@ -648,6 +665,7 @@ fn opens(line: &str) -> Option<Opened> {
     Some(Opened {
         mark,
         run,
+        indent,
         language: info.split_whitespace().next().map(str::to_owned),
         body: 0,
     })
@@ -658,7 +676,7 @@ fn opens(line: &str) -> Option<Opened> {
 /// Whether a line closes the fence `fence`, which takes a run of the same character at least as
 /// long as the one that opened it and nothing but blanks after it.
 fn closes(line: &str, fence: &Opened) -> bool {
-    let Some((mark, run, rest)) = fenced(line) else {
+    let Some((mark, run, _, rest)) = fenced(line) else {
         return false;
     };
 
@@ -667,28 +685,45 @@ fn closes(line: &str, fence: &Opened) -> bool {
 
 /// # Returns
 ///
-/// The character a line's fence is written with, how long the run of it is, and what follows that
-/// run, or `None` where the line is not a fence line at all.
-fn fenced(line: &str) -> Option<(char, usize, &str)> {
+/// The character a line's fence is written with, how long the run of it is, how deep the line is
+/// indented, and what follows that run, or `None` where the line is not a fence line at all.
+fn fenced(line: &str) -> Option<(char, usize, usize, &str)> {
     let text = line.trim_start_matches(' ');
-    if INDENT < line.len() - text.len() {
+    let indent = line.len() - text.len();
+    if INDENT < indent {
         return None;
     }
 
     let mark = text.chars().next().filter(|first| FENCES.contains(first))?;
     let run = text.chars().take_while(|written| *written == mark).count();
 
-    Some((mark, run, &text[run..]))
+    Some((mark, run, indent, &text[run..]))
 }
 
 /// # Returns
 ///
-/// A fenced region's body as a block holds it, which is the bytes between the fences without the
-/// line ending that carries the closing one.
-fn bodied(body: &str) -> String {
-    body.strip_suffix(SEPARATOR)
-        .map_or(body, |kept| kept.strip_suffix(CARRIAGE).unwrap_or(kept))
-        .to_owned()
+/// A fenced region's body as a block holds it: the bytes between the fences, without the line
+/// ending that carries the closing one, and with the `indent` spaces the opening fence was written
+/// under taken off the front of every line that has them.
+///
+/// A fence written inside a numbered list is indented and the code it holds is not, which is how a
+/// model writes one and how a markdown reader draws it back. A body that kept those spaces would
+/// be a block that pasted back one indent deeper than the code that was sent.
+fn bodied(body: &str, indent: usize) -> String {
+    let body = body
+        .strip_suffix(SEPARATOR)
+        .map_or(body, |kept| kept.strip_suffix(CARRIAGE).unwrap_or(kept));
+    if 0 == indent {
+        return body.to_owned();
+    }
+
+    let mut written = String::with_capacity(body.len());
+    for line in body.split_inclusive(SEPARATOR) {
+        let deeper = line.len() - line.trim_start_matches(' ').len();
+        written.push_str(&line[deeper.min(indent)..]);
+    }
+
+    written
 }
 
 /// Appends `said` to `blocks` as an assistant message, unless it is written from nothing but the
