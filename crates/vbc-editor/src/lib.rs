@@ -13,5 +13,6 @@ pub mod indent;
 pub mod keys;
 pub mod render;
 pub mod screen;
+pub mod session;
 pub mod shim;
 pub mod style;
