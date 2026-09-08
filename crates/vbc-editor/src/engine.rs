@@ -104,7 +104,7 @@ use vbc_layout::width::graphemes;
 
 use crate::event::{Event, KeyEvent};
 use crate::indent::{indent_of, resting_column, Shift};
-use crate::keys::{Bindings, Keys};
+use crate::keys::{Argument, Bindings, Keys};
 use crate::screen::Geometry;
 use crate::shim::{classified, Classification, Landing, Shim, Text};
 
@@ -647,6 +647,15 @@ impl Engine {
     #[must_use]
     pub fn unbound(&self) -> Option<&[TerminalKey]> {
         self.keys.unbound()
+    }
+
+    /// # Returns
+    ///
+    /// How the table reads the key vim reads after `typed`, in the mode the engine stands in, as
+    /// [`Keys::argument`] answers it.
+    #[must_use]
+    pub fn argument(&self, typed: TerminalKey) -> Option<Argument> {
+        self.keys.argument(typed)
     }
 
     /// # Returns

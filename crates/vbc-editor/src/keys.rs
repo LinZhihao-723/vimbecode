@@ -43,6 +43,15 @@
 //! than bound to a keystroke that reaches the text and quietly changes nothing -- the harder of
 //! the two to notice. `iw` and `aw` name one range apiece because modalkit's text draws no
 //! distinction between them.
+//!
+//! Some of what is not bound is not a key on its own. vim reads the key after `m`, `q`, `@`, `'`
+//! and `` ` `` as the name of a mark or a register, and the key after `Z`, `z`, `[`, `]` and
+//! `CTRL-W` as the rest of a command, rather than as a command in its own right. A table that
+//! binds none of them leaves that further key to be looked up on its own: the `a` of `ma` and of
+//! `za` opens insert mode, and the `x` of `` `x `` deletes a character. [`ARGUMENTS`] names every
+//! key vim reads a further key after and [`Bindings::argument`] says how this table reads each
+//! one, so a caller can consume a key nothing binds rather than run it, and so a binding added
+//! for one of them without the key it takes is a binding that can be found.
 
 use std::collections::VecDeque;
 use std::str::FromStr;
@@ -71,6 +80,38 @@ pub const PREFIX: char = 'g';
 /// The character a register is named after in vim, which is the one the table reads a register
 /// prefix by.
 pub const REGISTER_PREFIX: char = '"';
+
+/// Every key vim reads a further key after rather than answering on its own, spelled as a binding
+/// of the table spells it.
+///
+/// Two kinds of key are named here. The character searches, the replace, the [`REGISTER_PREFIX`],
+/// the mark that is set and the two the marks are jumped to by, and the two ends of a macro all
+/// read the further key as a name. `Z`, `z`, `[`, `]` and `CTRL-W` read it as the rest of a
+/// command they are only the beginning of. They are one kind here, because a table that binds
+/// neither owes that further key the same fate: an editor that runs it answers `ma` and `za`
+/// alike by opening insert mode, which is nothing vim does for either.
+pub const ARGUMENTS: [&str; 16] = [
+    "f", "F", "t", "T", "r", "\"", "m", "q", "@", "'", "`", "Z", "z", "[", "]", "<C-W>",
+];
+
+/// How a table reads the key after one of [`ARGUMENTS`].
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Argument {
+    /// The table binds the key only as the beginning of a longer sequence, so the key after it is
+    /// read by that sequence.
+    Read,
+
+    /// The machine reads the key after it itself, ahead of the table, which is what a register
+    /// prefix is.
+    Prefix,
+
+    /// Nothing binds the key, so the key after it is one a caller has to consume rather than run.
+    Unimplemented,
+
+    /// The table binds the key on its own, which is a binding that lets the key vim reads after it
+    /// through as a command of its own.
+    Leaked,
+}
 
 /// One key of a bound sequence.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -256,6 +297,37 @@ impl Bindings {
     #[must_use]
     pub fn entries(&self) -> &[Binding] {
         &self.entries
+    }
+
+    /// # Returns
+    ///
+    /// How a sequence read in `mode` and begun by `typed` reads the key vim reads after it, and
+    /// [`None`] where vim reads none.
+    #[must_use]
+    pub fn argument(&self, mode: VimMode, typed: TerminalKey) -> Option<Argument> {
+        if !ARGUMENTS.iter().any(|spelled| named(spelled) == typed) {
+            return None;
+        }
+        if self.register == typed {
+            return Some(Argument::Prefix);
+        }
+        let mut begun = self
+            .entries
+            .iter()
+            .filter(|binding| {
+                binding.mode == mode
+                    && binding.operator.is_none()
+                    && Some(&Edge::Key(typed)) == binding.keys.first()
+            })
+            .peekable();
+        if begun.peek().is_none() {
+            return Some(Argument::Unimplemented);
+        }
+        if begun.any(|binding| binding.keys.len() < 2) {
+            return Some(Argument::Leaked);
+        }
+
+        Some(Argument::Read)
     }
 
     /// Binds `keys` in `mode` to `step`, replacing whatever those keys were bound to in it.
@@ -469,6 +541,15 @@ impl Keys {
     #[must_use]
     pub fn unbound(&self) -> Option<&[TerminalKey]> {
         self.unbound.as_deref()
+    }
+
+    /// # Returns
+    ///
+    /// How the table reads the key vim reads after `typed`, in the mode the machine stands in, as
+    /// [`Bindings::argument`] answers it.
+    #[must_use]
+    pub fn argument(&self, typed: TerminalKey) -> Option<Argument> {
+        self.bindings.argument(self.mode, typed)
     }
 
     /// Looks `typed` up in the table, firing what it completes and abandoning what it kills.
@@ -1875,14 +1956,26 @@ fn closed(text: &str, open: char, close: char) -> Option<usize> {
 
 /// # Returns
 ///
+/// The key `spelled` names, in the spelling a binding of the table is written in and
+/// [`ARGUMENTS`] is listed in.
+///
+/// # Panics
+///
+/// Panics if `spelled` names no key, which no member of [`ARGUMENTS`] does.
+#[must_use]
+pub fn named(spelled: &str) -> TerminalKey {
+    TerminalKey::from_str(spelled).unwrap_or_else(|_| panic!("`{spelled}` names a key"))
+}
+
+/// # Returns
+///
 /// The key typed when `character` is typed with no modifier held.
 ///
 /// # Panics
 ///
 /// Panics if `character` names no key, which no character does.
 fn key(character: char) -> TerminalKey {
-    TerminalKey::from_str(&character.to_string())
-        .unwrap_or_else(|_| panic!("`{character}` names a key"))
+    named(&character.to_string())
 }
 
 /// # Returns
@@ -2046,6 +2139,48 @@ mod tests {
 
         assert_eq!(vec![None], counted(&produced));
         assert_eq!(VimMode::Normal, mode);
+    }
+
+    #[test]
+    fn an_argument_key_bound_without_its_argument_is_a_binding_that_leaks_it() {
+        let mut bindings = Bindings::vim();
+
+        for spelled in ["m", "z", "<C-W>"] {
+            assert_eq!(
+                Some(Argument::Unimplemented),
+                bindings.argument(VimMode::Normal, named(spelled)),
+                "`{spelled}` is bound to something after all"
+            );
+        }
+        assert_eq!(
+            Some(Argument::Read),
+            bindings.argument(VimMode::Normal, named("f"))
+        );
+        assert_eq!(
+            Some(Argument::Prefix),
+            bindings.argument(VimMode::Normal, key(REGISTER_PREFIX))
+        );
+        assert_eq!(None, bindings.argument(VimMode::Normal, named("j")));
+
+        let prefixed = Bindings::prefixed('z');
+
+        assert_eq!(
+            Some(Argument::Read),
+            prefixed.argument(VimMode::Normal, named("z")),
+            "a prefix whose every sequence is longer than one key reads the key after it"
+        );
+
+        bindings.bind(VimMode::Normal, "m", Step::Repeat);
+        bindings.bind(VimMode::Normal, "<C-W>", Step::Repeat);
+
+        for spelled in ["m", "<C-W>"] {
+            assert_eq!(
+                Some(Argument::Leaked),
+                bindings.argument(VimMode::Normal, named(spelled)),
+                "`{spelled}` is bound without the key vim reads after it, which lets that key \
+                 through"
+            );
+        }
     }
 
     #[test]

@@ -34,10 +34,12 @@
 //! The application is a program a reader can leave, so it can be written to and searched. `:`
 //! opens the ex command line and `/` a search, and while either of them is open every key typed
 //! belongs to that line rather than to the engine, because the `w` of `:wq` is not a word motion.
-//! `:w` writes the file the text was read from, `:q` refuses to leave a text nothing has written,
-//! `:q!` leaves it anyway and `:wq` writes and leaves. A search is over the literal bytes typed at
-//! it -- this editor has no regular expressions and does not pretend to -- and `n` and `N` repeat
-//! it the way it ran and the other way.
+//! `:w` writes the file the text was read from, byte for byte and the missing last line ending
+//! included, `:q` refuses to leave a text nothing has written, `:q!` leaves it anyway and `:wq`
+//! writes and leaves. The interrupt is refused over an unwritten text on the same terms as `:q`,
+//! so the only key that throws a reader's work away is the one that says it will. A search is over
+//! the literal bytes typed at it -- this editor has no regular expressions and does not pretend to
+//! -- and `n` and `N` repeat it the way it ran and the other way.
 //!
 //! What is selected is drawn, in either of the two views: the range `v`, `V` and `CTRL-V` are
 //! moving over the file, and the range `viac` took out of a block of the transcript. The painting
@@ -97,6 +99,7 @@ use crate::chat::transcript::Transcript;
 use crate::engine::{self, Engine, Position as Caret, Shape};
 use crate::event::{Event, KeyEvent};
 use crate::gutter::{Gutter, Options as GutterOptions};
+use crate::keys::Argument;
 use crate::render::{cursor_cell, paint, painted_columns, Renderer};
 use crate::screen::{self, Error, Geometry, Screen};
 use crate::style::StyledRow;
@@ -212,6 +215,8 @@ pub struct App {
     forward: bool,
     selection: Option<(Caret, Caret, Shape)>,
     held: Option<Selected>,
+    taking: Option<String>,
+    endofline: bool,
 }
 
 /// Which of the two things the application draws the keys are typed at.
@@ -260,6 +265,8 @@ impl App {
             forward: true,
             selection: None,
             held: None,
+            taking: None,
+            endofline: true,
         };
         app.adopt();
         app.saved = app.written();
@@ -274,16 +281,29 @@ impl App {
     /// The read is the write's own inverse, so it takes one line ending off the bytes it read
     /// rather than every one of them: the write puts exactly one back, and a read that stripped
     /// them all would let a file whose last lines are empty lose those lines to a `:w` that
-    /// changed nothing.
+    /// changed nothing. A file that ended in no line ending at all is remembered as such, as vim
+    /// remembers it in `'noendofline'`, and it is written back that way rather than repaired,
+    /// because a `:w` that puts an ending there changes bytes nobody asked it to change. That is
+    /// vim under `'nofixendofline'` rather than vim as it ships, whose `'fixendofline'` adds the
+    /// ending on the way out; adding a byte is the same fault as dropping one, whichever option
+    /// name it is spelled under.
+    ///
+    /// A file of no bytes at all is read as a last line without an ending, because the bytes are
+    /// all this has to read it by. vim knows an empty buffer from a buffer holding one empty line
+    /// and would put an ending back once something was typed into it; `data_integrity.rs` asserts
+    /// what this writes there instead.
     ///
     /// # Errors
     ///
     /// Forwards [`std::fs::read_to_string`]'s return values on failure.
     pub fn opened(path: PathBuf) -> std::io::Result<Self> {
         let read = std::fs::read_to_string(&path)?;
+        let endofline = read.ends_with('\n');
         let text = read.strip_suffix('\n').unwrap_or(&read);
 
-        Ok(Self::new(Buffer::from_text(text)).with_path(path))
+        Ok(Self::new(Buffer::from_text(text))
+            .with_path(path)
+            .ending_lines(endofline))
     }
 
     /// # Returns
@@ -293,6 +313,19 @@ impl App {
     #[must_use]
     pub fn with_path(mut self, path: PathBuf) -> Self {
         self.path = Some(path);
+
+        self
+    }
+
+    /// # Returns
+    ///
+    /// This application writing its last line with a line ending after it where `endofline` is
+    /// set and without one where it is not, which is vim's `'endofline'` and is read off the file
+    /// rather than chosen.
+    #[must_use]
+    pub fn ending_lines(mut self, endofline: bool) -> Self {
+        self.endofline = endofline;
+        self.saved = self.written();
 
         self
     }
@@ -707,12 +740,22 @@ impl App {
 
     /// Types one key at the editor, running everything it asks for.
     ///
-    /// The engine reads the key first, and the application's own keys -- the scrolls, and the `q`
-    /// that ends the program -- are the ones it bound nothing to, so a key that carries a sequence
-    /// further belongs to the sequence rather than to the window. Nor are they read in an
+    /// The engine reads the key first, and the application's own keys -- the scrolls, and the
+    /// lines typed at the status line -- are the ones it bound nothing to, so a key that carries a
+    /// sequence further belongs to the sequence rather than to the window. Nor are they read in an
     /// inserting mode, where every key is either text or a key vim answers itself. The interrupt
     /// is the one key read ahead of the engine, because a program that can only be stopped from
-    /// normal mode is a program insert mode traps a terminal in.
+    /// normal mode is a program insert mode traps a terminal in, and it is refused over an
+    /// unwritten text exactly as `:q` is, because a keystroke that throws a reader's work away is
+    /// worse than one that will not leave. It abandons a line being typed at the status line on
+    /// its way, so that a refusal is said where that line would otherwise be drawn.
+    ///
+    /// A key vim reads a further key after and this editor implements nothing for takes that key
+    /// here rather than letting it through: `ma` names a mark this editor does not keep and `za`
+    /// opens a fold it does not fold, and an `a` handed on to normal mode opens insert mode
+    /// instead of either. The interrupt abandons a key waiting to be taken as it abandons a line
+    /// at the status line, because a command a reader stopped is not one whose next keystroke
+    /// belongs to it.
     ///
     /// # Returns
     ///
@@ -720,7 +763,15 @@ impl App {
     pub fn press(&mut self, area: Rect, key: KeyEvent) -> Outcome {
         self.notice = None;
         if interrupts(key) {
-            return Outcome::Stops;
+            self.prompt = None;
+            self.taking = None;
+
+            return self.stop(false);
+        }
+        if let Some(taking) = self.taking.take() {
+            self.notice = Some(unimplemented(&taking));
+
+            return Outcome::Continues;
         }
         if self.prompt.is_some() {
             return self.typing(area, key);
@@ -751,6 +802,12 @@ impl App {
 
             return Outcome::Continues;
         };
+        if VimMode::Insert != self.mode() && self.takes_argument(key) {
+            self.notice = Some(unimplemented(&keys));
+            self.taking = Some(keys);
+
+            return Outcome::Continues;
+        }
         if 1 == typed && VimMode::Insert != self.mode() {
             if let Some((asked, opened)) = opened_by(key) {
                 self.prompt = Some(Prompt::new(asked, opened));
@@ -761,9 +818,6 @@ impl App {
                 self.seek(area, again);
 
                 return Outcome::Continues;
-            }
-            if quits(key) {
-                return self.stop(false);
             }
             if let Some(command) = scrolled_by(key) {
                 if let Err(error) = self.scroll(area, command) {
@@ -1376,9 +1430,23 @@ impl App {
     /// # Returns
     ///
     /// The bytes the editor would write the text out as, which is every line of it followed by a
-    /// line ending, as vim writes a file with `'endofline'` set.
+    /// line ending, and the last ending left off where the file it was read from ended without
+    /// one, as vim writes a file with `'noendofline'` and `'nofixendofline'`.
     fn written(&self) -> String {
-        written(&self.text)
+        let mut written = written(&self.text);
+        if !self.endofline {
+            written.pop();
+        }
+
+        written
+    }
+
+    /// # Returns
+    ///
+    /// Whether `key` is one vim reads a further key after that this editor implements nothing for,
+    /// so that the further key is the application's to consume rather than the engine's to run.
+    fn takes_argument(&self, key: KeyEvent) -> bool {
+        Some(Argument::Unimplemented) == self.engine.argument(key.into())
     }
 
     /// Scrolls the window so that it draws the row the cursor rests on.
@@ -1502,7 +1570,16 @@ fn spelled(keys: &[TerminalKey]) -> String {
 
 /// # Returns
 ///
-/// Whether `key` is the interrupt a terminal sends, which stops the program from any mode.
+/// What the status line says about a key vim reads a further key after that this editor
+/// implements nothing for, whose further key was taken rather than run.
+fn unimplemented(keys: &str) -> String {
+    format!("`{keys}` takes a key after it that this editor does not implement")
+}
+
+/// # Returns
+///
+/// Whether `key` is the interrupt a terminal sends, which stops the program from any mode over a
+/// text that has been written.
 fn interrupts(key: KeyEvent) -> bool {
     KeyCode::Char('c') == key.code && key.modifiers.contains(KeyModifiers::CONTROL)
 }
@@ -1568,13 +1645,6 @@ fn written(text: &Buffer) -> String {
     written.push('\n');
 
     written
-}
-
-/// # Returns
-///
-/// Whether `key` ends the program, which `q` does where the engine bound nothing to it.
-fn quits(key: KeyEvent) -> bool {
-    KeyCode::Char('q') == key.code && key.modifiers.is_empty()
 }
 
 /// # Returns

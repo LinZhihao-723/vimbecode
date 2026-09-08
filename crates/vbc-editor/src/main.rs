@@ -2,8 +2,9 @@
 //!
 //! The program is the smallest one that is a program rather than a probe. It reads a file named on
 //! the command line, or a built-in passage where none is, draws it through the editor, and types
-//! vim's own keys at it until `q` ends it. Everything it draws and edits with is the library's:
-//! the binary contributes the terminal it draws into and the keys it reads, and nothing else.
+//! vim's own keys at it until `:q` or the interrupt ends it. Everything it draws and edits with
+//! is the library's: the binary contributes the terminal it draws into and the keys it reads, and
+//! nothing else.
 //!
 //! `<C-T>` moves the keys to the transcript of an exchange, which is read rather than written:
 //! `yac` takes the code that was fenced, `yad` takes an edit as the patch it was, `za` folds away
