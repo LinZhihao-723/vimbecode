@@ -206,6 +206,7 @@ fn the_child_is_started_on_the_stream_protocol_with_the_permission_flag() -> Res
             "--output-format",
             "stream-json",
             "--verbose",
+            "--forward-subagent-text",
             PERMISSION_PROMPT_TOOL,
             PERMISSION_PROMPT_TOOL_VALUE,
             "--model",

@@ -14,6 +14,12 @@
 #   reject  refuse the permission flag and exit, as a release that dropped it would
 #   drop    take the permission flag and do nothing about it
 #   hooked  speak before announcing itself, as a session with a SessionStart hook does
+#   said.N  answer the Nth turn with the frames this file holds instead of the canned ones
+#
+# The last of those is what a test of the translation layer drives: the frames a real session wrote
+# are recorded into a file, the stand-in writes them back out over the same pipes, and everything
+# between the recording and the blocks -- the spawn, the framing, the decode -- is the client's own
+# rather than a fixture's.
 #
 # All three mirror what the real binary does rather than inventing a failure. Told to reject, it
 # writes commander's own "unknown option" line and exits, which is what claude does with a flag it
@@ -66,6 +72,11 @@ while IFS= read -r line; do
         continue
     fi
     turn=$((turn + 1))
+
+    if [ -f "said.$turn" ]; then
+        cat "said.$turn"
+        continue
+    fi
 
     if [ -f hooked ]; then
         printf '{"type":"system","subtype":"hook_started","session_id":"%s",' "$sid"

@@ -265,16 +265,18 @@ const HELD_APART: [&str; 1] = ["vbc_layout::invariants"];
 /// fails this rule and a module wired up to a keystroke fails it until its line is struck out.
 ///
 /// The clipboard is work the editor has not reached back for. The session client is work the
-/// editor has not reached yet: it speaks the whole of Claude Code's subprocess protocol and the
-/// binary shows a compiled-in exchange, and the two are joined when the panel is fed by a real
-/// session rather than by that exchange. Every line below is a claim that will be struck out.
-const ORPHANED: [&str; 13] = [
+/// editor has not reached yet: it speaks the whole of Claude Code's subprocess protocol and turns
+/// what comes back into the blocks the panel draws, and the binary shows a compiled-in exchange.
+/// The two are joined when the panel is fed by a real session rather than by that exchange. Every
+/// line below is a claim that will be struck out.
+const ORPHANED: [&str; 14] = [
     "vbc_editor::clipboard",
     "vbc_editor::clipboard::clip",
     "vbc_editor::clipboard::helper",
     "vbc_editor::clipboard::protocol",
     "vbc_editor::clipboard::reader",
     "vbc_editor::session",
+    "vbc_editor::session::blocks",
     "vbc_editor::session::client",
     "vbc_editor::session::error",
     "vbc_editor::session::event",

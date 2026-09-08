@@ -6,16 +6,18 @@
 //! stdio` must be passed or every tool call needing approval is auto-denied by a notification
 //! nothing can answer. And the invocation is pinned to the print lane, because the flags that
 //! resume a session partway through are print-lane only and an interactive resume ignores them
-//! without a word.
+//! without a word. A fourth is smaller and is the same kind of decision: a subagent's own prose is
+//! forwarded only under `--forward-subagent-text`, and a panel that folds a subagent's work away
+//! wants that work to be there to fold.
 //!
-//! The environment is the fourth. vimbecode is often started from inside a Claude Code session,
-//! and the variables such a session exports are read by the child as a claim to be part of it:
-//! inheriting them silently disables transcript persistence, and a completed multi-turn session
-//! leaves nothing on disk at all. They are stripped from the [`Command`] rather than from this
-//! process, so what a spawn does is decided by the spawn instead of by how vimbecode was started.
-//! One variable goes the other way -- file checkpointing has no flag, is irreversible once the
-//! child is up, and is what a rewind depends on -- so it is set after the strip that would
-//! otherwise remove it.
+//! The environment is the last of them. vimbecode is often started from inside a Claude Code
+//! session, and the variables such a session exports are read by the child as a claim to be part
+//! of it: inheriting them silently disables transcript persistence, and a completed multi-turn
+//! session leaves nothing on disk at all. They are stripped from the [`Command`] rather than from
+//! this process, so what a spawn does is decided by the spawn instead of by how vimbecode was
+//! started. One variable goes the other way -- file checkpointing has no flag, is irreversible
+//! once the child is up, and is what a rewind depends on -- so it is set after the strip that
+//! would otherwise remove it.
 
 use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
@@ -35,6 +37,11 @@ pub const INPUT_FORMAT_FLAG: &str = "--input-format";
 pub const OUTPUT_FORMAT_FLAG: &str = "--output-format";
 pub const STREAM_FORMAT: &str = "stream-json";
 pub const VERBOSE_FLAG: &str = "--verbose";
+
+/// The flag that forwards what a subagent said as well as what it called. Without it a subagent's
+/// tool calls arrive tagged with the call that started it and its own prose does not arrive at
+/// all, so the nested fold over a subagent covers what it did and not what it reported.
+pub const FORWARD_SUBAGENT_TEXT_FLAG: &str = "--forward-subagent-text";
 
 /// The flag naming the model a turn runs on.
 pub const MODEL_FLAG: &str = "--model";
@@ -116,6 +123,7 @@ impl Spawn {
             OUTPUT_FORMAT_FLAG.to_owned(),
             STREAM_FORMAT.to_owned(),
             VERBOSE_FLAG.to_owned(),
+            FORWARD_SUBAGENT_TEXT_FLAG.to_owned(),
             PERMISSION_PROMPT_TOOL.to_owned(),
             PERMISSION_PROMPT_TOOL_VALUE.to_owned(),
         ];

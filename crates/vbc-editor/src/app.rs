@@ -91,7 +91,7 @@ use vbc_layout::viewport::{Command, Viewport};
 use vbc_layout::width::{grapheme_indices, graphemes, Metrics};
 
 use crate::chat::block::RenderedRow;
-use crate::chat::fold::Position as Placed;
+use crate::chat::fold::{Position as Placed, Tag};
 use crate::chat::object::Position as Resting;
 use crate::chat::policy::{Drawn, Panel, Selected, REFUSAL};
 use crate::chat::selection::Source as Selectable;
@@ -332,10 +332,26 @@ impl App {
 
     /// # Returns
     ///
-    /// This application showing `transcript` in the panel `<C-T>` reaches.
+    /// This application showing `transcript` in the panel `<C-T>` reaches, with nothing nested
+    /// inside anything else.
     #[must_use]
-    pub fn with_transcript(mut self, transcript: Transcript) -> Self {
-        self.panel = Panel::new(transcript).sharing(self.engine.register_file().clone());
+    pub fn with_transcript(self, transcript: Transcript) -> Self {
+        let tags = vec![Tag::untagged(); transcript.len()];
+
+        self.with_conversation(transcript, tags)
+    }
+
+    /// # Returns
+    ///
+    /// This application showing `transcript` in the panel `<C-T>` reaches, folded the way the
+    /// calls its blocks arrived beneath nest. A block's tag names the call it is answered under
+    /// and the call it was said beneath, which is what a subagent's output arrives tagged with at
+    /// every depth.
+    #[must_use]
+    pub fn with_conversation(mut self, transcript: Transcript, tags: Vec<Tag>) -> Self {
+        self.panel = Panel::new(transcript)
+            .sharing(self.engine.register_file().clone())
+            .tagged(tags);
         self.top = Placed::top(0);
 
         self
