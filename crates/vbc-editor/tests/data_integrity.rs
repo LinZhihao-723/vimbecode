@@ -247,7 +247,7 @@ fn a_prefix_command_and_the_key_that_completes_it_leave_the_text_as_it_was() {
 /// Validation 3: an inserting mode reads these keys as the text they are there rather than taking
 /// the key behind them, which is the one mode the application takes nothing in.
 ///
-/// `CTRL-R` is the divergence that leaves standing. vim pastes a register by it in insert mode and
+/// `CTRL-R` is the divergence this leaves standing. vim pastes a register by it in insert mode and
 /// this editor binds it nowhere, so the register name behind it is typed into the file as the
 /// character it is. That is a key the reader typed landing where they typed it rather than a
 /// command running unasked, so it is stated here rather than taken.
