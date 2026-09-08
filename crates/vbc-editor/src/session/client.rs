@@ -51,8 +51,8 @@ impl Client {
     /// Starts the child a session is spoken to.
     ///
     /// The child is up when this returns and has said nothing, because nothing is said until a
-    /// frame is sent. Whether the permission flag survived is therefore answered by the first
-    /// event rather than here.
+    /// frame is sent. Whether the permission flag survived is therefore answered by the first init
+    /// frame rather than here.
     ///
     /// # Returns
     ///
@@ -137,8 +137,10 @@ impl Client {
     /// Reads the next event the session wrote, waiting for it.
     ///
     /// The first init frame to arrive is where the permission flag is checked, because it is the
-    /// first thing the session says and the last moment before a tool call could be denied without
-    /// anybody being told.
+    /// first thing the session says about itself and the last moment before a tool call could be
+    /// denied without anybody being told. It is not necessarily the first frame: a session with a
+    /// `SessionStart` hook writes that hook's frames ahead of it, so what is waited for here is
+    /// the init frame rather than whatever arrives first.
     ///
     /// # Returns
     ///

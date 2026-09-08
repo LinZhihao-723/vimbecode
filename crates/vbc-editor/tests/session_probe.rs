@@ -21,6 +21,7 @@
 use std::fs;
 
 use anyhow::{anyhow, Result};
+use serde_json::Value;
 use vbc_editor::session::error::Error;
 use vbc_editor::session::event::Event;
 use vbc_editor::session::probe::{self, GATED_TOOLS, PERMISSION_PROMPT_TOOL};
@@ -72,36 +73,17 @@ fn a_session_that_ignored_the_flag_is_reported_by_the_flags_own_name() -> Result
 #[test]
 fn the_two_catalogs_differ_by_the_tools_the_probe_reads_and_by_nothing_else() -> Result<()> {
     let (honoured, ignored) = (init(HONOURED)?, init(IGNORED)?);
-    let (honoured, ignored) = (
-        honoured.init().ok_or(anyhow!("an init frame"))?,
-        ignored.init().ok_or(anyhow!("an init frame"))?,
-    );
 
+    assert_eq!(GATED_TOOLS.to_vec(), gated(&honoured)?);
+    assert_eq!(Vec::<&str>::new(), gated(&ignored)?);
     assert_eq!(
-        GATED_TOOLS.to_vec(),
-        honoured
-            .tools
-            .iter()
-            .filter(|tool| GATED_TOOLS.contains(&tool.as_str()))
-            .map(String::as_str)
-            .collect::<Vec<&str>>()
+        ungated(honoured.raw()),
+        ungated(ignored.raw()),
+        "the two recordings disagree about something other than the tools the probe reads -- the \
+         permission mode, which reads `default` either way, as much as any other field -- so the \
+         difference the probe reads is not the only one the flag makes and it may be reading the \
+         wrong one"
     );
-    assert_eq!(
-        Vec::<&str>::new(),
-        ignored
-            .tools
-            .iter()
-            .filter(|tool| GATED_TOOLS.contains(&tool.as_str()))
-            .map(String::as_str)
-            .collect::<Vec<&str>>()
-    );
-    assert_eq!(
-        honoured.permission_mode, ignored.permission_mode,
-        "the permission mode differs between the two, so the flag is not the only thing the \
-         catalogs disagree about and the probe may be reading the wrong difference"
-    );
-    assert_eq!(honoured.capabilities, ignored.capabilities);
-    assert_eq!(honoured.slash_commands, ignored.slash_commands);
 
     Ok(())
 }
@@ -143,6 +125,45 @@ fn an_ending_that_is_not_about_the_flag_is_not_blamed_on_it() -> Result<()> {
     );
 
     Ok(())
+}
+
+/// # Returns
+///
+/// The tools a catalog offers that the probe reads, in the order the catalog names them, on
+/// success.
+///
+/// # Errors
+///
+/// Returns an error if:
+///
+/// * [`anyhow::Error`] if the frame is not an init frame.
+fn gated(frame: &Event) -> Result<Vec<&str>> {
+    Ok(frame
+        .init()
+        .ok_or(anyhow!("an init frame"))?
+        .tools
+        .iter()
+        .map(String::as_str)
+        .filter(|tool| GATED_TOOLS.contains(tool))
+        .collect())
+}
+
+/// # Returns
+///
+/// A recording with the tools the probe reads taken out of its catalog, which leaves every field
+/// the flag is not supposed to change and is therefore what the two recordings have to agree
+/// about in full.
+fn ungated(raw: &Value) -> Value {
+    let mut raw = raw.clone();
+    if let Some(tools) = raw.get_mut("tools").and_then(Value::as_array_mut) {
+        tools.retain(|tool| {
+            !tool
+                .as_str()
+                .is_some_and(|name| GATED_TOOLS.contains(&name))
+        });
+    }
+
+    raw
 }
 
 /// # Returns

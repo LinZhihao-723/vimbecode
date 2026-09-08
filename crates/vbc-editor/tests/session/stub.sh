@@ -9,16 +9,19 @@
 #
 # Everything it is steered by and everything it records lives in the directory it was started in,
 # which is the one thing about a spawn a test can choose through the client's own interface. It
-# writes `args` and `env` there, and it reads two files from there:
+# writes `args` and `env` there, and it reads three files from there:
 #
 #   reject  refuse the permission flag and exit, as a release that dropped it would
 #   drop    take the permission flag and do nothing about it
+#   hooked  speak before announcing itself, as a session with a SessionStart hook does
 #
-# Both of those mirror what the real binary does rather than inventing a failure. Told to reject,
-# it writes commander's own "unknown option" line and exits, which is what claude does with a flag
-# it has never heard of. Told to drop, it starts normally and leaves the tools that need somewhere
-# to ask a question out of its catalog -- which is exactly how claude 2.1.263's own catalog differs
-# with the flag and without it.
+# All three mirror what the real binary does rather than inventing a failure. Told to reject, it
+# writes commander's own "unknown option" line and exits, which is what claude does with a flag it
+# has never heard of. Told to drop, it starts normally and leaves the tools that need somewhere to
+# ask a question out of its catalog -- which is exactly how claude 2.1.263's own catalog differs
+# with the flag and without it. Told it is hooked, it writes the frame a SessionStart hook puts
+# ahead of the init frame, because on a machine that configures one the init frame is not the first
+# thing a real session says.
 
 printf '%s\n' "$@" > args
 env > env
@@ -63,6 +66,11 @@ while IFS= read -r line; do
         continue
     fi
     turn=$((turn + 1))
+
+    if [ -f hooked ]; then
+        printf '{"type":"system","subtype":"hook_started","session_id":"%s",' "$sid"
+        printf '"hook_name":"SessionStart:startup","hook_event":"SessionStart"}\n'
+    fi
 
     printf '{"type":"system","subtype":"init","session_id":"%s","claude_code_version":"stub",' "$sid"
     printf '"model":"stub","cwd":"%s","permissionMode":"default","tools":[%s],' "$here" "$tools"

@@ -32,6 +32,7 @@ const STUB: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/session/stub.sh")
 /// was started in.
 const REJECT: &str = "reject";
 const DROP: &str = "drop";
+const HOOKED: &str = "hooked";
 const ARGUMENTS: &str = "args";
 
 /// The session the stand-in answers a forked spawn under, which is written into it rather than
@@ -134,6 +135,41 @@ fn a_binary_that_refused_the_flag_fails_by_the_flags_name() -> Result<()> {
         error.to_string().contains(PERMISSION_PROMPT_TOOL),
         "the failure does not name the flag: {error}"
     );
+
+    Ok(())
+}
+
+#[test]
+fn a_session_that_speaks_before_it_announces_itself_is_still_read_and_still_probed() -> Result<()> {
+    let answered = TempDir::new()?;
+    fs::write(answered.path().join(HOOKED), "")?;
+    let mut session = Client::start(&spawn(answered.path(), Identity::Fresh(chosen())))?;
+
+    let events = session.turn("hello", TURN)?;
+
+    assert_eq!(
+        Some(CHOSEN),
+        events
+            .iter()
+            .find_map(|event| event.init())
+            .map(|init| init.session_id.as_str()),
+        "a session that spoke before announcing itself was read as announcing nothing"
+    );
+
+    let denied = TempDir::new()?;
+    fs::write(denied.path().join(HOOKED), "")?;
+    fs::write(denied.path().join(DROP), "")?;
+    let mut session = Client::start(&spawn(denied.path(), Identity::Fresh(chosen())))?;
+
+    let Err(error) = session.turn("hello", TURN) else {
+        panic!(
+            "a session that ignored `{PERMISSION_PROMPT_TOOL}` answered a turn because it spoke \
+             before it announced itself, so the probe reads whichever frame arrives first rather \
+             than the catalog, and a machine that configures a session hook would deny every tool \
+             call with nothing said about it"
+        );
+    };
+    assert!(matches!(error, Error::FlagIgnored { .. }));
 
     Ok(())
 }

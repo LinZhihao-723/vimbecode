@@ -36,9 +36,12 @@ const STUB: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/session/stub.sh")
 const ENVIRONMENT: &str = "env";
 
 /// The variables put into this process, which stand for a vimbecode started from inside a Claude
-/// Code session. The last is not one of them, and is what says the strip takes the variables it is
-/// for rather than everything it can reach.
-const EXPORTED: [(&str, &str); 5] = [
+/// Code session. The first is the one variable the strip has to take and then put back, held here
+/// at the value that would turn checkpointing off, so that a strip applied after the setting --
+/// which would hand the child the inherited value and leave a rewind with nothing to rewind to --
+/// is a test that goes red. [`KEPT`] is not one of them at all.
+const EXPORTED: [(&str, &str); 6] = [
+    (CHECKPOINTING, "false"),
     ("CLAUDE_CODE_ENTRYPOINT", "cli"),
     (
         "CLAUDE_CODE_SESSION_ID",
@@ -46,8 +49,12 @@ const EXPORTED: [(&str, &str); 5] = [
     ),
     ("CLAUDECODE", "1"),
     ("CLAUDE_PID", "424242"),
-    ("VBC_KEPT", "a variable of somebody else's"),
+    KEPT,
 ];
+
+/// A variable of somebody else's, which is what says the strip takes the variables it is for
+/// rather than everything it can reach.
+const KEPT: (&str, &str) = ("VBC_KEPT", "a variable of somebody else's");
 
 /// How long the child is given to write its environment down and answer a turn.
 const TURN: Duration = Duration::from_secs(10);
@@ -88,8 +95,8 @@ fn the_child_is_handed_no_session_of_ours_and_the_checkpointing_it_has_no_flag_f
     );
 
     assert_eq!(
-        Some(&EXPORTED[4].1.to_owned()),
-        handed.get(EXPORTED[4].0),
+        Some(&KEPT.1.to_owned()),
+        handed.get(KEPT.0),
         "the strip took a variable that is none of its business"
     );
 
