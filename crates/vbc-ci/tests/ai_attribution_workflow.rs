@@ -58,13 +58,16 @@ const WHOLE_HISTORY: &str = "fetch-depth: 0";
 
 /// Everything the job has to run, each of which is a way the check would stop reading what it is
 /// for if it went missing: the linter itself, the range that is every commit of the request, the
-/// body written where it can be read, and the two names that range is measured between.
-const REQUIRED: [&str; 6] = [
+/// title and the body written where they can be read, and the two names that range is measured
+/// between.
+const REQUIRED: [&str; 8] = [
     "--bin ai-attribution-lint",
     "--range \"$BASE_SHA..$HEAD_SHA\"",
+    "--title-file \"$RUNNER_TEMP/pr-title.txt\"",
     "--body-file \"$RUNNER_TEMP/pr-body.txt\"",
     "BASE_SHA: \"${{ github.event.pull_request.base.sha }}\"",
     "HEAD_SHA: \"${{ github.event.pull_request.head.sha }}\"",
+    "PR_TITLE: \"${{ github.event.pull_request.title }}\"",
     "PR_BODY: \"${{ github.event.pull_request.body }}\"",
 ];
 

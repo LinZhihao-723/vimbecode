@@ -25,18 +25,23 @@ jobs:
 
       - uses: "Swatinem/rust-cache@v2"
 
-      # The body is prose somebody typed, so it is written to a file and read from one rather than
-      # passed through a shell.
-      - name: "Write the pull request body where the linter can read it"
+      # The title and the body are prose somebody typed, so each is written to a file and read from
+      # one rather than passed through a shell. The title is read because a squash writes it as the
+      # subject of the commit that lands.
+      - name: "Write the pull request title and body where the linter can read them"
         env:
+          PR_TITLE: "${{ github.event.pull_request.title }}"
           PR_BODY: "${{ github.event.pull_request.body }}"
-        run: 'printf "%s" "$PR_BODY" > "$RUNNER_TEMP/pr-body.txt"'
+        run: |
+          printf "%s" "$PR_TITLE" > "$RUNNER_TEMP/pr-title.txt"
+          printf "%s" "$PR_BODY" > "$RUNNER_TEMP/pr-body.txt"
 
-      - name: "Check every commit of the pull request, and its body, for AI authorship credit"
+      - name: "Check every commit of the pull request, its title and its body, for AI credit"
         env:
           BASE_SHA: "${{ github.event.pull_request.base.sha }}"
           HEAD_SHA: "${{ github.event.pull_request.head.sha }}"
         run: |
           cargo run --quiet --package vbc-ci --bin ai-attribution-lint -- \
             --range "$BASE_SHA..$HEAD_SHA" \
+            --title-file "$RUNNER_TEMP/pr-title.txt" \
             --body-file "$RUNNER_TEMP/pr-body.txt"

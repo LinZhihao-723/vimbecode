@@ -11,15 +11,20 @@
 //! it lands and a squash carries every trailer it folds forward, so a check that reads the tip
 //! reads the one commit whose message was most likely written by hand. Every commit is read here
 //! instead, and that is proved by a branch whose first commit is the dirty one and whose second is
-//! clean: a check that stopped at the tip would call it green.
+//! clean: a check that stopped at the tip would call it green. The title and the body a request is
+//! described by are read beside them, because a squash writes the one as the subject of the commit
+//! that lands and folds the other into its message.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::{fs, process};
 
-/// The `ai-attribution-lint` binary Cargo built for this test.
+/// The `ai-attribution-lint` binary Cargo built for this test, and the flags it is told where the
+/// title and the body a pull request is described by are written.
 const LINT_BIN: &str = env!("CARGO_BIN_EXE_ai-attribution-lint");
+const TITLE_FLAG: &str = "--title-file";
+const BODY_FLAG: &str = "--body-file";
 
 /// The trailer the repository's own history carries, which is the credit this check was written
 /// for and therefore the fixture it is held to catching.
@@ -161,18 +166,18 @@ struct Report {
 
 /// # Returns
 ///
-/// What the linter made of a range of a repository, and of a body where one is given.
+/// What the linter made of a range of a repository, and of each text `described` names a file for.
 ///
 /// # Panics
 ///
 /// Panics if the linter cannot be run.
-fn lint(repository: &Repository, range: &str, body: Option<&Path>) -> Report {
+fn lint(repository: &Repository, range: &str, described: &[(&str, &Path)]) -> Report {
     let mut command = Command::new(LINT_BIN);
     command
         .current_dir(&repository.path)
         .args(["--range", range]);
-    if let Some(body) = body {
-        command.arg("--body-file").arg(body);
+    for (flag, path) in described {
+        command.arg(flag).arg(path);
     }
     let output = command.output().expect("the linter can be run");
 
@@ -193,7 +198,7 @@ fn accepts(message: &str) -> bool {
     let repository = Repository::new();
     repository.commit(message);
 
-    lint(&repository, &repository.range(), None).accepted
+    lint(&repository, &repository.range(), &[]).accepted
 }
 
 #[test]
@@ -231,7 +236,7 @@ fn every_commit_of_a_range_is_read_rather_than_its_tip() {
     repository.commit("ci: Do another thing.\n\nA body that explains it.");
     let tip = repository.head();
 
-    let report = lint(&repository, &repository.range(), None);
+    let report = lint(&repository, &repository.range(), &[]);
 
     assert!(
         !report.accepted,
@@ -251,6 +256,24 @@ fn every_commit_of_a_range_is_read_rather_than_its_tip() {
 }
 
 #[test]
+fn a_title_that_credits_a_model_is_rejected_though_every_commit_is_clean() {
+    let repository = Repository::new();
+    repository.commit("ci: Do a thing.\n\nA body that explains it.");
+    let title = repository.path.join("title.txt");
+
+    fs::write(&title, "ci: Add the guard, generated with Claude Code.")
+        .expect("the title can be written");
+    let credited = lint(&repository, &repository.range(), &[(TITLE_FLAG, &title)]);
+
+    fs::write(&title, "ci: Add the guard Claude Code is read by.")
+        .expect("the title can be written");
+    let innocent = lint(&repository, &repository.range(), &[(TITLE_FLAG, &title)]);
+
+    assert!(!credited.accepted, "{}", credited.said);
+    assert!(innocent.accepted, "{}", innocent.said);
+}
+
+#[test]
 fn a_body_that_credits_a_model_is_rejected_though_every_commit_is_clean() {
     let repository = Repository::new();
     repository.commit("ci: Do a thing.\n\nA body that explains it.");
@@ -261,14 +284,14 @@ fn a_body_that_credits_a_model_is_rejected_though_every_commit_is_clean() {
         "## Summary\n\nA change.\n\nGenerated with [Claude Code]\n",
     )
     .expect("the body can be written");
-    let credited = lint(&repository, &repository.range(), Some(&body));
+    let credited = lint(&repository, &repository.range(), &[(BODY_FLAG, &body)]);
 
     fs::write(
         &body,
         "## Summary\n\nA change worked out beside Claude Code.\n",
     )
     .expect("the body can be written");
-    let innocent = lint(&repository, &repository.range(), Some(&body));
+    let innocent = lint(&repository, &repository.range(), &[(BODY_FLAG, &body)]);
 
     assert!(!credited.accepted, "{}", credited.said);
     assert!(innocent.accepted, "{}", innocent.said);
@@ -279,7 +302,7 @@ fn a_range_naming_no_commit_is_rejected_rather_than_passed_quietly() {
     let repository = Repository::new();
     repository.commit("ci: Do a thing.");
 
-    let report = lint(&repository, "HEAD..HEAD", None);
+    let report = lint(&repository, "HEAD..HEAD", &[]);
 
     assert!(
         !report.accepted,
@@ -294,7 +317,7 @@ fn a_body_that_cannot_be_read_is_rejected() {
     repository.commit("ci: Do a thing.");
     let missing = repository.path.join("no-such-body.txt");
 
-    let report = lint(&repository, &repository.range(), Some(&missing));
+    let report = lint(&repository, &repository.range(), &[(BODY_FLAG, &missing)]);
 
     assert!(
         !report.accepted,
