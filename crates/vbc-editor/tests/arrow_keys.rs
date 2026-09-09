@@ -38,6 +38,31 @@
 //! key lands in fails here rather than being noticed later. The stripping itself is checked to
 //! bite: against the stripped table an arrow is a key that reaches nothing.
 //!
+//! Binding a motion where none was reachable before puts three of vim's rules about an inserting
+//! mode within reach for the first time, and this editor keeps none of them. `A` is placed by the
+//! very motion `$` is bound to, so the column it leaves is sticky to the end of a line and an
+//! arrow out of it lands at the end of the line it reaches rather than under where it started;
+//! vim closes an insert's undo block at a motion typed inside it, where this engine files one
+//! checkpoint for the whole insert; and `.` repeats the keys of a change, the arrow among them,
+//! where vim repeats only the insert the arrow began. All three are pinned in [`DIVERGED`] with
+//! what both engines leave, so an engine that starts answering where vim answers fails this file
+//! rather than leaving the reason written down here quietly untrue. None of the three is the
+//! arrows' to fix -- each is how this editor already answers `A`, an undo and a repeat -- and each
+//! is named here rather than left for a reader to find.
+//!
+//! `<PageUp>` and `<PageDown>` are the two keys a reader reaches for that this table does not
+//! answer, because what they stand for is `CTRL-B` and `CTRL-F` and scrolling is answered above
+//! it. That is checked rather than written down: neither is a key of any entry, in any mode, and
+//! neither reaches an action of its own.
+//!
+//! A table is not the program, and the program reads a key before the table does -- an interrupt,
+//! a status line taking what is typed at it, a focus that hands the keys to the transcript
+//! instead. So every pairing is typed at the whole application as well, where an arrow that the
+//! application answered above the table would land somewhere its letter does not or be answered
+//! with a word rather than a motion. The two page keys are typed there too, and are required to
+//! be answered with the word an unbound key is answered with, which is what a reader who reaches
+//! for one actually gets.
+//!
 //! A sweep over a stripped table cannot see a key the six were bound *over*, because stripping
 //! would take that key away too and the sweep would never type it. So the two things that would
 //! make such a collision possible are held closed instead: the table is required to have grown by
@@ -55,12 +80,15 @@ use anyhow::Result;
 use modalkit::env::vim::VimMode;
 use modalkit::key::TerminalKey;
 use modalkit::keybindings::InputKey;
+use ratatui::layout::Rect;
+use vbc_editor::app::App;
 use vbc_editor::chat::block::{Block, Kind, Role};
 use vbc_editor::chat::policy::{Panel, Policy};
 use vbc_editor::chat::transcript::Transcript;
 use vbc_editor::engine::Engine;
 use vbc_editor::keys::{Bindings, Edge, Keys, Step, CURSOR_KEYS};
 use vbc_editor::screen::Geometry;
+use vbc_layout::buffer::Buffer;
 use vbc_oracle::corpus::{Case, Options};
 use vbc_oracle::vim::VimDriver;
 
@@ -71,6 +99,16 @@ use crate::outcome::Outcome;
 struct Paired {
     arrow: &'static str,
     letter: &'static str,
+}
+
+/// What the whole application is left holding: the text, the cursor, and the word the status line
+/// says, which is what a reader sees of a key the application answers rather than the table.
+#[derive(Debug, Eq, PartialEq)]
+struct Landed {
+    text: String,
+    line: u64,
+    column: u64,
+    notice: Option<String>,
 }
 
 /// One pairing measured where a line of the text and a row of the screen part company.
@@ -93,8 +131,10 @@ const COLUMNS: u16 = 20;
 const ROWS: u16 = 10;
 
 /// The pairings the arrows are held to: every way the table lets a motion be reached -- bare,
-/// under a count, as an operator's target, and inside a visual selection.
-const PAIRED: [Paired; 18] = [
+/// under a count, as an operator's target, and inside a visual selection. The two keys the table
+/// counts by something other than the count that was typed carry one of their own, because a
+/// count is the whole of what tells `$` from a key that walks to the end of the line it is on.
+const PAIRED: [Paired; 20] = [
     Paired {
         arrow: "<Down><Down>",
         letter: "jj",
@@ -122,6 +162,14 @@ const PAIRED: [Paired; 18] = [
     Paired {
         arrow: "<End>",
         letter: "$",
+    },
+    Paired {
+        arrow: "2<End>",
+        letter: "2$",
+    },
+    Paired {
+        arrow: "v2<End>d",
+        letter: "v2$d",
     },
     Paired {
         arrow: "<Down><End>",
@@ -220,6 +268,62 @@ const READ_BY_PANEL: [&str; 6] = [
 
 /// The sequences a transcript panel is required to refuse, which are the ones that would write.
 const REFUSED_BY_PANEL: [&str; 4] = ["d<Down>", "d<Right>", "c<End>", "v<Down>d"];
+
+/// One place an arrow parts company with vim, pinned with what both engines leave: the keys, what
+/// this engine is left holding, what vim is left holding, and why the two part. Each is written
+/// with the text as a prefix in front of [`PROSE`], which is what a case typed at its first column
+/// leaves, together with the line and the column the cursor rests on.
+struct Diverged {
+    keys: &'static str,
+    ours: (&'static str, u64, u64),
+    theirs: (&'static str, u64, u64),
+    reason: &'static str,
+}
+
+/// The places an arrow was found to part company with the vim the rest of this file holds it to.
+/// Both sides of each are pinned, so an engine that starts answering where vim answers fails this
+/// file rather than quietly making the reason written down here untrue. Finding one more belongs
+/// here rather than in a widened tolerance somewhere else.
+const DIVERGED: [Diverged; 4] = [
+    Diverged {
+        keys: "jjA<Down>",
+        ours: ("", 3, 21),
+        theirs: ("", 3, 5),
+        reason: "`A` is placed by the very motion `$` is bound to, which leaves the column sticky \
+                 to the end of a line, so a line motion out of it lands at the end of the line it \
+                 reaches. vim's `A` remembers the column it landed on, and a line motion out of \
+                 it keeps that column",
+    },
+    Diverged {
+        keys: "jjA<Up>",
+        ours: ("", 1, 16),
+        theirs: ("", 1, 5),
+        reason: "the column `A` leaves sticky is sticky upwards too",
+    },
+    Diverged {
+        keys: "ixy<Left>z<Esc>u",
+        ours: ("", 0, 0),
+        theirs: ("xy", 0, 1),
+        reason: "vim closes an insert's undo block at a motion typed inside it, so one `u` takes \
+                 back only what was typed after the arrow. This engine files one checkpoint for \
+                 the whole of an insert and one `u` takes the whole of it back",
+    },
+    Diverged {
+        keys: "ixy<Left>z<Esc>.",
+        ours: ("xxzyzy", 0, 2),
+        theirs: ("xzzy", 0, 1),
+        reason: "`.` repeats the keys of the change, the arrow among them, so the whole insert is \
+                 typed again. vim repeats the insert the arrow began, which is what was typed \
+                 after it",
+    },
+];
+
+/// The keys a reader might reach for that this table leaves unbound, each with what it stands for
+/// and where that is answered instead.
+const UNBOUND: [(&str, &str); 2] = [
+    ("<PageUp>", "`CTRL-B`, which `App::scrolled_by` answers"),
+    ("<PageDown>", "`CTRL-F`, which `App::scrolled_by` answers"),
+];
 
 /// The transcript the panel cases are read from. Its lines are longer than the window is wide, so
 /// the arrows are read over a transcript that wraps.
@@ -482,6 +586,135 @@ fn the_control_group_is_measured_against_a_table_the_arrows_are_really_out_of() 
         "the table the control group compares against still answers an arrow, so it is not the \
          table as it stood before they were bound"
     );
+}
+
+#[test]
+fn an_arrow_typed_at_the_application_lands_where_its_letter_lands() {
+    let mut wrong = Vec::new();
+    for case in PAIRED {
+        let by_arrow = at_the_application(case.arrow);
+        let by_letter = at_the_application(case.letter);
+        if by_arrow != by_letter {
+            wrong.push(format!(
+                "`{}` left the application somewhere other than `{}` leaves it",
+                case.arrow, case.letter
+            ));
+        }
+        if by_arrow.notice.is_some() {
+            wrong.push(format!(
+                "`{}` was answered with a word rather than a motion",
+                case.arrow
+            ));
+        }
+    }
+
+    assert_eq!(Vec::<String>::new(), wrong);
+}
+
+#[test]
+fn the_application_answers_a_key_that_stands_for_a_scroll_with_a_word() {
+    for (spelled, _stands_for) in UNBOUND {
+        let landed = at_the_application(spelled);
+
+        assert_eq!(PROSE, landed.text, "`{spelled}` changed the text");
+        assert_eq!(
+            (0, 0),
+            (landed.line, landed.column),
+            "`{spelled}` moved the cursor, so it is answered by this table after all"
+        );
+        assert_eq!(
+            Some(format!("`{spelled}` is bound to nothing")),
+            landed.notice,
+            "`{spelled}` was not answered with the word an unbound key is answered with"
+        );
+    }
+}
+
+#[test]
+fn each_place_an_arrow_parts_company_with_vim_leaves_what_it_is_pinned_with() -> Result<()> {
+    let vim = VimDriver::new()?;
+
+    for case in DIVERGED {
+        let typed = engine_outcome(case.keys)?;
+        let by_vim = vim_outcome(&vim, case.keys)?;
+
+        assert_eq!(
+            (left(case.ours), left(case.theirs)),
+            (
+                (typed.text, typed.line, typed.column),
+                (by_vim.text, by_vim.line, by_vim.column)
+            ),
+            "`{}` no longer leaves what this divergence says it leaves, so `{}` no longer \
+             describes what happens",
+            case.keys,
+            case.reason
+        );
+        assert_eq!(
+            by_vim.mode, typed.mode,
+            "`{}` left the engine in a mode other than vim's, which is more than the divergence \
+             written down for it",
+            case.keys
+        );
+    }
+
+    Ok(())
+}
+
+#[test]
+fn the_keys_that_stand_for_a_scroll_are_left_to_be_answered_above_this_table() {
+    let bound = Bindings::vim();
+    let mut answered = Vec::new();
+    for (spelled, stands_for) in UNBOUND {
+        let typed = keys(spelled);
+        let [only] = typed.as_slice() else {
+            panic!("`{spelled}` is spelled by something other than one key");
+        };
+        let key = TerminalKey::from(*only);
+        for binding in bound.entries() {
+            if binding.keys.contains(&Edge::Key(key)) {
+                answered.push(format!(
+                    "`{spelled}`, which stands for {stands_for}, is bound in `{:?}`",
+                    binding.mode
+                ));
+            }
+        }
+        let mut machine = Keys::new(bound.clone());
+        machine.input_key(key);
+        if machine.pop().is_some() {
+            answered.push(format!("`{spelled}` reaches an action of its own"));
+        }
+    }
+
+    assert_eq!(Vec::<String>::new(), answered);
+}
+
+/// # Returns
+///
+/// What the whole application is left holding after `keys` are typed at it, which is the text, the
+/// cursor and the word the status line says: the keys arrive the way a terminal reader delivers
+/// them, so a key the application answers before the table sees it is answered here as a reader
+/// would see it.
+fn at_the_application(keys: &str) -> Landed {
+    let mut app = App::new(Buffer::from_text(PROSE));
+    let area = Rect::new(0, 0, COLUMNS, ROWS);
+    for key in self::keys(keys) {
+        app.press(area, key);
+    }
+    let cursor = app.cursor();
+
+    Landed {
+        text: app.text().text(),
+        line: cursor.line as u64,
+        column: cursor.grapheme as u64,
+        notice: app.notice().map(ToOwned::to_owned),
+    }
+}
+
+/// # Returns
+///
+/// What a pinned side of a divergence leaves, which is its text written out in full.
+fn left((prefix, line, column): (&str, u64, u64)) -> (String, u64, u64) {
+    (format!("{prefix}{PROSE}"), line, column)
 }
 
 /// # Returns
