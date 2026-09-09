@@ -12,11 +12,19 @@ use vbc_editor::event::KeyEvent;
 /// The keys vim's notation names by something other than the character they type, each with the
 /// event a terminal reports for it. `CTRL-` keys are spelled by the character they hold rather
 /// than named here, since every one of them is spelled the same way.
-const NAMED: [(&str, KeyCode); 4] = [
+const NAMED: [(&str, KeyCode); 12] = [
     ("Esc", KeyCode::Esc),
     ("CR", KeyCode::Enter),
     ("Tab", KeyCode::Tab),
     ("BS", KeyCode::Backspace),
+    ("Left", KeyCode::Left),
+    ("Right", KeyCode::Right),
+    ("Down", KeyCode::Down),
+    ("Up", KeyCode::Up),
+    ("Home", KeyCode::Home),
+    ("End", KeyCode::End),
+    ("PageUp", KeyCode::PageUp),
+    ("PageDown", KeyCode::PageDown),
 ];
 
 /// # Returns
