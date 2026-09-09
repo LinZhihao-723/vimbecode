@@ -1,4 +1,5 @@
-//! Detection of the credit a commit message or a pull request body gives an AI for the work.
+//! Detection of the credit a commit message, or the title or body of a pull request, gives an AI
+//! for the work.
 //!
 //! This repository is written with an assistant and talks about one constantly, so naming a model
 //! is not the offence and cannot be made into one: a scan that fired on the word `Claude` would
@@ -18,6 +19,11 @@
 //! says a model did and is not. A trailer's value is read whole instead, because a value is an
 //! identity all the way to the end of the line rather than a sentence a name can honestly appear
 //! in.
+//!
+//! What is quoted is left alone on the same grounds. A credit inside backticks is an example of
+//! one rather than one, which is how a commit explaining this check names the credit it catches,
+//! and a check that failed the commits written about it is a check somebody switches off. A line
+//! is read past the span it quotes all the same, so a credit given after one is caught.
 
 use std::fmt::{Display, Formatter, Result as FmtResult};
 
