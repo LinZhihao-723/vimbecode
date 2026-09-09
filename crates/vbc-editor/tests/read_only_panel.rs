@@ -623,8 +623,26 @@ struct Wrapping {
     tab_stop: usize,
 }
 
-/// The keys a reader reaches for that no terminal reports as a printable character.
-const NAMED_READABLE: [&str; 3] = ["<Enter>", "<Esc>", "<C-V>"];
+/// The keys a reader reaches for that no terminal reports as a printable character. The arrows
+/// are among them because they are what a reader who has not learned `hjkl` reaches for.
+const NAMED_READABLE: [&str; 9] = [
+    "<Enter>", "<Esc>", "<C-V>", "<Left>", "<Right>", "<Down>", "<Up>", "<Home>", "<End>",
+];
+
+/// The keys a vim manual names in angle brackets that a sweep types by name rather than by the
+/// character they hold, each with the code a terminal reports for it.
+const NAMED_CODES: [(&str, KeyCode); 10] = [
+    ("<Esc>", KeyCode::Esc),
+    ("<Enter>", KeyCode::Enter),
+    ("<Tab>", KeyCode::Tab),
+    ("<BS>", KeyCode::Backspace),
+    ("<Left>", KeyCode::Left),
+    ("<Right>", KeyCode::Right),
+    ("<Down>", KeyCode::Down),
+    ("<Up>", KeyCode::Up),
+    ("<Home>", KeyCode::Home),
+    ("<End>", KeyCode::End),
+];
 
 /// One key of a sweep: what a terminal reports when it is typed, and the spelling a vim manual
 /// names it by, which is what a sweep's failure is reported in.
@@ -1274,14 +1292,16 @@ fn event_of(spelling: &str) -> Option<KeyEvent> {
 /// The key event a terminal reports for the key a vim manual spells `spelling` with a name in
 /// angle brackets, and [`None`] where nothing here spells it.
 fn named(spelling: &str) -> Option<KeyEvent> {
-    let held = match spelling {
-        "<lt>" => return Some(typed('<')),
-        "<Esc>" => return Some(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)),
-        "<Enter>" => return Some(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
-        "<Tab>" => return Some(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)),
-        "<BS>" => return Some(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE)),
-        spelling => spelling.strip_prefix("<C-")?.strip_suffix('>')?,
-    };
+    if "<lt>" == spelling {
+        return Some(typed('<'));
+    }
+    if let Some((_spelled, code)) = NAMED_CODES
+        .iter()
+        .find(|(spelled, _code)| *spelled == spelling)
+    {
+        return Some(KeyEvent::new(*code, KeyModifiers::NONE));
+    }
+    let held = spelling.strip_prefix("<C-")?.strip_suffix('>')?;
     let mut characters = held.chars();
     let character = characters.next()?;
     if characters.next().is_some() {

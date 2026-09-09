@@ -37,12 +37,22 @@
 //! answers a motion typed by hand -- and a repeat is bound by nothing this table does not already
 //! bind.
 //!
+//! The arrow keys are not a second set of motions beside the letters. `<Left>`, `<Down>`, `<Up>`
+//! and `<Right>` are bound to what `h`, `j`, `k` and `l` are bound to and `<Home>` and `<End>` to
+//! what `0` and `$` are, so a count, an operator and a visual selection reach them the way they
+//! reach the letters, and `<Down>` walks a line of the text rather than a row of the screen
+//! because `j` does. The same six are bound again in an inserting mode, where the letters are text
+//! and a key that is not text is the only thing left to move by. [`CURSOR_KEYS`] is where the six
+//! are named, once, so that a letter and the key beside it cannot drift apart.
+//!
 //! What is deliberately not bound: windows, tabs, scrolling, macros, marks, regular-expression
-//! search, command mode and select mode, because this editor drives none of them. Nor are the
-//! motions and the text objects modalkit's own text cannot answer, which are left unbound rather
-//! than bound to a keystroke that reaches the text and quietly changes nothing -- the harder of
-//! the two to notice. `iw` and `aw` name one range apiece because modalkit's text draws no
-//! distinction between them.
+//! search, command mode and select mode, because this editor drives none of them. `<PageUp>` and
+//! `<PageDown>` are among them rather than among the cursor keys above, because what they stand
+//! for is `CTRL-B` and `CTRL-F`, and scrolling is answered above this table rather than by it. Nor
+//! are the motions and the text objects modalkit's own text cannot answer bound, which are left
+//! unbound rather than bound to a keystroke that reaches the text and quietly changes nothing --
+//! the harder of the two to notice. `iw` and `aw` name one range apiece because modalkit's text
+//! draws no distinction between them.
 //!
 //! Some of what is not bound is not a key on its own. vim reads the key after `m`, `q`, `@`, `'`
 //! and `` ` `` as the name of a mark or a register, and the key after `Z`, `z`, `[`, `]` and
@@ -80,6 +90,41 @@ pub const PREFIX: char = 'g';
 /// The character a register is named after in vim, which is the one the table reads a register
 /// prefix by.
 pub const REGISTER_PREFIX: char = '"';
+
+/// The keys that move a cursor without spelling a letter, each with the motion the letter beside
+/// it is bound to.
+///
+/// These are the keys a reader who has not learned `hjkl` reaches for, and the only ones left to
+/// move by once the letters are text, so each is bound both where its letter is -- normal, visual
+/// and operator-pending -- and in an inserting mode.
+pub const CURSOR_KEYS: [(&str, MoveType, Count); 6] = [
+    (
+        "<Left>",
+        MoveType::Column(MoveDir1D::Previous, false),
+        Count::Contextual,
+    ),
+    (
+        "<Right>",
+        MoveType::Column(MoveDir1D::Next, false),
+        Count::Contextual,
+    ),
+    ("<Down>", MoveType::Line(MoveDir1D::Next), Count::Contextual),
+    (
+        "<Up>",
+        MoveType::Line(MoveDir1D::Previous),
+        Count::Contextual,
+    ),
+    (
+        "<Home>",
+        MoveType::LinePos(MovePosition::Beginning),
+        Count::Exact(0),
+    ),
+    (
+        "<End>",
+        MoveType::LinePos(MovePosition::End),
+        Count::MinusOne,
+    ),
+];
 
 /// Every key vim reads a further key after rather than answering on its own, spelled as a binding
 /// of the table spells it.
@@ -1129,7 +1174,10 @@ fn motion_table() -> Vec<Entry> {
             MoveType::ScreenLinePos(MovePosition::Middle),
             Count::Exact(0),
         ),
-    ] {
+    ]
+    .into_iter()
+    .chain(CURSOR_KEYS)
+    {
         entries.push(entry(&MOTION_MODES, keys, motion(move_type, count)));
     }
     entries.push(entry(
@@ -1657,7 +1705,24 @@ fn visual_table() -> Vec<Entry> {
 ///
 /// The entries read only in an inserting mode, which are the keys that are not text.
 fn insert_table() -> Vec<Entry> {
-    vec![
+    let mut entries: Vec<Entry> = CURSOR_KEYS
+        .into_iter()
+        .map(|(keys, move_type, count)| {
+            entry(
+                &INSERT_MODES,
+                keys,
+                run(
+                    Vec::new(),
+                    vec![target(
+                        Specifier::Exact(EditAction::Motion),
+                        EditTarget::Motion(move_type, count),
+                    )],
+                    None,
+                ),
+            )
+        })
+        .collect();
+    entries.extend([
         entry(
             &INSERT_MODES,
             "<Esc>",
@@ -1694,7 +1759,9 @@ fn insert_table() -> Vec<Entry> {
                 None,
             ),
         ),
-    ]
+    ]);
+
+    entries
 }
 
 /// # Returns
