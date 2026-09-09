@@ -461,6 +461,7 @@ fn the_reachability_scan_starts_at_every_binary_the_workspace_holds() {
 
     assert_eq!(
         vec![
+            "crates/vbc-ci/src/bin/ai-attribution-lint.rs",
             "crates/vbc-ci/src/bin/pr-title-lint.rs",
             "crates/vbc-editor/src/main.rs",
             "crates/vbc-oracle/src/bin/differential-run.rs",
