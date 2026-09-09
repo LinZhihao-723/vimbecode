@@ -70,6 +70,11 @@ pub const CREDIT_PHRASES: [&str; 8] = [
 /// The mail domains an AI vendor's own identity is written at.
 pub const VENDOR_DOMAINS: [&str; 2] = ["anthropic.com", "openai.com"];
 
+/// The marks a markdown list writes an item under, which a trailer is read past rather than
+/// hidden behind. A quote's mark is not among them: a line somebody quoted is a line somebody is
+/// writing about, which is how the offence is discussed rather than given.
+pub const LIST_MARKS: [char; 2] = ['*', '-'];
+
 /// How many words of a clause a phrase can credit. `Assisted by GitHub Copilot` credits two, and
 /// nothing anybody signs work over to is named in more, so a model written further along than this
 /// is one the sentence went on to mention rather than the party being thanked.
@@ -187,9 +192,12 @@ fn credited(line: &str) -> Option<Reason> {
 ///
 /// The key of the trailer a line gives a model in the value of, or [`None`] where the line is no
 /// such trailer. The whole value is read, because a trailer's value is an identity rather than a
-/// sentence a name can appear in for another reason.
+/// sentence a name can appear in for another reason. A key is read past the mark a list writes it
+/// as an item under, because a body is prose in markdown and a credit written as an item of a list
+/// is the same credit.
 fn credit_trailer(line: &str) -> Option<String> {
     let (key, value) = line.split_once(':')?;
+    let key = key.trim_start_matches(LIST_MARKS).trim_start();
     if key.is_empty() || key.split_whitespace().count() != 1 {
         return None;
     }
@@ -364,6 +372,28 @@ mod tests {
             "Author: Haiku",
         ] {
             assert!(credits(written), "`{written}` was passed");
+        }
+    }
+
+    #[test]
+    fn a_credit_written_as_an_item_of_a_list_is_caught() {
+        for written in [
+            "- Co-authored-by: Claude",
+            "* Co-authored-by: Claude Opus 5 (1M context)",
+            "  - Assisted-by: ChatGPT",
+        ] {
+            assert!(credits(written), "`{written}` was passed");
+        }
+    }
+
+    #[test]
+    fn a_credit_somebody_is_writing_about_passes() {
+        for written in [
+            "> Co-authored-by: Claude",
+            "The trailer to catch is `Co-authored-by: Claude`.",
+            "- The trailer to catch is `Co-authored-by: Claude`.",
+        ] {
+            assert!(!credits(written), "`{written}` was failed");
         }
     }
 

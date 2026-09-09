@@ -26,8 +26,9 @@ const LINT_BIN: &str = env!("CARGO_BIN_EXE_ai-attribution-lint");
 const OFFENCE: &str = "Co-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>";
 
 /// The variants of that credit which have to be caught beside it.
-const VARIANTS: [&str; 5] = [
+const VARIANTS: [&str; 6] = [
     "Generated with [Claude Code](https://claude.com/claude-code)",
+    "- Co-authored-by: Claude",
     "noreply@anthropic.com",
     "CO-AUTHORED-BY: CLAUDE OPUS 5",
     "co-authored-by: claude",

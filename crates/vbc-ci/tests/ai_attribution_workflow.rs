@@ -7,26 +7,42 @@
 //!
 //! What a reading like that is worth is not an argument either. Every way the workflow could stop
 //! running the check is written into a copy of it -- the job excused, the job renamed, the trigger
-//! swapped, the command commented out where it still reads as one, each flag struck off, the
+//! swapped, narrowed to some branches or to some paths, struck off one of the moments a request
+//! changes at, the command commented out where it still reads as one, each flag struck off, the
 //! history shortened to the tip -- and the reading is required to report each. A guard that has
 //! stopped covering the workflow it names fails here rather than passing quietly.
 
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// The workflow that must run the check, and the job of it that every pull request runs.
+/// The workflow that must run the check, the key its trigger is written under, and the job of it
+/// that every pull request runs.
 const WORKFLOW: [&str; 3] = [".github", "workflows", "ai-attribution.yaml"];
+const TRIGGER: &str = "on:";
 const WORKFLOW_JOB: &str = "lint-attribution";
 
-/// The event the workflow must be triggered by, and the moments of it a pull request's commits or
-/// body can change at. A body edited after the request was opened is unchecked without `edited`,
-/// and a commit pushed after it was opened is unchecked without `synchronize`.
+/// The event the workflow must be triggered by, and every moment of it a request has to be read
+/// at. A request opened with its commits already pushed is read at no moment other than `opened`,
+/// one reopened at none other than `reopened`, a body rewritten afterwards at none other than
+/// `edited`, and a commit pushed afterwards at none other than `synchronize`. So a check run at
+/// three of the four lets a request through at the fourth, reporting nothing where nothing was
+/// read.
 const PULL_REQUEST: &str = "pull_request:";
-const MOMENTS: [&str; 2] = ["\"edited\"", "\"synchronize\""];
+const MOMENTS: [&str; 4] = [
+    "\"edited\"",
+    "\"opened\"",
+    "\"reopened\"",
+    "\"synchronize\"",
+];
 
-/// What a job of the workflow is written under, and what everything inside one is indented past.
-const JOB_KEY: &str = "  ";
-const INSIDE_A_JOB: &str = "    ";
+/// The keys that would narrow the trigger to some pull requests rather than all of them. A request
+/// the trigger passes over runs the check nowhere, and a check that was never run reads on the
+/// request exactly as a clean one does.
+const NARROWINGS: [&str; 4] = ["branches:", "branches-ignore:", "paths:", "paths-ignore:"];
+
+/// What a key of the workflow is written under, and what everything inside one is indented past.
+const UNDER_A_KEY: &str = "  ";
+const INSIDE_A_KEY: &str = "    ";
 
 /// The keys that would excuse a job of the workflow, or a step of one, from being run and from
 /// failing, neither of which a job every pull request has to pass may hold.
@@ -67,12 +83,14 @@ fn a_workflow_that_stopped_running_the_check_is_caught() {
         ),
         excused_by(&workflow, &format!("{FORGIVEN} true")),
         workflow.replace(
-            &format!("{JOB_KEY}{WORKFLOW_JOB}:"),
+            &format!("{UNDER_A_KEY}{WORKFLOW_JOB}:"),
             "  lint-something-else:",
         ),
         workflow.replace(PULL_REQUEST, "schedule:"),
         workflow.replace(WHOLE_HISTORY, "fetch-depth: 1"),
         commented_out(&workflow, "cargo run"),
+        narrowed_by(&workflow, "paths: [\"crates/**\"]"),
+        narrowed_by(&workflow, "branches: [\"main\"]"),
     ];
     stopped.extend(
         REQUIRED
@@ -113,13 +131,20 @@ fn unrun_by(workflow: &str) -> Vec<String> {
     let mut complaints = Vec::new();
     let job = job(workflow, WORKFLOW_JOB);
     let run = collapsed(&job);
+    let trigger = trigger(workflow);
+    let triggered = collapsed(&trigger);
 
-    if !workflow.contains(PULL_REQUEST) {
+    if !trigger.iter().any(|line| line.trim() == PULL_REQUEST) {
         complaints.push(format!("the workflow is not triggered by `{PULL_REQUEST}`"));
     }
     for moment in MOMENTS {
-        if !workflow.contains(moment) {
+        if !triggered.contains(moment) {
             complaints.push(format!("the workflow is not triggered on {moment}"));
+        }
+    }
+    for narrowing in NARROWINGS {
+        if narrows(&trigger, narrowing) {
+            complaints.push(format!("the trigger is narrowed by `{narrowing}`"));
         }
     }
     if job.is_empty() {
@@ -145,15 +170,36 @@ fn unrun_by(workflow: &str) -> Vec<String> {
 
 /// # Returns
 ///
+/// The lines of the trigger of `workflow`, which are the lines under `on:` indented inside it.
+fn trigger(workflow: &str) -> Vec<&str> {
+    workflow
+        .lines()
+        .skip_while(|line| line.trim_end() != TRIGGER)
+        .skip(1)
+        .take_while(|line| line.trim().is_empty() || line.starts_with(UNDER_A_KEY))
+        .collect()
+}
+
+/// # Returns
+///
+/// Whether a trigger is narrowed by `narrowing` to some pull requests rather than all of them.
+fn narrows(trigger: &[&str], narrowing: &str) -> bool {
+    trigger
+        .iter()
+        .any(|line| line.trim().starts_with(narrowing))
+}
+
+/// # Returns
+///
 /// The lines of one job of `workflow`, which are the lines under it indented inside it.
 fn job<'workflow>(workflow: &'workflow str, name: &str) -> Vec<&'workflow str> {
-    let opening = format!("{JOB_KEY}{name}:");
+    let opening = format!("{UNDER_A_KEY}{name}:");
 
     workflow
         .lines()
         .skip_while(|line| line.trim_end() != opening)
         .skip(1)
-        .take_while(|line| line.trim().is_empty() || line.starts_with(INSIDE_A_JOB))
+        .take_while(|line| line.trim().is_empty() || line.starts_with(INSIDE_A_KEY))
         .collect()
 }
 
@@ -201,7 +247,7 @@ fn commented_out(workflow: &str, opening: &str) -> String {
             let written = line.trim_start();
             if written.starts_with(opening) {
                 commenting = true;
-            } else if written.is_empty() || !line.starts_with(INSIDE_A_JOB) {
+            } else if written.is_empty() || !line.starts_with(INSIDE_A_KEY) {
                 commenting = false;
             }
             if !commenting {
@@ -217,11 +263,21 @@ fn commented_out(workflow: &str, opening: &str) -> String {
 
 /// # Returns
 ///
+/// The workflow with `filter` written into its trigger, which is a trigger that passes over every
+/// pull request the filter leaves out.
+fn narrowed_by(workflow: &str, filter: &str) -> String {
+    let opening = format!("{UNDER_A_KEY}{PULL_REQUEST}\n");
+
+    workflow.replace(&opening, &format!("{opening}{INSIDE_A_KEY}{filter}\n"))
+}
+
+/// # Returns
+///
 /// The workflow with `excuse` written into the job that runs the check.
 fn excused_by(workflow: &str, excuse: &str) -> String {
-    let opening = format!("{JOB_KEY}{WORKFLOW_JOB}:\n");
+    let opening = format!("{UNDER_A_KEY}{WORKFLOW_JOB}:\n");
 
-    workflow.replace(&opening, &format!("{opening}{INSIDE_A_JOB}{excuse}\n"))
+    workflow.replace(&opening, &format!("{opening}{INSIDE_A_KEY}{excuse}\n"))
 }
 
 /// # Returns
