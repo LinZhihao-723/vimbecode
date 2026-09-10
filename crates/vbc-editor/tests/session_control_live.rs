@@ -71,6 +71,17 @@ const QUESTION_ASKED: &str = "Use the AskUserQuestion tool to ask me one questio
 const CHOSEN: &str = "tea";
 const ANSWERED: &str = "ANSWER=tea";
 
+/// What a session is asked to put two questions in one call with, and what each is answered with.
+/// One call carrying two questions is the only way a reader is asked two things at once by this
+/// release, so it is where an answer keyed by more than one question has anywhere to go.
+const BOTH_ASKED_OF: &str =
+    "Use the AskUserQuestion tool ONCE to ask me TWO questions in the same \
+                             call: whether I prefer tea or coffee, and whether I prefer cats or \
+                             dogs. Once you have my answers, reply with exactly DRINK=<what I \
+                             chose> PET=<what I chose> and nothing else.";
+const PETS: &str = "dogs";
+const BOTH_ANSWERED: &str = "DRINK=tea PET=dogs";
+
 /// What claude 2.1.263 puts in the tool result of a question that was approved rather than
 /// answered. It is matched loosely because what is being asserted is that the session reported the
 /// reader as not having answered, not the wording it reported it in.
@@ -221,6 +232,55 @@ fn a_real_question_is_answered_by_the_input_and_not_by_the_approval() -> Result<
     Ok(())
 }
 
+/// Validation 2, for the answer that carries more than one: a session puts two questions in one
+/// call, and both are answered by the one map the answer carries. The map is keyed by a question's
+/// own text rather than by its position, so nothing but a case that asks two of them says the key
+/// is read at all -- a single question is answered correctly by a map that ignored its key.
+#[test]
+#[ignore = "starts a real Claude Code session, so it needs the binary, a login and a network"]
+fn two_questions_asked_in_one_call_are_each_answered_under_their_own_text() -> Result<()> {
+    let directory = TempDir::new()?;
+    let mut session = Client::start(&spawn(directory.path()))?;
+    let mut queue = Queue::new();
+    let mut asked = Vec::new();
+
+    let events = session.turn_answering(BOTH_ASKED_OF, TURN, &mut queue, |queue| {
+        queue
+            .outstanding()
+            .iter()
+            .map(|ask| {
+                let Subject::Questions(questions) = ask.subject() else {
+                    return ask.answer(&Decision::Allowed);
+                };
+                asked.push(questions.len());
+
+                let answers = questions
+                    .iter()
+                    .map(|question| (question.question.clone(), chosen(&question.question)))
+                    .collect();
+
+                ask.answer(&Decision::Answered(answers))
+            })
+            .collect()
+    })?;
+    session.finish(ENDING)?;
+
+    assert_eq!(
+        vec![2],
+        asked,
+        "the session did not put both questions in one call, so this case answered one map with \
+         one key in it and proved nothing about the key"
+    );
+    let ending = &ended(&events)?.text;
+    assert!(
+        ending.contains(BOTH_ANSWERED),
+        "the session read one of the two answers as the other's, or read neither; it ended with: \
+         {ending}"
+    );
+
+    Ok(())
+}
+
 /// Validation 3: an interrupt aborts the turn in flight, its receipt is read off the stream ahead
 /// of the aborted turn's own result, and what was queued behind it does not run afterwards.
 #[test]
@@ -357,6 +417,21 @@ fn a_real_session_asks_about_one_call_at_a_time() -> Result<()> {
     );
 
     Ok(())
+}
+
+/// # Returns
+///
+/// The answer given to one of the two questions a session was asked to ask, which is told apart by
+/// what it asks about rather than by the order it was asked in: the point of the case is that an
+/// answer reaches the question it names, and an answer chosen by position would reach it whether
+/// it did or not.
+fn chosen(question: &str) -> String {
+    let asked = question.to_lowercase();
+    if asked.contains("cat") || asked.contains("dog") {
+        return PETS.to_owned();
+    }
+
+    CHOSEN.to_owned()
 }
 
 /// # Returns
