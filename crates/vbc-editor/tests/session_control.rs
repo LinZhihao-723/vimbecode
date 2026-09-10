@@ -51,8 +51,19 @@ const CANCEL: &str = "cancel";
 /// How long a turn against a process on this machine is given. Nothing here waits on a model.
 const TURN: Duration = Duration::from_secs(10);
 
+/// How long the child is given to exit once its input has been closed, which is also how long the
+/// stand-in has to finish reading what it was sent: what it was answered is asserted on, and a
+/// child still holding unread answers has not written all of them down yet.
+const ENDING: Duration = Duration::from_secs(10);
+
 /// How long a session that should have nothing left to say is listened to before it is believed.
 const SILENCE: Duration = Duration::from_millis(500);
+
+/// How many times a reader who does not forget what they decided goes on offering it before the
+/// case gives up on the client noticing. It is a bound rather than a forever so that a client that
+/// takes every offer as work to do fails on what it sent, in a moment, rather than by never
+/// returning at all.
+const OFFERS: usize = 8;
 
 #[test]
 fn a_call_the_reader_allowed_is_made_and_one_they_refused_is_not() -> Result<()> {
@@ -275,6 +286,50 @@ fn a_question_is_answered_through_the_input_and_approving_it_answers_nothing() -
             .collect::<Vec<String>>(),
         "the question the session asked was not read as a question"
     );
+
+    Ok(())
+}
+
+#[test]
+fn a_reader_who_goes_on_offering_the_answer_they_gave_answers_once_and_the_turn_ends() -> Result<()>
+{
+    let directory = TempDir::new()?;
+    let mut session = Client::start(&spawn(directory.path()))?;
+    let mut queue = Queue::new();
+    let mut decided = None;
+    let mut offers = 0_usize;
+
+    let events = session.turn_answering("write it", TURN, &mut queue, |queue| {
+        if let Some(ask) = queue.oldest() {
+            decided = Some(ask.clone());
+        }
+        offers += 1;
+        if OFFERS < offers {
+            return Vec::new();
+        }
+
+        decided
+            .iter()
+            .map(|ask| ask.answer(&Decision::Allowed))
+            .collect()
+    })?;
+    session.finish(ENDING)?;
+
+    assert!(
+        offers <= OFFERS,
+        "the reader was asked until they gave up rather than until there was nothing outstanding \
+         left to answer, so a reader who does not forget is a reader the turn never returns to"
+    );
+    assert_eq!(
+        vec!["req-write allow"],
+        fs::read_to_string(directory.path().join(ANSWERED))?
+            .lines()
+            .collect::<Vec<&str>>(),
+        "the session was answered again for a question it had stopped waiting on, so a reader who \
+         did not forget what they decided is a reader whose decision is sent over and over"
+    );
+    assert_eq!("written", ended(&events)?.text);
+    assert_eq!(&[] as &[Ask], queue.outstanding());
 
     Ok(())
 }

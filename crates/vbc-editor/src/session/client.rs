@@ -221,9 +221,16 @@ impl Client {
     /// `answering` is handed the whole of what is outstanding and answers as much or as little of
     /// it as it likes, which is the same freedom an interactive reader has and the same three
     /// calls -- read, queue, answer -- a drawing loop makes in its own order. It is asked again
-    /// for as long as it goes on answering, and only then is the session waited on: a session with
-    /// a question outstanding writes nothing, so a loop that answered one question per event would
-    /// wait out its deadline holding the answer to the question the wait is for.
+    /// for as long as it goes on striking questions off, and only then is the session waited on: a
+    /// session with a question outstanding writes nothing, so a loop that answered one question
+    /// per event would wait out its deadline holding the answer to the question the wait is for.
+    ///
+    /// What it hands back that names nothing outstanding is dropped rather than sent, and a round
+    /// that strikes nothing off ends the asking. A reader who has decided is not obliged to forget
+    /// it, so a policy that goes on offering the answer it already gave is an ordinary one; a loop
+    /// that took each offer as work to do would send the session an answer per round to a question
+    /// it stopped waiting on at the first, and would never reach the read that the deadline is
+    /// enforced in.
     ///
     /// # Returns
     ///
@@ -255,10 +262,14 @@ impl Client {
         loop {
             loop {
                 let answers = answering(queue);
-                if answers.is_empty() {
+                let awaited: Vec<&Answer> = answers
+                    .iter()
+                    .filter(|answer| queue.get(answer.request_id()).is_some())
+                    .collect();
+                if awaited.is_empty() {
                     break;
                 }
-                for answer in &answers {
+                for answer in awaited {
                     self.answer(answer)?;
                     queue.answered(answer);
                 }

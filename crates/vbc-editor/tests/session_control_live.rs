@@ -101,6 +101,11 @@ const QUEUED: [&str; 2] = [
 /// session's own start-up and far short of the answer it was asked for. The answer is asked to be
 /// long enough that a fast model cannot have finished it: a turn that ended on its own is a case
 /// that stopped nothing, and it fails rather than passing quietly.
+///
+/// It bounds each read as well as the window, because a turn writing a long answer says nothing
+/// at all while it writes it: a read given the whole turn's deadline returns when the answer is
+/// finished rather than when this window is up, and a turn stopped after it finished is a case
+/// that stopped nothing and said it had.
 const RUNNING: Duration = Duration::from_secs(6);
 
 /// What a session writes into its own history where a turn was stopped rather than finished.
@@ -225,13 +230,18 @@ fn an_interrupt_aborts_a_real_turn_and_the_queue_behind_it() -> Result<()> {
     let mut session = Client::start(&spawn(directory.path()))?;
 
     session.ask(LONG_ASKED)?;
-    let running = Instant::now();
-    while running.elapsed() < RUNNING {
-        let event = session.next(TURN)?;
+    let started = Instant::now();
+    let running = started + RUNNING;
+    while let Some(left) = running.checked_duration_since(Instant::now()) {
+        let event = match session.next(left) {
+            Ok(event) => event,
+            Err(Error::Silent { .. }) => continue,
+            Err(error) => return Err(error.into()),
+        };
         if let Some(turn) = event.turn() {
             return Err(anyhow!(
                 "the turn ended in {:?}, before there was anything to stop: {turn:?}",
-                running.elapsed()
+                started.elapsed()
             ));
         }
     }
