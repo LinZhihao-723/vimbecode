@@ -5,8 +5,11 @@
 //! raised before the line is written because the protocol will not raise it afterwards.
 //! [`Error::FlagRejected`] and [`Error::FlagIgnored`] are the two ways the permission flag can
 //! stop working, which are worth telling apart because one is a binary that refused to start and
-//! the other is a binary that started and will deny everything. The rest are the child's life:
-//! spawning it, writing to it, and it ending or falling silent.
+//! the other is a binary that started and will deny everything. [`Error::Trust`] is the only one
+//! raised before a child exists at all: a directory whose standing could not be settled is a
+//! directory nothing is started in, because by the time a spawn has failed the project's code has
+//! already run. The rest are the child's life: spawning it, writing to it, and it ending or
+//! falling silent.
 
 use std::error::Error as StdError;
 use std::fmt::{Display, Formatter, Result as FmtResult};
@@ -48,6 +51,17 @@ pub enum Error {
 
         /// The tools the flag admits, which its own catalog did not name.
         missing: Vec<String>,
+    },
+
+    /// Whether a directory may run its own code could not be settled, either because the
+    /// directory does not resolve or because the record the reader's trust is kept in could not be
+    /// read, understood or written.
+    Trust {
+        /// The directory, or the record, that could not be used.
+        path: String,
+
+        /// What went wrong with it.
+        reason: String,
     },
 
     /// The child could not be started.
@@ -116,6 +130,13 @@ impl Display for Error {
                     "the claude binary accepted `{flag}` and did not honour it, so every tool \
                      call needing approval will be auto-denied; its catalog names none of {}",
                     missing.join(", ")
+                )
+            }
+            Self::Trust { path, reason } => {
+                write!(
+                    formatter,
+                    "whether `{path}` may run its own code could not be settled, so no session \
+                     was started in it: {reason}"
                 )
             }
             Self::Spawn { binary, reason } => {
