@@ -14,6 +14,12 @@
 //! child said on its way out, because that is the only account there is of a child that refused to
 //! start.
 //!
+//! Not all of the silence is the model's. A session that wants to write a file asks first, and
+//! from the moment it asks it writes nothing whatever -- no prose, no result, no error -- until
+//! the question is answered. A turn that waits for its own end therefore waits forever on the one
+//! kind of turn a reader most wants to watch, which is why the turn that answers is here rather
+//! than in whatever draws it: the question and the answer are the same round trip as the turn.
+//!
 //! Silence is not an event. Nothing at all arrives until the first frame is sent, a turn may think
 //! for minutes before its first word, and a child whose stream has ended looks exactly like a
 //! child that has not spoken yet. Every read here is therefore bounded and every ending is
@@ -26,10 +32,12 @@ use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
+use super::control::{Answer, Receipt, Request};
 use super::error::Error;
 use super::event::{Event, Kind};
 use super::frame::Frame;
 use super::probe;
+use super::queue::Queue;
 use super::spawn::Spawn;
 
 /// How often a child that is being waited on is asked whether it has exited yet.
@@ -202,6 +210,121 @@ impl Client {
             if ended {
                 return Ok(events);
             }
+        }
+    }
+
+    /// Takes one turn, answering what the session asks along the way.
+    ///
+    /// A turn that is not answered does not end. The session writes its question and then nothing
+    /// at all, so [`Client::turn`] on a turn that needs approval waits out its whole deadline
+    /// while the session waits out the reader; this is that turn with somebody at the other end.
+    /// `answering` is handed the whole of what is outstanding and answers as much or as little of
+    /// it as it likes, which is the same freedom an interactive reader has and the same three
+    /// calls -- read, queue, answer -- a drawing loop makes in its own order. It is asked again
+    /// for as long as it goes on answering, and only then is the session waited on: a session with
+    /// a question outstanding writes nothing, so a loop that answered one question per event would
+    /// wait out its deadline holding the answer to the question the wait is for.
+    ///
+    /// # Returns
+    ///
+    /// Every event the turn wrote, the questions included and the result frame that ended it last,
+    /// on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`Error::Silent`] if the turn had not ended within the time allowed for the whole of it.
+    /// * Forwards [`Client::ask`]'s return values on failure.
+    /// * Forwards [`Client::next`]'s return values on failure.
+    /// * Forwards [`Client::answer`]'s return values on failure.
+    pub fn turn_answering<AnsweringPolicy>(
+        &mut self,
+        text: &str,
+        waiting: Duration,
+        queue: &mut Queue,
+        mut answering: AnsweringPolicy,
+    ) -> Result<Vec<Event>, Error>
+    where
+        AnsweringPolicy: FnMut(&Queue) -> Vec<Answer>,
+    {
+        self.ask(text)?;
+
+        let deadline = Instant::now() + waiting;
+        let mut events = Vec::new();
+        loop {
+            loop {
+                let answers = answering(queue);
+                if answers.is_empty() {
+                    break;
+                }
+                for answer in &answers {
+                    self.answer(answer)?;
+                    queue.answered(answer);
+                }
+            }
+
+            let Some(left) = deadline.checked_duration_since(Instant::now()) else {
+                return Err(Error::Silent { waited: waiting });
+            };
+            let event = self.next(left)?;
+            queue.read(&event);
+            let ended = matches!(event.kind(), Kind::Turn(_));
+            events.push(event);
+            if ended {
+                return Ok(events);
+            }
+        }
+    }
+
+    /// Answers one question the session is waiting on.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`Client::send`]'s return values on failure.
+    pub fn answer(&mut self, answer: &Answer) -> Result<(), Error> {
+        self.send(&answer.frame())
+    }
+
+    /// Stops the turn in flight, and the queue behind it.
+    ///
+    /// The receipt is written before the aborted turn's own result frame, so the events between
+    /// the two are the turn's last and are handed back rather than dropped: they are what the
+    /// session had said by the time it was stopped, which is the part of a stopped turn a reader
+    /// still has.
+    ///
+    /// # Returns
+    ///
+    /// What the session says it stopped, on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`Error::Silent`] if no receipt had arrived within the time allowed.
+    /// * [`Error::Refused`] if the session answered the interrupt with an error.
+    /// * Forwards [`Client::send`]'s return values on failure.
+    /// * Forwards [`Client::next`]'s return values on failure.
+    pub fn interrupt(
+        &mut self,
+        waiting: Duration,
+        passed: &mut Vec<Event>,
+    ) -> Result<Receipt, Error> {
+        let request = Request::interrupt();
+        self.send(&request.frame())?;
+
+        let deadline = Instant::now() + waiting;
+        loop {
+            let Some(left) = deadline.checked_duration_since(Instant::now()) else {
+                return Err(Error::Silent { waited: waiting });
+            };
+            let event = self.next(left)?;
+            if let Some(receipt) = Receipt::read(&event, request.request_id()) {
+                return receipt;
+            }
+            passed.push(event);
         }
     }
 

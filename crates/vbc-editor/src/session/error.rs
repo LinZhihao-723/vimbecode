@@ -5,7 +5,10 @@
 //! raised before the line is written because the protocol will not raise it afterwards.
 //! [`Error::FlagRejected`] and [`Error::FlagIgnored`] are the two ways the permission flag can
 //! stop working, which are worth telling apart because one is a binary that refused to start and
-//! the other is a binary that started and will deny everything. [`Error::Trust`] is the only one
+//! the other is a binary that started and will deny everything. [`Error::Refused`] is the round
+//! trip the other way: a request the reader made that the session answered with an error, which is
+//! reported rather than waited out because the answer that was waited for is not coming.
+//! [`Error::Trust`] is the only one
 //! raised before a child exists at all: a directory whose standing could not be settled is a
 //! directory nothing is started in, because by the time a spawn has failed the project's code has
 //! already run. The rest are the child's life: spawning it, writing to it, and it ending or
@@ -79,6 +82,16 @@ pub enum Error {
         detail: String,
     },
 
+    /// The session answered one of the reader's own control requests with an error rather than a
+    /// result.
+    Refused {
+        /// The request it would not answer.
+        request: String,
+
+        /// What it said about it.
+        reason: String,
+    },
+
     /// The child stayed alive and said nothing for longer than was allowed.
     Silent {
         /// How long it was given.
@@ -143,6 +156,12 @@ impl Display for Error {
                 write!(formatter, "`{binary}` could not be started: {reason}")
             }
             Self::Ended { detail } => write!(formatter, "the session ended: {detail}"),
+            Self::Refused { request, reason } => {
+                write!(
+                    formatter,
+                    "the session would not answer the `{request}` it was asked: {reason}"
+                )
+            }
             Self::Silent { waited } => {
                 write!(formatter, "the session said nothing for {waited:?}")
             }

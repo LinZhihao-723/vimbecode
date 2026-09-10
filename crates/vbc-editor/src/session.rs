@@ -34,13 +34,20 @@
 //! sequence of blocks it already knows how to draw. [`blocks`] is the whole of the distance
 //! between the two: the panel learns no second model, and a transcript built there is one the
 //! folds, the text objects and the yanks read without being told a session was behind it.
+//!
+//! And not all of it comes back out. A session that wants to write a file asks first, and until it
+//! is answered it writes nothing else at all -- so [`control`] is what keeps a session running
+//! rather than a feature on top of one, and [`queue`] is what holds its questions while a reader
+//! decides, one at a time and in whatever order they get to them.
 
 pub mod blocks;
 pub mod client;
+pub mod control;
 pub mod error;
 pub mod event;
 pub mod frame;
 pub mod identity;
 pub mod probe;
+pub mod queue;
 pub mod spawn;
 pub mod trust;
