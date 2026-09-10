@@ -10,6 +10,12 @@
 //! forwarded only under `--forward-subagent-text`, and a panel that folds a subagent's work away
 //! wants that work to be there to fold.
 //!
+//! The directory is the one decision taken before any of that. Headless Claude Code does not ask
+//! whether the directory it was pointed at may run its own code, so what a spawn is admitted as is
+//! settled here rather than found out afterwards: a spawn takes trust from an [`Admission`] and
+//! from nothing else, a spawn nobody gated is [`Standing::Restricted`], and a directory chosen
+//! after an admission drops back to restricted because nobody was asked about that one.
+//!
 //! The environment is the last of them. vimbecode is often started from inside a Claude Code
 //! session, and the variables such a session exports are read by the child as a claim to be part
 //! of it: inheriting them silently disables transcript persistence, and a completed multi-turn
@@ -25,6 +31,7 @@ use std::process::{Command, Stdio};
 
 use super::identity::Identity;
 use super::probe::{PERMISSION_PROMPT_TOOL, PERMISSION_PROMPT_TOOL_VALUE};
+use super::trust::{Admission, Standing};
 
 /// The binary a session is spoken to, as it is found on the path.
 pub const BINARY: &str = "claude";
@@ -62,13 +69,15 @@ pub struct Spawn {
     directory: Option<PathBuf>,
     model: Option<String>,
     identity: Identity,
+    standing: Standing,
 }
 
 impl Spawn {
     /// # Returns
     ///
-    /// A newly created spawn of a conversation, in the directory this process is already in and on
-    /// the model the binary would choose for itself.
+    /// A newly created spawn of a conversation, in the directory this process is already in, on
+    /// the model the binary would choose for itself, and trusted with nothing: a spawn that has
+    /// been through no gate runs on the reader's configuration and none of the project's.
     #[must_use]
     pub fn new(identity: Identity) -> Self {
         Self {
@@ -76,6 +85,7 @@ impl Spawn {
             directory: None,
             model: None,
             identity,
+            standing: Standing::Restricted,
         }
     }
 
@@ -90,10 +100,25 @@ impl Spawn {
 
     /// # Returns
     ///
-    /// The spawn, in a directory other than this process's own.
+    /// The spawn, in a directory other than this process's own and trusted with nothing. A
+    /// directory named here is a directory no gate was asked about, including where it is named
+    /// after an admission was taken for another one.
     #[must_use]
     pub fn with_directory(mut self, directory: impl AsRef<Path>) -> Self {
         self.directory = Some(directory.as_ref().to_owned());
+        self.standing = Standing::Restricted;
+        self
+    }
+
+    /// # Returns
+    ///
+    /// The spawn, in the directory an admission was taken for and standing as that admission
+    /// admitted it. This is the only way a spawn is trusted with a project's own code, and the
+    /// admission is the gate's to hand out.
+    #[must_use]
+    pub fn with_admission(mut self, admission: &Admission) -> Self {
+        self.directory = Some(admission.directory().to_owned());
+        self.standing = admission.standing();
         self
     }
 
@@ -109,6 +134,11 @@ impl Spawn {
     #[must_use]
     pub fn binary(&self) -> &OsStr {
         &self.binary
+    }
+
+    #[must_use]
+    pub fn standing(&self) -> Standing {
+        self.standing
     }
 
     /// # Returns
@@ -127,6 +157,7 @@ impl Spawn {
             PERMISSION_PROMPT_TOOL.to_owned(),
             PERMISSION_PROMPT_TOOL_VALUE.to_owned(),
         ];
+        arguments.extend(self.standing.arguments());
         if let Some(model) = &self.model {
             arguments.push(MODEL_FLAG.to_owned());
             arguments.push(model.clone());

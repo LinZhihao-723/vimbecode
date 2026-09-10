@@ -23,6 +23,13 @@
 //! variable that has no flag, and does both to the [`std::process::Command`] rather than to the
 //! process, so nothing about this depends on how vimbecode itself was started.
 //!
+//! Before any of that there is a fourth, which is not about the protocol but about what running
+//! one costs somebody. Headless Claude Code skips the workspace-trust dialog: in a directory it
+//! has never seen it reads the project's memory, runs the project's session hook and starts the
+//! project's MCP servers without asking and without recording that it did. [`trust`] is the gate
+//! that puts the question back, and it runs before the child exists rather than after, because a
+//! spawn that failed had already run all three.
+//!
 //! What comes back out of all that is a stream of frames, and what the chat panel reads is a
 //! sequence of blocks it already knows how to draw. [`blocks`] is the whole of the distance
 //! between the two: the panel learns no second model, and a transcript built there is one the
@@ -36,3 +43,4 @@ pub mod frame;
 pub mod identity;
 pub mod probe;
 pub mod spawn;
+pub mod trust;

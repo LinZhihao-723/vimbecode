@@ -24,6 +24,7 @@ use vbc_editor::session::error::Error;
 use vbc_editor::session::identity::{Identity, SessionId};
 use vbc_editor::session::probe::{PERMISSION_PROMPT_TOOL, PERMISSION_PROMPT_TOOL_VALUE};
 use vbc_editor::session::spawn::Spawn;
+use vbc_editor::session::trust::{SETTING_SOURCES_FLAG, SETTING_SOURCES_USER};
 
 /// The stand-in the client is driven against.
 const STUB: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/session/stub.sh");
@@ -209,6 +210,8 @@ fn the_child_is_started_on_the_stream_protocol_with_the_permission_flag() -> Res
             "--forward-subagent-text",
             PERMISSION_PROMPT_TOOL,
             PERMISSION_PROMPT_TOOL_VALUE,
+            SETTING_SOURCES_FLAG,
+            SETTING_SOURCES_USER,
             "--model",
             "stub-model",
             "--session-id",
