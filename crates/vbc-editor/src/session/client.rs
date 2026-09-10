@@ -232,6 +232,11 @@ impl Client {
     /// it stopped waiting on at the first, and would never reach the read that the deadline is
     /// enforced in.
     ///
+    /// # Type Parameters
+    ///
+    /// * `AnsweringPolicy` - What decides, given everything the session is waiting on, which of it
+    ///   to answer and how.
+    ///
     /// # Returns
     ///
     /// Every event the turn wrote, the questions included and the result frame that ended it last,
@@ -245,16 +250,13 @@ impl Client {
     /// * Forwards [`Client::ask`]'s return values on failure.
     /// * Forwards [`Client::next`]'s return values on failure.
     /// * Forwards [`Client::answer`]'s return values on failure.
-    pub fn turn_answering<AnsweringPolicy>(
+    pub fn turn_answering<AnsweringPolicy: FnMut(&Queue) -> Vec<Answer>>(
         &mut self,
         text: &str,
         waiting: Duration,
         queue: &mut Queue,
         mut answering: AnsweringPolicy,
-    ) -> Result<Vec<Event>, Error>
-    where
-        AnsweringPolicy: FnMut(&Queue) -> Vec<Answer>,
-    {
+    ) -> Result<Vec<Event>, Error> {
         self.ask(text)?;
 
         let deadline = Instant::now() + waiting;
