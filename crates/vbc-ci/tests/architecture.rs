@@ -269,7 +269,7 @@ const HELD_APART: [&str; 1] = ["vbc_layout::invariants"];
 /// what comes back into the blocks the panel draws, and the binary shows a compiled-in exchange.
 /// The two are joined when the panel is fed by a real session rather than by that exchange. Every
 /// line below is a claim that will be struck out.
-const ORPHANED: [&str; 15] = [
+const ORPHANED: [&str; 17] = [
     "vbc_editor::clipboard",
     "vbc_editor::clipboard::clip",
     "vbc_editor::clipboard::helper",
@@ -278,11 +278,13 @@ const ORPHANED: [&str; 15] = [
     "vbc_editor::session",
     "vbc_editor::session::blocks",
     "vbc_editor::session::client",
+    "vbc_editor::session::control",
     "vbc_editor::session::error",
     "vbc_editor::session::event",
     "vbc_editor::session::frame",
     "vbc_editor::session::identity",
     "vbc_editor::session::probe",
+    "vbc_editor::session::queue",
     "vbc_editor::session::spawn",
     "vbc_editor::session::trust",
 ];

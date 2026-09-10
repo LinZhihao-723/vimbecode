@@ -248,8 +248,9 @@ pub struct Turn {
     /// What the assistant last said, where the turn ended with the assistant speaking.
     pub text: String,
 
-    /// The tool calls that were denied over the turn.
-    pub denials: usize,
+    /// The tool calls that were denied over the turn, which is the only account the stream keeps
+    /// of a refusal: the call itself arrives as though it had been made.
+    pub denials: Vec<Denial>,
 
     /// What the session has spent on the conversation so far, in dollars.
     pub cost: f64,
@@ -277,12 +278,40 @@ impl Turn {
             denials: raw
                 .get("permission_denials")
                 .and_then(Value::as_array)
-                .map_or(0, Vec::len),
+                .map(|denied| denied.iter().map(Denial::read).collect())
+                .unwrap_or_default(),
             cost: raw
                 .get("total_cost_usd")
                 .and_then(Value::as_f64)
                 .unwrap_or_default(),
             usage: Usage::read(raw),
+        }
+    }
+}
+
+/// One tool call a turn was refused.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Denial {
+    /// The tool that was not run.
+    pub tool_name: String,
+
+    /// The call that was not made, which is what pairs the refusal with the call in the
+    /// transcript.
+    pub tool_use_id: String,
+
+    /// What it would have been run with.
+    pub input: Value,
+}
+
+impl Denial {
+    /// # Returns
+    ///
+    /// One refusal a result frame names, with a field it does not carry read as empty.
+    fn read(raw: &Value) -> Self {
+        Self {
+            tool_name: text(raw, "tool_name"),
+            tool_use_id: text(raw, "tool_use_id"),
+            input: raw.get("tool_input").cloned().unwrap_or(Value::Null),
         }
     }
 }
