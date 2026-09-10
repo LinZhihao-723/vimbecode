@@ -530,7 +530,13 @@ impl App {
     /// # Returns
     ///
     /// What the status line says: the line being typed at it, what the last keystroke could not do,
-    /// or the mode the editor is in, which is nothing at all in normal mode.
+    /// what the session has stopped and is waiting for, or the mode the editor is in, which is
+    /// nothing at all in normal mode.
+    ///
+    /// A session waits for as long as nobody answers it, so what it is waiting for is said where
+    /// the line would otherwise say nothing rather than over the mode. A reader who cannot see
+    /// `-- INSERT --` cannot see which keys they are typing, and that is the one thing a status
+    /// line is for.
     #[must_use]
     pub fn status(&self) -> &str {
         if let Some(prompt) = &self.prompt {
@@ -539,18 +545,15 @@ impl App {
         if let Some(notice) = &self.notice {
             return notice;
         }
-        if let Some(waiting) = &self.waiting {
-            return waiting;
-        }
         if Focus::Transcript == self.focus {
-            return READING;
+            return self.waiting.as_deref().unwrap_or(READING);
         }
 
         match self.mode() {
             VimMode::Insert => INSERTING,
             VimMode::Select => SELECTING,
             VimMode::Visual => VISUAL,
-            _ => "",
+            _ => self.waiting.as_deref().unwrap_or_default(),
         }
     }
 

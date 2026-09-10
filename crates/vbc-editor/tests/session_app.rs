@@ -90,6 +90,10 @@ const PERMISSION_FLAG: &str = "--permission-prompt-tool";
 /// The file the reader has open behind the transcript, which is where a put lands.
 const FILE: &str = "a file the reader left open";
 
+/// What the status line says in the two modes vim names in it that a session must not talk over.
+const INSERTING: &str = "-- INSERT --";
+const VISUAL: &str = "-- VISUAL --";
+
 /// The window the application is driven in, wide enough that nothing a session says wraps.
 const COLUMNS: u16 = 120;
 const ROWS: u16 = 24;
@@ -344,6 +348,59 @@ fn the_same_directory_trusted_runs_the_project_code_in_it() -> Result<()> {
         settled(&mut app, |_| directory.path().join(SENTINEL).exists()),
         "the project's own code did not run in a directory the reader trusted, so the absence the \
          case above asserts is an absence of a fixture rather than of a gate"
+    );
+
+    Ok(())
+}
+
+/// A session waits for as long as nobody answers it, so what it says at the status line has to be
+/// said somewhere the status line was not already saying something a reader needs: over the blank
+/// normal mode leaves and over the panel's own line, and never over the mode a reader is typing
+/// in. Whichever it is drawn over, the panel still draws the question itself.
+#[test]
+fn a_waiting_session_does_not_talk_over_the_mode_a_reader_types_in() -> Result<()> {
+    let directory = TempDir::new()?;
+    let mut app = reading(Session::started(&spawn(directory.path(), CONTROL))?);
+
+    say(&mut app, ASKED);
+    assert!(
+        settled(&mut app, |app| app.panel().text().contains(WAITING)),
+        "the session asked nothing the panel drew in {PATIENCE:?}"
+    );
+
+    assert!(
+        app.status().contains(WRITE_TOOL),
+        "normal mode says nothing of its own, so a waiting session says what it is waiting on \
+         there: {:?}",
+        app.status()
+    );
+
+    press(&mut app, typed('i'));
+    assert_eq!(
+        INSERTING,
+        app.status(),
+        "a waiting session took the status line off the mode the reader is typing in"
+    );
+    assert!(
+        app.panel().text().contains(WAITING),
+        "the panel stopped drawing the question the mode indicator pushed off the status line"
+    );
+
+    press(&mut app, escaped());
+    press(&mut app, typed('v'));
+    assert_eq!(
+        VISUAL,
+        app.status(),
+        "a waiting session took the status line off the mode the reader is selecting in"
+    );
+
+    press(&mut app, escaped());
+    cross(&mut app);
+    assert!(
+        app.status().contains(WRITE_TOOL),
+        "the panel is where the question is answered, so it is where the status line says what \
+         answers it: {:?}",
+        app.status()
     );
 
     Ok(())
@@ -652,4 +709,11 @@ fn control(character: char) -> KeyEvent {
 /// The key that enters the line typed at the status line.
 fn entered() -> KeyEvent {
     KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)
+}
+
+/// # Returns
+///
+/// The key that leaves the mode the reader is in for normal mode.
+fn escaped() -> KeyEvent {
+    KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)
 }

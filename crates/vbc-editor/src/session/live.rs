@@ -110,6 +110,10 @@ impl Plan {
         self
     }
 
+    /// # Returns
+    ///
+    /// The directory the session is to be started in, which is the directory whose standing the
+    /// gate is read for.
     #[must_use]
     pub fn directory(&self) -> &Path {
         &self.directory
