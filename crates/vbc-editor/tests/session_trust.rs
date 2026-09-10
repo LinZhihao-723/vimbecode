@@ -20,6 +20,11 @@
 //! assertion made continuously -- a reader that never once sees half a record, while other writers
 //! are replacing the whole of it.
 //!
+//! Both of the tests that watch a grant from another thread stop the thread they started before
+//! they report anything, including where the grant they were watching is what failed. A grant that
+//! began failing would otherwise leave a watcher spinning on a flag nothing was ever going to set,
+//! and a suite that hangs says even less than one that stays green.
+//!
 //! What the record ends up as is not the whole of what a grant leaves lying about, either. The
 //! version being written stands in a file of its own beside the record until it is renamed over
 //! it, and that file holds the same account the record does under a name anybody can guess, so it
@@ -522,15 +527,19 @@ fn the_file_a_grant_is_written_through_is_never_wider_than_the_record() -> Resul
             }
         });
 
-        for _granting in 0..GRANTS {
-            gate.grant(&admission)?;
-        }
+        let granted = (|| -> Result<()> {
+            for _granting in 0..GRANTS {
+                gate.grant(&admission)?;
+            }
+
+            Ok(())
+        })();
         done.store(true, Ordering::Relaxed);
         watcher
             .join()
             .map_err(|_panicked| anyhow!("the concurrent watcher panicked"))?;
 
-        Ok(())
+        granted
     })?;
 
     assert!(
@@ -627,23 +636,27 @@ fn a_record_being_granted_is_never_read_half_written() -> Result<()> {
             Ok(())
         });
 
-        for _granting in 0..GRANTS {
-            gate.grant(&admission)?;
-        }
-        writer
-            .join()
-            .map_err(|_panicked| anyhow!("the concurrent writer panicked"))??;
+        let granted = (|| -> Result<()> {
+            for _granting in 0..GRANTS {
+                gate.grant(&admission)?;
+            }
+            writer
+                .join()
+                .map_err(|_panicked| anyhow!("the concurrent writer panicked"))??;
 
-        while reads.load(Ordering::Relaxed) < READS {
+            while reads.load(Ordering::Relaxed) < READS {
+                gate.grant(&admission)?;
+            }
             gate.grant(&admission)?;
-        }
-        gate.grant(&admission)?;
+
+            Ok(())
+        })();
         done.store(true, Ordering::Relaxed);
         reader
             .join()
             .map_err(|_panicked| anyhow!("the concurrent reader panicked"))?;
 
-        Ok(())
+        granted
     })?;
 
     assert!(READS <= reads.load(Ordering::Relaxed));
