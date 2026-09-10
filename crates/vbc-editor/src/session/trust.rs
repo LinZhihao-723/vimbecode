@@ -37,13 +37,15 @@
 //! machine it is theirs to read and nobody else's; a replacement is a file this process created,
 //! so it is created under this process's umask and would hand a `0600` record back at `0644`. The
 //! permissions therefore travel with the content, and a record written where there was none is
-//! narrowed to its owner rather than left to the umask.
+//! narrowed to its owner rather than left to the umask. The file they travel through is narrowed
+//! before the content is in it rather than after, because between the two it holds the whole of
+//! the record under a name anybody can guess.
 
 use std::env;
 use std::fs::{self, File};
 use std::io::{self, Write};
 #[cfg(unix)]
-use std::os::unix::fs::PermissionsExt;
+use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -73,6 +75,10 @@ pub const ACCEPTED: &str = "hasTrustDialogAccepted";
 /// the one a live session took would be a copy of the accident rather than of what came before it.
 const KEPT: &str = "vimbecode.backup";
 const PARTIAL: &str = "vimbecode.partial";
+
+/// What a file holding the reader's account is theirs alone to read as.
+#[cfg(unix)]
+const OWNER_ONLY: u32 = 0o600;
 
 /// How many records this process has begun writing, which is what tells one half-written file from
 /// another. Two grants at once -- two vimbecodes, or two threads of one -- must not be writing the
@@ -401,10 +407,10 @@ impl Gate {
         }
     }
 
-    /// Writes a file whole: onto a file of its own beside the record, flushed to the disk, given
-    /// the record's own permissions, and renamed over its destination in one step. A record
-    /// written over in place would be a record that is briefly neither version, and a live Claude
-    /// Code session reads this one.
+    /// Writes a file whole: onto a file of its own beside the record, narrowed to its owner before
+    /// anything is put in it, flushed to the disk, given the record's own permissions, and renamed
+    /// over its destination in one step. A record written over in place would be a record that is
+    /// briefly neither version, and a live Claude Code session reads this one.
     ///
     /// # Errors
     ///
@@ -414,7 +420,7 @@ impl Gate {
     fn write(&self, path: &Path, text: &str) -> Result<(), Error> {
         let writing = WRITING.fetch_add(1, Ordering::Relaxed);
         let partial = self.beside(&format!("{PARTIAL}.{}.{writing}", process::id()));
-        let written = File::create(&partial).and_then(|mut file| {
+        let written = created(&partial).and_then(|mut file| {
             file.write_all(text.as_bytes())?;
             file.sync_all()
         });
@@ -460,6 +466,51 @@ impl Gate {
     }
 }
 
+/// Creates the file a version of the record is written through. The permissions the finished
+/// version carries are the record's own and are put on once it holds the record's content; until
+/// then it holds the whole of the reader's account under a name anybody can guess, so it is
+/// narrowed to its owner from the moment it exists rather than from the moment it is finished.
+///
+/// # Returns
+///
+/// The file, empty and open for writing, on success.
+///
+/// # Errors
+///
+/// Returns an error if:
+///
+/// * Forwards [`std::fs::OpenOptions::open`]'s return values on failure.
+/// * Forwards [`std::fs::File::set_permissions`]'s return values on failure.
+#[cfg(unix)]
+fn created(path: &Path) -> io::Result<File> {
+    let file = File::options()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .mode(OWNER_ONLY)
+        .open(path)?;
+    file.set_permissions(fs::Permissions::from_mode(OWNER_ONLY))?;
+
+    Ok(file)
+}
+
+/// Creates the file a version of the record is written through, as the platform makes one, which
+/// is where its permissions are not a mode.
+///
+/// # Returns
+///
+/// The file, empty and open for writing, on success.
+///
+/// # Errors
+///
+/// Returns an error if:
+///
+/// * Forwards [`std::fs::File::create`]'s return values on failure.
+#[cfg(not(unix))]
+fn created(path: &Path) -> io::Result<File> {
+    File::create(path)
+}
+
 /// Narrows a file to its owner, which is what a record holding the reader's account is created as
 /// where there was no record to take permissions from.
 ///
@@ -470,7 +521,7 @@ impl Gate {
 /// * Forwards [`std::fs::set_permissions`]'s return values on failure.
 #[cfg(unix)]
 fn narrowed(path: &Path) -> io::Result<()> {
-    fs::set_permissions(path, fs::Permissions::from_mode(0o600))
+    fs::set_permissions(path, fs::Permissions::from_mode(OWNER_ONLY))
 }
 
 /// Leaves a file as the platform made it, which is where its permissions are not a mode.

@@ -20,6 +20,11 @@
 //! assertion made continuously -- a reader that never once sees half a record, while other writers
 //! are replacing the whole of it.
 //!
+//! What the record ends up as is not the whole of what a grant leaves lying about, either. The
+//! version being written stands in a file of its own beside the record until it is renamed over
+//! it, and that file holds the same account the record does under a name anybody can guess, so it
+//! is watched while a grant is in flight rather than read once it has landed.
+//!
 //! What that test does not assert is that a grant made while another writer is part way through
 //! its own read and write survives it. Nothing here locks the record, so it does not: two writers
 //! that read the same version write it back one after the other, and the second carries the first
@@ -94,6 +99,15 @@ const OWNER_ONLY: u32 = 0o600;
 /// How long the padding a torn record would be caught by is. A record written over in place is
 /// briefly shorter than this, and a reader of it would see a value that stops in the middle.
 const PADDING: usize = 256 * 1024;
+
+/// What the file a version of the record travels through is called, written down here rather than
+/// read from the module for the same reason the version it replaces is: a name the reader can find
+/// their own record beside is one a test says out loud.
+const PARTIAL: &str = "vimbecode.partial";
+
+/// How much record has to be in flight for the file it travels through to be caught existing at
+/// all. Whether it is readable is not a question about how long it lasts.
+const TRAVELLING: usize = 4 * 1024 * 1024;
 
 #[test]
 fn a_directory_the_reader_has_not_trusted_does_not_run_the_project_code_in_it() -> Result<()> {
@@ -430,9 +444,77 @@ fn granting_leaves_the_record_no_more_readable_than_it_found_it() -> Result<()> 
     assert_eq!(
         OWNER_ONLY,
         mode(&record)?,
-        "granting a directory's trust handed the reader's own record back wider open than it was,          because the file it was replaced from was created under this process's umask"
+        "granting a directory's trust handed the reader's own record back wider open than it was, \
+         because the file it was replaced from was created under this process's umask"
     );
     assert_eq!(OWNER_ONLY, mode(&kept_beside(&record))?);
+
+    Ok(())
+}
+
+#[test]
+fn the_file_a_grant_is_written_through_is_never_wider_than_the_record() -> Result<()> {
+    let home = TempDir::new()?;
+    let project = TempDir::new()?;
+    let record = home.path().join(RECORD);
+    let gate = Gate::of_record(&record);
+    let admission = gate.admit(project.path())?;
+
+    let mut held = theirs(admission.key().as_str());
+    held["padding"] = Value::String("x".repeat(TRAVELLING));
+    fs::write(&record, serde_json::to_string(&held)?)?;
+    fs::set_permissions(&record, fs::Permissions::from_mode(OWNER_ONLY))?;
+
+    let done = AtomicBool::new(false);
+    let wider = AtomicUsize::new(0);
+    let seen = AtomicUsize::new(0);
+    let beside = home.path().to_owned();
+
+    thread::scope(|scope| -> Result<()> {
+        let watcher = scope.spawn(|| {
+            while !done.load(Ordering::Relaxed) {
+                let Ok(entries) = fs::read_dir(&beside) else {
+                    continue;
+                };
+                for travelling in entries.flatten() {
+                    if !travelling.file_name().to_string_lossy().contains(PARTIAL) {
+                        continue;
+                    }
+                    let Ok(held) = travelling.metadata() else {
+                        continue;
+                    };
+                    seen.fetch_add(1, Ordering::Relaxed);
+                    if 0 != held.permissions().mode() & !OWNER_ONLY & 0o777 {
+                        wider.fetch_add(1, Ordering::Relaxed);
+                    }
+                }
+            }
+        });
+
+        for _granting in 0..GRANTS {
+            gate.grant(&admission)?;
+        }
+        done.store(true, Ordering::Relaxed);
+        watcher
+            .join()
+            .map_err(|_panicked| anyhow!("the concurrent watcher panicked"))?;
+
+        Ok(())
+    })?;
+
+    assert!(
+        0 < seen.load(Ordering::Relaxed),
+        "the file a grant is written through was never caught existing, so nothing below is about \
+         anything"
+    );
+    assert_eq!(
+        0,
+        wider.load(Ordering::Relaxed),
+        "the whole of the reader's record, their account in it, stood in a file anybody on this \
+         machine could read under a name anybody can guess, out of {} sightings, on its way to a \
+         record that is theirs alone",
+        seen.load(Ordering::Relaxed)
+    );
 
     Ok(())
 }
