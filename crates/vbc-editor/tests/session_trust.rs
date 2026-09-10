@@ -520,6 +520,39 @@ fn the_file_a_grant_is_written_through_is_never_wider_than_the_record() -> Resul
 }
 
 #[test]
+fn a_directory_of_a_trusted_repository_is_run_where_it_stands() -> Result<()> {
+    let home = TempDir::new()?;
+    let repository = TempDir::new()?;
+    initialised(repository.path())?;
+
+    let one = repository.path().join("crates/one");
+    let two = repository.path().join("crates/two");
+    fs::create_dir_all(&one)?;
+    fs::create_dir_all(&two)?;
+    seeded(&one)?;
+    seeded(&two)?;
+
+    let gate = Gate::of_record(home.path().join(RECORD));
+    gate.answered(&gate.admit(&one)?, Answer::Granted)?;
+
+    let elsewhere = gate.admit(&two)?;
+    assert_eq!(Standing::Trusted, elsewhere.standing());
+    run(&elsewhere)?;
+
+    assert!(
+        ran(&two),
+        "a directory of a repository the reader trusted did not run its own code"
+    );
+    assert!(
+        !ran(&one),
+        "the session was started in the directory the key names rather than the one the reader \
+         chose, so a grant taken anywhere in a repository moves every session to its root"
+    );
+
+    Ok(())
+}
+
+#[test]
 fn a_record_being_granted_is_never_read_half_written() -> Result<()> {
     let home = TempDir::new()?;
     let project = TempDir::new()?;
