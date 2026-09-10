@@ -102,6 +102,8 @@ use crate::gutter::{Gutter, Options as GutterOptions};
 use crate::keys::Argument;
 use crate::render::{cursor_cell, paint, painted_columns, Renderer};
 use crate::screen::{self, Error, Geometry, Screen};
+use crate::session::control::Decision;
+use crate::session::live::{Session, REFUSED};
 use crate::style::StyledRow;
 
 /// What the status line says in each of the modes vim names in it, which is nothing at all in
@@ -127,6 +129,10 @@ const BACKWARD: char = '?';
 const UNNAMED: &str = "no file name";
 const UNWRITTEN: &str = "no write since the last change (add `!` to override)";
 const UNSEARCHED: &str = "there is no search to repeat";
+const UNSESSIONED: &str = "there is no session to say that to";
+const UNASKED: &str = "the session is waiting on nothing";
+const UNANSWERABLE: &str = "what the session is waiting on is not a question to answer in words";
+const UNSAID: &str = "there is nothing to say";
 
 /// How many rows the transcript panel is walked over looking for the row its cursor is on before a
 /// follow gives up and leaves the panel where it stands.
@@ -217,6 +223,10 @@ pub struct App {
     held: Option<Selected>,
     taking: Option<String>,
     endofline: bool,
+    session: Option<Session>,
+    waiting: Option<String>,
+    drawn: u64,
+    refreshed: bool,
 }
 
 /// Which of the two things the application draws the keys are typed at.
@@ -267,6 +277,10 @@ impl App {
             held: None,
             taking: None,
             endofline: true,
+            session: None,
+            waiting: None,
+            drawn: 0,
+            refreshed: false,
         };
         app.adopt();
         app.saved = app.written();
@@ -349,10 +363,25 @@ impl App {
     /// every depth.
     #[must_use]
     pub fn with_conversation(mut self, transcript: Transcript, tags: Vec<Tag>) -> Self {
-        self.panel = Panel::new(transcript)
-            .sharing(self.engine.register_file().clone())
-            .tagged(tags);
-        self.top = Placed::top(0);
+        self.adopt_conversation(transcript, tags);
+
+        self
+    }
+
+    /// # Returns
+    ///
+    /// This application showing `session` in the panel `<C-T>` reaches, live: what the session
+    /// says is drawn as it arrives, and what it stops to ask is drawn under that until somebody
+    /// answers it.
+    ///
+    /// The session is read from the events an application loop hands over rather than from a
+    /// thread of its own, so an application that never calls [`App::handle`] never reads it.
+    #[must_use]
+    pub fn with_session(mut self, session: Session) -> Self {
+        let (transcript, tags) = session.panel();
+        self.drawn = session.revision();
+        self.session = Some(session);
+        self.adopt_conversation(transcript, tags);
 
         self
     }
@@ -475,6 +504,23 @@ impl App {
 
     /// # Returns
     ///
+    /// The session the panel is reading, and [`None`] where the panel is reading an exchange
+    /// nothing is still saying anything in.
+    #[must_use]
+    pub fn session(&self) -> Option<&Session> {
+        self.session.as_ref()
+    }
+
+    /// # Returns
+    ///
+    /// Whether something other than a keystroke changed what a frame would draw since this was
+    /// last asked, which is what says a redraw is owed to an event that asked for none.
+    pub fn refreshed(&mut self) -> bool {
+        std::mem::take(&mut self.refreshed)
+    }
+
+    /// # Returns
+    ///
     /// What the last keystroke could not do, and [`None`] where it did what it asked for.
     #[must_use]
     pub fn notice(&self) -> Option<&str> {
@@ -484,7 +530,13 @@ impl App {
     /// # Returns
     ///
     /// What the status line says: the line being typed at it, what the last keystroke could not do,
-    /// or the mode the editor is in, which is nothing at all in normal mode.
+    /// what the session has stopped and is waiting for, or the mode the editor is in, which is
+    /// nothing at all in normal mode.
+    ///
+    /// A session waits for as long as nobody answers it, so what it is waiting for is said where
+    /// the line would otherwise say nothing rather than over the mode. A reader who cannot see
+    /// `-- INSERT --` cannot see which keys they are typing, and that is the one thing a status
+    /// line is for.
     #[must_use]
     pub fn status(&self) -> &str {
         if let Some(prompt) = &self.prompt {
@@ -494,14 +546,14 @@ impl App {
             return notice;
         }
         if Focus::Transcript == self.focus {
-            return READING;
+            return self.waiting.as_deref().unwrap_or(READING);
         }
 
         match self.mode() {
             VimMode::Insert => INSERTING,
             VimMode::Select => SELECTING,
             VimMode::Visual => VISUAL,
-            _ => "",
+            _ => self.waiting.as_deref().unwrap_or_default(),
         }
     }
 
@@ -805,6 +857,12 @@ impl App {
             return Outcome::Continues;
         }
         if Focus::Transcript == self.focus {
+            if commands(key) {
+                self.prompt = Some(Prompt::new(Asked::Command, COMMAND));
+
+                return Outcome::Continues;
+            }
+
             return self.read(area, key);
         }
         self.dispatch(area, |engine| engine.press(key));
@@ -934,12 +992,82 @@ impl App {
 
                 Outcome::Continues
             }
+            "ask" => {
+                self.ask(named);
+
+                Outcome::Continues
+            }
+            "allow" => {
+                self.decide(&Decision::Allowed);
+
+                Outcome::Continues
+            }
+            "deny" => {
+                let message = if named.is_empty() { REFUSED } else { named };
+                self.decide(&Decision::Denied(message.to_owned()));
+
+                Outcome::Continues
+            }
+            "answer" => {
+                if named.is_empty() {
+                    self.notice = Some(UNSAID.to_owned());
+                } else {
+                    self.respond(named);
+                }
+
+                Outcome::Continues
+            }
             asked => {
                 self.notice = Some(format!("`{asked}` is not an editor command"));
 
                 Outcome::Continues
             }
         }
+    }
+
+    /// Sends one message from the reader to the session, which is a turn of it, saying at the
+    /// status line why it did not where it could not.
+    fn ask(&mut self, text: &str) {
+        if text.is_empty() {
+            self.notice = Some(UNSAID.to_owned());
+
+            return;
+        }
+        let Some(session) = self.session.as_mut() else {
+            self.notice = Some(UNSESSIONED.to_owned());
+
+            return;
+        };
+        session.ask(text);
+    }
+
+    /// Answers the question the session has been waiting on longest, saying at the status line
+    /// what was answered or why nothing was.
+    fn decide(&mut self, decision: &Decision) {
+        let Some(session) = self.session.as_mut() else {
+            self.notice = Some(UNSESSIONED.to_owned());
+
+            return;
+        };
+        let Some(answered) = session.answer(decision) else {
+            self.notice = Some(UNASKED.to_owned());
+
+            return;
+        };
+        self.notice = Some(format!("`{}` answered", answered.tool()));
+    }
+
+    /// Answers in words the question the session has been waiting on longest, which is the only
+    /// shape an answer to one reaches the model in: an approval carrying none is read as the
+    /// reader having declined to answer.
+    fn respond(&mut self, answer: &str) {
+        let Some(asking) = self.session.as_ref().and_then(Session::question) else {
+            self.notice = Some(UNANSWERABLE.to_owned());
+
+            return;
+        };
+
+        self.decide(&Decision::answering(&asking, answer));
     }
 
     /// Writes the text to the file it was read from, or to `named` where a command named one.
@@ -1082,6 +1210,20 @@ impl App {
     ///
     /// Whether the application goes on reading keys.
     pub fn handle(&mut self, area: Rect, event: &Event) -> Outcome {
+        self.pump(area);
+        let outcome = self.acted(area, event);
+        self.pump(area);
+
+        outcome
+    }
+
+    /// Hands the editor one of the events an application loop delivers, with the session left
+    /// exactly as it was found.
+    ///
+    /// # Returns
+    ///
+    /// Whether the application goes on reading keys.
+    fn acted(&mut self, area: Rect, event: &Event) -> Outcome {
         match event {
             Event::Key(key) => self.press(area, *key),
             Event::Paste(_) => {
@@ -1175,6 +1317,41 @@ impl App {
         self.follow_panel(area);
 
         Outcome::Continues
+    }
+
+    /// Reads whatever the session has said since the last frame into the panel.
+    ///
+    /// Nothing here waits. A turn takes as long as a model takes and the keys go on arriving
+    /// through all of it, so what is read is whatever has landed and the frame is drawn over that.
+    /// A frame that would draw what the last one drew rebuilds nothing, so reading a session that
+    /// has stopped talking costs what reading a compiled-in exchange costs; a frame that would
+    /// differ costs the conversation, because the panel is built over a transcript rather than
+    /// appended to, and it is drawn from its first row afterwards.
+    fn pump(&mut self, area: Rect) {
+        let Some(session) = self.session.as_mut() else {
+            return;
+        };
+        session.read();
+        if session.revision() == self.drawn {
+            return;
+        }
+        self.drawn = session.revision();
+        let waiting = waited(session);
+        let (transcript, tags) = session.panel();
+
+        self.waiting = waiting;
+        self.adopt_conversation(transcript, tags);
+        self.follow_panel(area);
+        self.refreshed = true;
+    }
+
+    /// Builds the transcript panel over what was said and the calls its blocks arrived beneath,
+    /// leaving it drawn from its first row.
+    fn adopt_conversation(&mut self, transcript: Transcript, tags: Vec<Tag>) {
+        self.panel = Panel::new(transcript)
+            .sharing(self.engine.register_file().clone())
+            .tagged(tags);
+        self.top = Placed::top(0);
     }
 
     /// Scrolls the transcript panel so that it draws the row its cursor rests on.
@@ -1607,6 +1784,32 @@ fn interrupts(key: KeyEvent) -> bool {
 /// is a panel insert mode hides.
 fn transcribes(key: KeyEvent) -> bool {
     KeyCode::Char('t') == key.code && key.modifiers.contains(KeyModifiers::CONTROL)
+}
+
+/// # Returns
+///
+/// Whether `key` opens the ex command line, which it does from the transcript panel as well as
+/// from the file: the keys that answer a session are ex commands, and a panel a session cannot be
+/// answered from is a panel that draws the question and nothing else.
+fn commands(key: KeyEvent) -> bool {
+    types(key) && KeyCode::Char(COMMAND) == key.code
+}
+
+/// # Returns
+///
+/// What the status line says about a session that is not simply running: what went wrong with it,
+/// or what it has stopped and is waiting to be answered, or [`None`] where it is running and
+/// waiting on nothing.
+fn waited(session: &Session) -> Option<String> {
+    if let Some(failure) = session.failure() {
+        return Some(failure.to_owned());
+    }
+    let ask = session.outstanding().first()?;
+
+    Some(format!(
+        "-- WAITING ON `{}` -- `:allow`, `:deny`",
+        ask.tool()
+    ))
 }
 
 /// # Returns

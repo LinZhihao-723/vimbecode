@@ -264,29 +264,17 @@ const HELD_APART: [&str; 1] = ["vbc_layout::invariants"];
 /// from rather than work that is wrong, and each is written down so that a module joining them
 /// fails this rule and a module wired up to a keystroke fails it until its line is struck out.
 ///
-/// The clipboard is work the editor has not reached back for. The session client is work the
-/// editor has not reached yet: it speaks the whole of Claude Code's subprocess protocol and turns
-/// what comes back into the blocks the panel draws, and the binary shows a compiled-in exchange.
-/// The two are joined when the panel is fed by a real session rather than by that exchange. Every
-/// line below is a claim that will be struck out.
-const ORPHANED: [&str; 17] = [
+/// The clipboard is work the editor has not reached back for. The session client was the other
+/// twelve lines: it spoke the whole of Claude Code's subprocess protocol and turned what came back
+/// into the blocks the panel draws, and the binary showed a compiled-in exchange instead. It is
+/// struck out because the panel is now fed by a real session, which is the claim this rule is the
+/// proof of rather than the place to assert it.
+const ORPHANED: [&str; 5] = [
     "vbc_editor::clipboard",
     "vbc_editor::clipboard::clip",
     "vbc_editor::clipboard::helper",
     "vbc_editor::clipboard::protocol",
     "vbc_editor::clipboard::reader",
-    "vbc_editor::session",
-    "vbc_editor::session::blocks",
-    "vbc_editor::session::client",
-    "vbc_editor::session::control",
-    "vbc_editor::session::error",
-    "vbc_editor::session::event",
-    "vbc_editor::session::frame",
-    "vbc_editor::session::identity",
-    "vbc_editor::session::probe",
-    "vbc_editor::session::queue",
-    "vbc_editor::session::spawn",
-    "vbc_editor::session::trust",
 ];
 
 /// A scan of a tree, which reads every crate and every module of it and says what it found.
