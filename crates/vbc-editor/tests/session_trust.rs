@@ -96,6 +96,11 @@ const READS: usize = 32;
 /// What a file the reader alone may read is, and what a record holding their account has to stay.
 const OWNER_ONLY: u32 = 0o600;
 
+/// What a record somebody has opened up to their own group is. It is nobody's to narrow either: a
+/// grant hands the record back under the permissions it found, and only a record written where
+/// there was none is a decision this process makes.
+const READABLE_BY_A_GROUP: u32 = 0o640;
+
 /// How long the padding a torn record would be caught by is. A record written over in place is
 /// briefly shorter than this, and a reader of it would see a value that stops in the middle.
 const PADDING: usize = 256 * 1024;
@@ -448,6 +453,32 @@ fn granting_leaves_the_record_no_more_readable_than_it_found_it() -> Result<()> 
          because the file it was replaced from was created under this process's umask"
     );
     assert_eq!(OWNER_ONLY, mode(&kept_beside(&record))?);
+
+    Ok(())
+}
+
+#[test]
+fn the_permissions_a_grant_hands_the_record_back_under_are_the_ones_it_found() -> Result<()> {
+    let home = TempDir::new()?;
+    let project = TempDir::new()?;
+    let record = home.path().join(RECORD);
+    let gate = Gate::of_record(&record);
+    let admission = gate.admit(project.path())?;
+
+    fs::write(
+        &record,
+        serde_json::to_string_pretty(&theirs(admission.key().as_str()))?,
+    )?;
+    fs::set_permissions(&record, fs::Permissions::from_mode(READABLE_BY_A_GROUP))?;
+    gate.grant(&admission)?;
+
+    assert_eq!(
+        READABLE_BY_A_GROUP,
+        mode(&record)?,
+        "granting a directory's trust changed who may read the reader's own record, which is a \
+         decision they made about their own file and none of a grant's business either way"
+    );
+    assert_eq!(READABLE_BY_A_GROUP, mode(&kept_beside(&record))?);
 
     Ok(())
 }
