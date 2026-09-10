@@ -32,10 +32,18 @@
 //! carries the first away; what that costs is a grant that has to be made again, and it cannot
 //! cost more, because a version written back from an older read holds what its own reader had
 //! already said.
+//!
+//! One thing about the record is not its content. It holds the reader's account, and on this
+//! machine it is theirs to read and nobody else's; a replacement is a file this process created,
+//! so it is created under this process's umask and would hand a `0600` record back at `0644`. The
+//! permissions therefore travel with the content, and a record written where there was none is
+//! narrowed to its owner rather than left to the umask.
 
 use std::env;
 use std::fs::{self, File};
 use std::io::{self, Write};
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -393,9 +401,10 @@ impl Gate {
         }
     }
 
-    /// Writes a file whole: onto a file of its own beside the record, flushed to the disk, and
-    /// renamed over its destination in one step. A record written over in place would be a record
-    /// that is briefly neither version, and a live Claude Code session reads this one.
+    /// Writes a file whole: onto a file of its own beside the record, flushed to the disk, given
+    /// the record's own permissions, and renamed over its destination in one step. A record
+    /// written over in place would be a record that is briefly neither version, and a live Claude
+    /// Code session reads this one.
     ///
     /// # Errors
     ///
@@ -412,6 +421,15 @@ impl Gate {
         if let Err(error) = written {
             let _ignored = fs::remove_file(&partial);
             return Err(self.unusable(&error.to_string()));
+        }
+
+        match fs::metadata(&self.record) {
+            Ok(held) => {
+                let _ignored = fs::set_permissions(&partial, held.permissions());
+            }
+            Err(_missing) => {
+                let _ignored = narrowed(&partial);
+            }
         }
 
         fs::rename(&partial, path).map_err(|error| {
@@ -440,6 +458,31 @@ impl Gate {
             reason: reason.to_owned(),
         }
     }
+}
+
+/// Narrows a file to its owner, which is what a record holding the reader's account is created as
+/// where there was no record to take permissions from.
+///
+/// # Errors
+///
+/// Returns an error if:
+///
+/// * Forwards [`std::fs::set_permissions`]'s return values on failure.
+#[cfg(unix)]
+fn narrowed(path: &Path) -> io::Result<()> {
+    fs::set_permissions(path, fs::Permissions::from_mode(0o600))
+}
+
+/// Leaves a file as the platform made it, which is where its permissions are not a mode.
+///
+/// # Errors
+///
+/// Returns an error if:
+///
+/// * Never.
+#[cfg(not(unix))]
+fn narrowed(_path: &Path) -> io::Result<()> {
+    Ok(())
 }
 
 /// # Returns

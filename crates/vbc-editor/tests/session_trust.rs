@@ -88,6 +88,9 @@ const GRANTS: usize = 24;
 const REPLACEMENTS: usize = 24;
 const READS: usize = 32;
 
+/// What a file the reader alone may read is, and what a record holding their account has to stay.
+const OWNER_ONLY: u32 = 0o600;
+
 /// How long the padding a torn record would be caught by is. A record written over in place is
 /// briefly shorter than this, and a reader of it would see a value that stops in the middle.
 const PADDING: usize = 256 * 1024;
@@ -403,6 +406,38 @@ fn granting_keeps_everything_else_the_record_holds() -> Result<()> {
 }
 
 #[test]
+fn granting_leaves_the_record_no_more_readable_than_it_found_it() -> Result<()> {
+    let home = TempDir::new()?;
+    let project = TempDir::new()?;
+    let record = home.path().join(RECORD);
+    let gate = Gate::of_record(&record);
+    let admission = gate.admit(project.path())?;
+
+    gate.grant(&admission)?;
+    assert_eq!(
+        OWNER_ONLY,
+        mode(&record)?,
+        "a record holding the reader's account was created for anybody on this machine to read"
+    );
+
+    fs::write(
+        &record,
+        serde_json::to_string_pretty(&theirs(admission.key().as_str()))?,
+    )?;
+    fs::set_permissions(&record, fs::Permissions::from_mode(OWNER_ONLY))?;
+    gate.grant(&admission)?;
+
+    assert_eq!(
+        OWNER_ONLY,
+        mode(&record)?,
+        "granting a directory's trust handed the reader's own record back wider open than it was,          because the file it was replaced from was created under this process's umask"
+    );
+    assert_eq!(OWNER_ONLY, mode(&kept_beside(&record))?);
+
+    Ok(())
+}
+
+#[test]
 fn a_record_being_granted_is_never_read_half_written() -> Result<()> {
     let home = TempDir::new()?;
     let project = TempDir::new()?;
@@ -584,6 +619,19 @@ fn recorded(record: &Path) -> Result<Vec<String>> {
         .keys()
         .cloned()
         .collect())
+}
+
+/// # Returns
+///
+/// Who may read and write a file, on success.
+///
+/// # Errors
+///
+/// Returns an error if:
+///
+/// * Forwards [`std::fs::metadata`]'s return values on failure.
+fn mode(path: &Path) -> Result<u32> {
+    Ok(fs::metadata(path)?.permissions().mode() & 0o777)
 }
 
 /// # Returns
