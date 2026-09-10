@@ -35,6 +35,13 @@
 //! between the two: the panel learns no second model, and a transcript built there is one the
 //! folds, the text objects and the yanks read without being told a session was behind it.
 //!
+//! None of that is yet something a program can hold while it draws. Every round trip below is one
+//! somebody waits on, and an editor cannot wait: a turn takes minutes and the keys go on arriving
+//! through all of it. [`live`] is the session an application owns rather than the session a test
+//! drives -- the child read on a thread of its own, the frames folded into blocks as they land,
+//! the questions still outstanding drawn under them, and the gate run in the one order that puts
+//! it in front of the child rather than behind it.
+//!
 //! And not all of it comes back out. A session that wants to write a file asks first, and until it
 //! is answered it writes nothing else at all -- so [`control`] is what keeps a session running
 //! rather than a feature on top of one, and [`queue`] is what holds its questions while a reader
@@ -47,6 +54,7 @@ pub mod error;
 pub mod event;
 pub mod frame;
 pub mod identity;
+pub mod live;
 pub mod probe;
 pub mod queue;
 pub mod spawn;
