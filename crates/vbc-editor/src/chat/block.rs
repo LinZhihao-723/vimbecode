@@ -76,6 +76,8 @@ use vbc_layout::anchor::Wrapping;
 use vbc_layout::buffer::LINE_SEPARATOR;
 use vbc_layout::line::{self, DisplayRow, Options};
 
+use crate::chat::highlight::Language;
+use crate::chat::palette::Palette;
 use crate::chat::{ansi, diff};
 use crate::style::{self, Span, StyledRow};
 
@@ -350,6 +352,26 @@ impl Block {
     #[must_use]
     pub fn diff(path: String, old: &str, new: &str) -> Self {
         Self::of(Kind::Diff { path }, diff::compute(old, new))
+    }
+
+    /// Factory function.
+    ///
+    /// Colours `source` as written in the language `language` names, in the palette the terminal
+    /// the program runs in draws.
+    ///
+    /// # Returns
+    ///
+    /// A [`Kind::Code`] block of `source` fenced as `language`, which is plain where `language`
+    /// names no language the highlighter knows or is `None`.
+    #[must_use]
+    pub fn code(language: Option<String>, source: String) -> Self {
+        let spans = language
+            .as_deref()
+            .and_then(Language::of_tag)
+            .map(|written| written.spans(&source, Palette::detected()))
+            .unwrap_or_default();
+
+        Self::with_spans(Kind::Code { language }, source, spans)
     }
 
     /// Factory function.
