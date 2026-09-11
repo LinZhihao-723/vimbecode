@@ -45,6 +45,7 @@ use super::event::{Event, Kind};
 use super::identity::{Identity, SessionId};
 use super::queue::Queue;
 use super::spawn::Spawn;
+use super::stored::Stored;
 use super::trust::{Admission, Answer as Trusted, Gate, Standing};
 
 /// What the block an outstanding question is drawn as says first, which is what tells a reader
@@ -64,7 +65,8 @@ const TICK: Duration = Duration::from_millis(20);
 const ENDING: Duration = Duration::from_secs(5);
 
 /// What a session is to be started as: which conversation, in which directory, through which
-/// binary and on which model, and the record the directory's standing is read out of.
+/// binary and on which model, the record the directory's standing is read out of, and the
+/// transcript of what the conversation already said.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Plan {
     identity: Identity,
@@ -72,6 +74,7 @@ pub struct Plan {
     binary: OsString,
     model: Option<String>,
     gate: Gate,
+    history: Option<Stored>,
 }
 
 impl Plan {
@@ -80,7 +83,7 @@ impl Plan {
     /// # Returns
     ///
     /// A newly created plan to run `identity` in `directory`, on the `claude` the path finds and
-    /// the model it would choose for itself.
+    /// the model it would choose for itself, with no history to read.
     #[must_use]
     pub fn new(identity: Identity, directory: impl AsRef<Path>, gate: Gate) -> Self {
         Self {
@@ -89,7 +92,17 @@ impl Plan {
             binary: OsString::from(super::spawn::BINARY),
             model: None,
             gate,
+            history: None,
         }
+    }
+
+    /// # Returns
+    ///
+    /// The plan, with the history `stored` holds read in ahead of what the session says.
+    #[must_use]
+    pub fn with_history(mut self, stored: Stored) -> Self {
+        self.history = Some(stored);
+        self
     }
 
     /// # Returns
@@ -152,7 +165,8 @@ impl Plan {
 }
 
 /// A session an application holds: the child it is spoken to over, what has been said in it so
-/// far, and what it is waiting to be answered.
+/// far, what it is waiting to be answered, and the history it was resumed over while that is
+/// still being read.
 #[derive(Debug)]
 pub struct Session {
     live: Live,
@@ -164,6 +178,7 @@ pub struct Session {
     id: SessionId,
     model: Option<String>,
     responding: bool,
+    recall: Option<Recall>,
 }
 
 impl Session {
@@ -182,7 +197,7 @@ impl Session {
     ///
     /// # Returns
     ///
-    /// The session on success.
+    /// The session on success, reading in the history the plan names where it names one.
     ///
     /// # Errors
     ///
@@ -203,7 +218,11 @@ impl Session {
             admission
         };
 
-        Self::started(&plan.spawn(&admission))
+        let session = Self::started(&plan.spawn(&admission))?;
+        Ok(match &plan.history {
+            Some(stored) => session.recalled(stored.clone()),
+            None => session,
+        })
     }
 
     /// Starts a session over a spawn that has already been through whatever gate it is going
@@ -229,7 +248,29 @@ impl Session {
             id: spawn.identity().session_id().clone(),
             model: spawn.model().map(str::to_owned),
             responding: false,
+            recall: None,
         })
+    }
+
+    /// # Returns
+    ///
+    /// The session, with the history `stored` holds read in ahead of anything it says from here
+    /// on. The history is read on a thread of its own, so however long it is, it holds up nothing
+    /// but what the session says after it.
+    #[must_use]
+    pub fn recalled(mut self, stored: Stored) -> Self {
+        let (history, arrival) = mpsc::channel();
+        let path = stored.path().to_owned();
+        thread::spawn(move || {
+            let _ignored = history.send(stored.read());
+        });
+        self.recall = Some(Recall {
+            path,
+            arrival,
+            asked: Vec::new(),
+        });
+
+        self
     }
 
     /// Sends one message from the reader, which is a turn, and puts it into the transcript.
@@ -238,6 +279,9 @@ impl Session {
     /// it is not in the transcript at all.
     pub fn ask(&mut self, text: &str) {
         self.conversation.asked(text);
+        if let Some(recall) = self.recall.as_mut() {
+            recall.asked.push(text.to_owned());
+        }
         self.live.ask(text);
         self.responding = true;
         self.revision += 1;
@@ -258,9 +302,14 @@ impl Session {
     }
 
     /// Takes everything the session has said since it was last read, which is nothing at all where
-    /// it has said nothing. Whether that changed anything is [`Session::revision`]'s to say, so
-    /// that a caller has one account of it rather than two that can disagree.
+    /// it has said nothing, and nothing at all while the history it was resumed over is still
+    /// being read, so that nothing it says is drawn ahead of that history. Whether that changed
+    /// anything is [`Session::revision`]'s to say, so that a caller has one account of it rather
+    /// than two that can disagree.
     pub fn read(&mut self) {
+        if !self.recall() {
+            return;
+        }
         let mut arrived = false;
         for arrival in self.live.read() {
             arrived = true;
@@ -390,6 +439,59 @@ impl Session {
 
         (transcript, tags)
     }
+
+    /// # Returns
+    ///
+    /// Whether the history the session was resumed over is still being read.
+    #[must_use]
+    pub fn recalling(&self) -> bool {
+        self.recall.is_some()
+    }
+
+    /// Puts the history the session was resumed over into the conversation, where it has been
+    /// read, ahead of everything the reader asked while it was being read.
+    ///
+    /// # Returns
+    ///
+    /// Whether the conversation holds all of its history, which it does where there was none to
+    /// read.
+    fn recall(&mut self) -> bool {
+        let Some(recall) = self.recall.as_mut() else {
+            return true;
+        };
+        let arrived = match recall.arrival.try_recv() {
+            Ok(arrived) => arrived,
+            Err(TryRecvError::Empty) => return false,
+            Err(TryRecvError::Disconnected) => Err(Error::Stored {
+                path: recall.path.display().to_string(),
+                reason: "the thread reading it stopped before it had read it".to_owned(),
+            }),
+        };
+        let asked = std::mem::take(&mut recall.asked);
+        self.recall = None;
+
+        match arrived {
+            Ok(mut recalled) => {
+                for text in &asked {
+                    recalled.asked(text);
+                }
+                self.conversation = recalled;
+            }
+            Err(error) => self.failure = Some(error.to_string()),
+        }
+        self.revision += 1;
+
+        true
+    }
+}
+
+/// A history being read on a thread of its own: the transcript it is read from, the channel it
+/// arrives on, and what the reader asked while it was being read.
+#[derive(Debug)]
+struct Recall {
+    path: PathBuf,
+    arrival: Receiver<Result<Conversation, Error>>,
+    asked: Vec<String>,
 }
 
 /// The child a session is, read on a thread of its own so that an application can go on drawing

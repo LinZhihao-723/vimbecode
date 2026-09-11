@@ -58,4 +58,5 @@ pub mod live;
 pub mod probe;
 pub mod queue;
 pub mod spawn;
+pub mod stored;
 pub mod trust;

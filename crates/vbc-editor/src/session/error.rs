@@ -8,11 +8,11 @@
 //! the other is a binary that started and will deny everything. [`Error::Refused`] is the round
 //! trip the other way: a request the reader made that the session answered with an error, which is
 //! reported rather than waited out because the answer that was waited for is not coming.
-//! [`Error::Trust`] is the only one
-//! raised before a child exists at all: a directory whose standing could not be settled is a
-//! directory nothing is started in, because by the time a spawn has failed the project's code has
-//! already run. The rest are the child's life: spawning it, writing to it, and it ending or
-//! falling silent.
+//! [`Error::Trust`], [`Error::Unknown`] and [`Error::Stored`] are raised before a child exists at
+//! all: a directory whose standing could not be settled is a directory nothing is started in,
+//! because by the time a spawn has failed the project's code has already run, and a session with no
+//! transcript to be found is a session there is nothing to resume. The rest are the child's life:
+//! spawning it, writing to it, and it ending or falling silent.
 
 use std::error::Error as StdError;
 use std::fmt::{Display, Formatter, Result as FmtResult};
@@ -61,6 +61,24 @@ pub enum Error {
     /// read, understood or written.
     Trust {
         /// The directory, or the record, that could not be used.
+        path: String,
+
+        /// What went wrong with it.
+        reason: String,
+    },
+
+    /// No transcript of the session a resume named was found, so there is nothing to resume.
+    Unknown {
+        /// The identifier the session was named by.
+        id: String,
+
+        /// Where the transcripts were looked for.
+        searched: String,
+    },
+
+    /// A session's transcript, or where transcripts are kept, could not be read.
+    Stored {
+        /// The transcript, or the directory, that could not be read.
         path: String,
 
         /// What went wrong with it.
@@ -150,6 +168,18 @@ impl Display for Error {
                     formatter,
                     "whether `{path}` may run its own code could not be settled, so no session \
                      was started in it: {reason}"
+                )
+            }
+            Self::Unknown { id, searched } => {
+                write!(
+                    formatter,
+                    "no session `{id}` is stored under `{searched}`, so there is nothing to resume"
+                )
+            }
+            Self::Stored { path, reason } => {
+                write!(
+                    formatter,
+                    "the history at `{path}` could not be read: {reason}"
                 )
             }
             Self::Spawn { binary, reason } => {
