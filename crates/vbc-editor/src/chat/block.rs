@@ -113,6 +113,9 @@ const EDIT: &str = "Edit";
 /// The most of a call's argument a header reads, which is more than a row of any terminal holds.
 const HEADER_REACH: usize = 512;
 
+/// The characters other than a blank a path may follow in a header and still start a word.
+const PATH_OPENERS: [char; 4] = ['"', '\'', '=', '('];
+
 /// Who a message was said by.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Role {
@@ -959,7 +962,22 @@ fn subject_of(argument: &str, directory: Option<&str>) -> String {
         return ".".to_owned();
     }
 
-    subject.replace(&format!("{directory}/"), "")
+    let inside = format!("{directory}/");
+    let mut written = String::with_capacity(subject.len());
+    let mut copied = 0;
+    for (at, _) in subject.match_indices(&inside) {
+        let opens = subject[..at]
+            .chars()
+            .next_back()
+            .is_none_or(|before| before.is_whitespace() || PATH_OPENERS.contains(&before));
+        if opens {
+            written.push_str(&subject[copied..at]);
+            copied = at + inside.len();
+        }
+    }
+    written.push_str(&subject[copied..]);
+
+    written
 }
 
 #[cfg(test)]
@@ -975,7 +993,7 @@ mod tests {
 
     use crate::style::{Span, StyledSegment};
 
-    use super::{Block, Kind, Rendered, RenderedRow, Role, RowAnchor, RowWindow};
+    use super::{subject_of, Block, Kind, Rendered, RenderedRow, Role, RowAnchor, RowWindow};
 
     /// The width the fixtures wrap at, narrow enough that most of them take several rows.
     const WIDTH: usize = 5;
@@ -1000,6 +1018,29 @@ mod tests {
 
     /// The markers a continuation row is decorated with where the options ask for one.
     const SHOW_BREAK: &str = "> ";
+
+    #[test]
+    fn a_header_writes_only_the_paths_inside_the_session_relative_to_it() {
+        let directory = Some("/tmp/work/");
+
+        for (argument, written) in [
+            ("/tmp/work/src/main.rs", "src/main.rs"),
+            ("/tmp/work", "."),
+            (
+                "cat /tmp/work/a.rs /var/tmp/work/b.rs",
+                "cat a.rs /var/tmp/work/b.rs",
+            ),
+            ("/var/tmp/work/notes.txt", "/var/tmp/work/notes.txt"),
+            ("grep -r x \"/tmp/work/src\"", "grep -r x \"src\""),
+            ("/tmp/workshop/notes.txt", "/tmp/workshop/notes.txt"),
+        ] {
+            assert_eq!(
+                written,
+                subject_of(argument, directory),
+                "{argument:?} was headed wrongly"
+            );
+        }
+    }
 
     #[test]
     fn every_kind_of_block_round_trips_through_a_render() {

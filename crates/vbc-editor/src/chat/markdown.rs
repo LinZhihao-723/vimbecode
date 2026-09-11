@@ -20,14 +20,14 @@ use crate::chat::palette::{Palette, Rgb, BLUE, CYAN, ORANGE};
 use crate::style::Span;
 
 /// How a mark is drawn: dimmed, so that what it marks is what the eye lands on.
-pub const MARK: Style = Style::new().add_modifier(Modifier::DIM);
+const MARK: Style = Style::new().add_modifier(Modifier::DIM);
 
 /// How what `**` and `*` mark is drawn.
-pub const STRONG: Style = Style::new().add_modifier(Modifier::BOLD);
-pub const EMPHASIS: Style = Style::new().add_modifier(Modifier::ITALIC);
+const STRONG: Style = Style::new().add_modifier(Modifier::BOLD);
+const EMPHASIS: Style = Style::new().add_modifier(Modifier::ITALIC);
 
 /// How a quoted line is drawn.
-pub const QUOTED: Style = Style::new().add_modifier(Modifier::ITALIC);
+const QUOTED: Style = Style::new().add_modifier(Modifier::ITALIC);
 
 /// The character a heading is written with, and the most of them a heading is written under.
 const HEADING_MARK: u8 = b'#';

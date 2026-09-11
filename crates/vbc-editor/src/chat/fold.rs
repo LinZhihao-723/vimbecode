@@ -442,14 +442,6 @@ impl Position {
 
     /// # Returns
     ///
-    /// Whether the position names the row of chrome standing above its entry.
-    #[must_use]
-    pub fn on_chrome(&self) -> bool {
-        self.chrome
-    }
-
-    /// # Returns
-    ///
     /// The same row of the entry numbered `entry`, which is where it stands once entries above it
     /// were added or taken away.
     #[must_use]
