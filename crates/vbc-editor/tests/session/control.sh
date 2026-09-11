@@ -31,8 +31,8 @@
 #   interrupt   start a turn and never end it, and queue what arrives until it is stopped
 #
 # With none of them it asks about one write. It writes down what it was answered in `answered`,
-# one request and behaviour per line and in the order the answers arrived, and what an interrupt
-# asked of the queue in `cancel`.
+# one request and behaviour per line and in the order the answers arrived, what an interrupt
+# asked of the queue in `cancel`, and every line it is sent in `heard`.
 
 printf '%s\n' "$@" > args
 
@@ -96,6 +96,7 @@ denials=""
 answered=""
 
 while IFS= read -r line; do
+    printf '%s\n' "$line" >> heard
     case "$line" in
         *'"type":"user"'*)
             if [ "$running" = "yes" ]; then

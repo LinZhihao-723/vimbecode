@@ -624,7 +624,8 @@ impl<'transcript> View<'transcript> {
     ///
     /// Where the last row of the entry `entry` begins, which is the first row of a summary and of
     /// an entry the view does not hold.
-    fn bottom(&self, entry: usize, wrapping: &Wrapping) -> RowAnchor {
+    #[must_use]
+    pub fn bottom(&self, entry: usize, wrapping: &Wrapping) -> RowAnchor {
         let Some(Entry::Body(block)) = self.entries.get(entry) else {
             return RowAnchor::top();
         };

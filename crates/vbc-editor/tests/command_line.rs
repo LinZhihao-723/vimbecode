@@ -1,16 +1,12 @@
-//! The line a reader types at the status line: the ex commands that write and leave, and the
+//! The line a reader types at the status line: the ex commands that discard and leave, and the
 //! search that finds.
 //!
-//! Everything the editor could do before this file was written was done to a text nobody could
-//! keep. The binary read a file, let a reader edit it and ended on `q`, and the edit went nowhere:
-//! there was no `fs::write` anywhere in the program. So the first thing checked here is the bytes
-//! on disk, read back from a real file after keys were typed at a real application, because a save
-//! asserted as "the editor thinks it saved" is the assertion that would have passed all along.
-//!
-//! The refusals are checked as carefully as the writes. `:q` over a text nothing has written must
-//! not end the program, `:q!` must end it anyway and must leave the file as it was, and `:wq` must
-//! write before it leaves. A `:q` that quietly discarded an edit is worse than a `:q` that never
-//! worked, and only the file on disk can tell the two apart.
+//! The refusals are checked as carefully as what they let through. `:q` over a draft nothing has
+//! sent must not end the program, `:q!` must discard the draft rather than end the program, and
+//! `:qa` must refuse to leave a draft that `:qa!` leaves anyway. A command that quietly threw a
+//! reader's words away is worse than one that never worked, and only the text left behind can tell
+//! the two apart. What `:wq` sends is `chat_screen.rs`'s to check, against a session that can be
+//! sent to.
 //!
 //! The keys typed into the line are checked for not reaching the text. `:wq` holds a `w`, which is
 //! a word motion, and a `q`, which is the key that ends the program; a command line that let
@@ -23,14 +19,12 @@
 //! but that the row it landed on is drawn, because a search that scrolls nothing leaves a reader
 //! looking at the same screen and no way to tell it worked.
 
-use std::path::PathBuf;
-
 use anyhow::Result;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use modalkit::env::vim::VimMode;
 use ratatui::backend::TestBackend;
 use ratatui::layout::Rect;
 use ratatui::Terminal;
-use tempfile::TempDir;
 use vbc_editor::app::{App, Outcome};
 use vbc_editor::engine::typed;
 use vbc_layout::buffer::Buffer;
@@ -40,11 +34,8 @@ use vbc_layout::buffer::Buffer;
 const COLUMNS: u16 = 40;
 const ROWS: u16 = 6;
 
-/// The file every case starts from, whose lines are told apart by the words in them.
+/// The draft every case starts from, whose lines are told apart by the words in them.
 const FIXTURE: &str = "the first line\nthe second line\nthe third line";
-
-/// The name the file is written under.
-const FILE: &str = "draft.txt";
 
 /// The text a search is run over, which is more lines than the window draws so that the match is
 /// somewhere the window has to move to.
@@ -56,150 +47,90 @@ const NEEDLE: &str = "needle";
 const FIRST_MATCH: usize = 10;
 const SECOND_MATCH: usize = 13;
 
-/// Validation 1: `:w` puts the edited bytes on disk.
+/// Validation 1: `:q` refuses a draft nothing has sent, `:q!` discards it and leaves the program
+/// running, and a `:q` over the empty draft that leaves ends the program.
 #[test]
-fn a_write_command_puts_the_edited_bytes_on_disk() -> Result<()> {
-    let held = TempDir::new()?;
-    let (mut app, path) = opened(&held)?;
-    typing(&mut app, "x");
-    typing(&mut app, ":w\r");
-
-    assert_eq!(
-        "he first line\nthe second line\nthe third line\n",
-        std::fs::read_to_string(&path)?,
-        "`:w` wrote something other than the text the keystrokes left"
-    );
-    assert!(!app.modified(), "the text is still modified after `:w`");
-
-    Ok(())
-}
-
-/// Validation 1: `:q` refuses a text nothing has written, `:q!` discards it, and neither touches
-/// the file.
-#[test]
-fn a_quit_command_refuses_an_unwritten_text_and_a_forced_one_discards_it() -> Result<()> {
-    let held = TempDir::new()?;
-    let (mut app, path) = opened(&held)?;
+fn a_quit_command_refuses_an_unsent_draft_and_a_forced_one_discards_it() {
+    let mut app = holding(FIXTURE);
     typing(&mut app, "x");
 
     assert_eq!(
         Outcome::Continues,
         typing(&mut app, ":q\r"),
-        "`:q` ended the program over a text nothing had written"
+        "`:q` ended the program over a draft nothing had sent"
     );
     assert!(
-        app.status().contains("no write"),
+        app.status().contains("not sent"),
         "`:q` said {:?} rather than why it refused",
         app.status()
     );
     assert_eq!(
-        Outcome::Stops,
+        "he first line\nthe second line\nthe third line",
+        app.text().text(),
+        "a refused `:q` changed the draft"
+    );
+
+    assert_eq!(
+        Outcome::Continues,
         typing(&mut app, ":q!\r"),
-        "`:q!` did not end the program"
+        "`:q!` ended the program rather than discarding the draft"
     );
+    assert_eq!("", app.text().text(), "`:q!` kept the draft it discards");
     assert_eq!(
-        format!("{FIXTURE}\n"),
-        std::fs::read_to_string(&path)?,
-        "a refused and then forced quit wrote the file anyway"
+        VimMode::Insert,
+        app.mode(),
+        "`:q!` left a prompt the next message cannot be typed straight into"
     );
 
-    Ok(())
-}
-
-/// Validation 1: `:wq` writes and leaves, and a `:q` after a `:w` leaves without complaining.
-#[test]
-fn a_write_and_quit_command_writes_and_leaves() -> Result<()> {
-    let held = TempDir::new()?;
-    let (mut app, path) = opened(&held)?;
-    typing(&mut app, "x");
+    app.press(area(), key(KeyCode::Esc));
 
     assert_eq!(
         Outcome::Stops,
-        typing(&mut app, ":wq\r"),
-        "`:wq` did not end the program"
+        typing(&mut app, ":q\r"),
+        "`:q` over an empty draft did not end the program"
+    );
+}
+
+/// Validation 1: `:qa` refuses a draft nothing has sent and `:qa!` leaves anyway.
+#[test]
+fn a_quit_all_command_refuses_an_unsent_draft_and_a_forced_one_leaves() {
+    let mut app = holding(FIXTURE);
+
+    assert_eq!(
+        Outcome::Continues,
+        typing(&mut app, ":qa\r"),
+        "`:qa` ended the program over a draft nothing had sent"
     );
     assert_eq!(
-        "he first line\nthe second line\nthe third line\n",
-        std::fs::read_to_string(&path)?,
-        "`:wq` did not write what the keystrokes left"
+        FIXTURE,
+        app.text().text(),
+        "a refused `:qa` changed the draft"
     );
-
-    let (mut written, _) = opened(&held)?;
-    typing(&mut written, "x");
-    typing(&mut written, ":w\r");
-
     assert_eq!(
         Outcome::Stops,
-        typing(&mut written, ":q\r"),
-        "`:q` refused a text that had just been written"
+        typing(&mut app, ":qa!\r"),
+        "`:qa!` did not end the program"
     );
-
-    Ok(())
 }
 
-/// Validation 1: a `:w` that was asked to change nothing writes back the bytes that were read,
-/// empty last lines and all.
-///
-/// The read and the write are one round trip and only a round trip can check them. A read that
-/// took every trailing line ending off what it read and a write that put one back each read a
-/// file the other could not write: `one\n\n\n` came back as `one\n`, and two lines of somebody's
-/// file went missing on the `:w` of a session that typed nothing.
+/// Validation 1: `:wq` with no session to send the draft to says so and keeps the draft.
 #[test]
-fn a_written_file_keeps_the_empty_lines_it_was_read_with() -> Result<()> {
-    let held = TempDir::new()?;
-    for (index, original) in ["one\ntwo\n", "one\n\n\n", "one\n\ntwo\n\n\n", "\n"]
-        .into_iter()
-        .enumerate()
-    {
-        let path = held.path().join(format!("kept{index}.txt"));
-        std::fs::write(&path, original)?;
-        let mut app = App::opened(path.clone())?.with_status(true);
+fn a_send_command_with_nothing_to_send_to_keeps_the_draft() {
+    let mut app = holding(FIXTURE);
 
-        assert!(
-            !app.modified(),
-            "a file that was read and not touched is reported as modified"
-        );
-
-        typing(&mut app, ":w\r");
-
-        assert_eq!(
-            original,
-            std::fs::read_to_string(&path)?,
-            "`:w` over a text nothing had changed rewrote the file"
-        );
-    }
-
-    Ok(())
-}
-
-/// Validation 1: an application with no file to write to says so rather than writing somewhere of
-/// its own choosing, and `:w` naming a file writes there.
-#[test]
-fn a_write_command_names_the_file_it_writes_where_the_editor_was_given_none() -> Result<()> {
-    let held = TempDir::new()?;
-    let mut app = App::new(Buffer::from_text(FIXTURE)).with_status(true);
-    typing(&mut app, ":w\r");
-
+    assert_eq!(Outcome::Continues, typing(&mut app, ":wq\r"));
     assert_eq!(
-        "no file name",
-        app.status(),
-        "`:w` over an unnamed text said {:?}",
-        app.status()
+        FIXTURE,
+        app.text().text(),
+        "`:wq` threw away a draft it sent nowhere"
     );
-
-    let elsewhere = held.path().join("elsewhere.txt");
-    typing(&mut app, &format!(":w {}\r", elsewhere.display()));
-
-    assert_eq!(format!("{FIXTURE}\n"), std::fs::read_to_string(&elsewhere)?);
-
-    Ok(())
+    assert_eq!("there is no session to say that to", app.status());
 }
 
 /// Validation 1: the keys typed into a command line reach the line rather than the text.
 #[test]
-fn the_keys_typed_into_a_command_line_never_reach_the_text() -> Result<()> {
-    let held = TempDir::new()?;
-    let (mut app, _) = opened(&held)?;
+fn the_keys_typed_into_a_command_line_never_reach_the_text() {
+    let mut app = holding(FIXTURE);
     let before = app.cursor();
     typing(&mut app, ":wq");
 
@@ -217,16 +148,13 @@ fn the_keys_typed_into_a_command_line_never_reach_the_text() -> Result<()> {
     );
     assert_eq!(FIXTURE, app.text().text());
     assert_eq!("", app.status(), "the abandoned line is still drawn");
-    assert!(!app.modified());
-
-    Ok(())
 }
 
 /// Validation 2: `/` finds the pattern, `n` and `N` step between the matches, and the window
 /// follows so that the match is on the screen.
 #[test]
 fn a_search_finds_the_pattern_and_the_window_follows_it() -> Result<()> {
-    let mut app = App::new(Buffer::from_text(SEARCHED)).with_status(true);
+    let mut app = holding(SEARCHED);
     typing(&mut app, "/needle\r");
 
     assert_eq!(FIRST_MATCH, app.cursor().line, "`/` found another line");
@@ -263,7 +191,7 @@ fn a_search_finds_the_pattern_and_the_window_follows_it() -> Result<()> {
 /// backwards.
 #[test]
 fn a_search_says_what_it_could_not_find_and_runs_the_way_it_was_started() {
-    let mut app = App::new(Buffer::from_text(SEARCHED)).with_status(true);
+    let mut app = holding(SEARCHED);
     typing(&mut app, "/haystack\r");
 
     assert_eq!(0, app.cursor().line, "a search that found nothing moved");
@@ -300,17 +228,9 @@ fn a_search_says_what_it_could_not_find_and_runs_the_way_it_was_started() {
 
 /// # Returns
 ///
-/// An application over a copy of [`FIXTURE`] written into `held`, and the file it writes to.
-///
-/// # Errors
-///
-/// Returns an error if the fixture could not be written or read back.
-fn opened(held: &TempDir) -> Result<(App, PathBuf)> {
-    let path = held.path().join(FILE);
-    std::fs::write(&path, format!("{FIXTURE}\n"))?;
-    let app = App::opened(path.clone())?.with_status(true);
-
-    Ok((app, path))
+/// An application over a draft of `text`, with nothing typed at it yet.
+fn holding(text: &str) -> App {
+    App::new(Buffer::from_text(text)).with_status(true)
 }
 
 /// Types the characters of `keys` at `app`, one at a time, a carriage return standing for the

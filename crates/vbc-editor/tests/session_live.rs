@@ -380,7 +380,7 @@ fn yac_takes_a_real_sessions_code_and_p_puts_it_in_the_file() -> Result<()> {
     let (transcript, tags) = conversation.into_panel();
     let mut app = App::new(Buffer::from_text(FILE)).with_conversation(transcript, tags);
     app.press(area(), control('t'));
-    assert_eq!(Focus::Transcript, app.focus(), "`<C-T>` reached no panel");
+    assert_eq!(Focus::History, app.focus(), "`<C-T>` reached no panel");
 
     let down = line_of(&mut app, FENCED).ok_or(anyhow!(
         "the panel draws none of the code the session sent, so there is nowhere to type `yac`"
@@ -443,7 +443,7 @@ fn yac_takes_a_live_replys_code_and_p_puts_it_in_the_file() -> Result<()> {
     );
 
     press(&mut app, control('t'));
-    assert_eq!(Focus::Transcript, app.focus(), "`<C-T>` reached no panel");
+    assert_eq!(Focus::History, app.focus(), "`<C-T>` reached no panel");
     let down = line_of(&mut app, FENCED).ok_or(anyhow!("the code left the panel"))?;
     for _ in 0..down {
         press(&mut app, typed('j'));
@@ -480,7 +480,7 @@ fn a_real_permission_request_is_answered_from_the_panel_and_the_session_goes_on(
     );
 
     press(&mut app, control('t'));
-    assert_eq!(Focus::Transcript, app.focus(), "`<C-T>` reached no panel");
+    assert_eq!(Focus::History, app.focus(), "`<C-T>` reached no panel");
     typing(&mut app, ":allow");
     press(&mut app, entered());
     let wrote = settled(&mut app, |_| directory.path().join(WRITTEN_FILE).exists());
