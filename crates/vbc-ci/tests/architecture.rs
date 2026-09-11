@@ -260,22 +260,19 @@ const STANDING_LAYOUTS: [(&str, &str); 0] = [];
 /// anything that ships from naming it, so no run may arrive at it and this rule expects none to.
 const HELD_APART: [&str; 1] = ["vbc_layout::invariants"];
 
-/// The modules no run of a binary arrives at yet. Each is work the application has drifted away
-/// from rather than work that is wrong, and each is written down so that a module joining them
-/// fails this rule and a module wired up to a keystroke fails it until its line is struck out.
+/// The modules no run of a binary arrives at yet. Each would be work the application has drifted
+/// away from rather than work that is wrong, and each would be written down so that a module
+/// joining them fails this rule and a module wired up to a keystroke fails it until its line is
+/// struck out.
 ///
-/// The clipboard is work the editor has not reached back for. The session client was the other
-/// twelve lines: it spoke the whole of Claude Code's subprocess protocol and turned what came back
-/// into the blocks the panel draws, and the binary showed a compiled-in exchange instead. It is
-/// struck out because the panel is now fed by a real session, which is the claim this rule is the
-/// proof of rather than the place to assert it.
-const ORPHANED: [&str; 5] = [
-    "vbc_editor::clipboard",
-    "vbc_editor::clipboard::clip",
-    "vbc_editor::clipboard::helper",
-    "vbc_editor::clipboard::protocol",
-    "vbc_editor::clipboard::reader",
-];
+/// There are none. The session client stood here for twelve lines: it spoke the whole of Claude
+/// Code's subprocess protocol and turned what came back into the blocks the panel draws, and it was
+/// struck out when the panel was fed by a real session. The five after it were the clipboard's --
+/// the wire, the helper's life, the reading, the write path and the module holding them -- and they
+/// stood here because `"+` was a name the keybinding table knew and nothing behind it. `"+` is the
+/// desktop's clipboard now, so a keystroke arrives at all five, and the list this rule is held to
+/// is empty rather than short.
+const ORPHANED: [&str; 0] = [];
 
 /// A scan of a tree, which reads every crate and every module of it and says what it found.
 type Scan = fn(&Path) -> Result<Vec<Finding>, Error>;
