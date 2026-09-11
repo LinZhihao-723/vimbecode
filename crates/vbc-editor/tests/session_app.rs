@@ -200,6 +200,9 @@ fn yac_takes_the_code_a_live_session_sent_and_p_puts_it_in_the_file() -> Result<
     cross(&mut app);
     assert_eq!(Focus::History, app.focus(), "`<C-T>` reached no panel");
     let down = line_of(&mut app, CODE).ok_or(anyhow!("the code left the panel"))?;
+    for key in "gg".chars() {
+        press(&mut app, typed(key));
+    }
     for _ in 0..down {
         press(&mut app, typed('j'));
     }
@@ -442,6 +445,9 @@ fn a_frame_deep_in_a_long_live_session_asks_for_what_one_at_its_top_asks_for() -
     );
     cross(&mut app);
     assert_eq!(Focus::History, app.focus(), "`<C-T>` reached no panel");
+    for key in "gg".chars() {
+        press(&mut app, typed(key));
+    }
 
     let mut cells = Cells::empty(area());
     scrolled(&mut app, SHALLOW);

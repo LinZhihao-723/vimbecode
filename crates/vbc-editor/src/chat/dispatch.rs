@@ -363,7 +363,7 @@ mod tests {
 
         assert_eq!("a question", rows[0]);
         assert_eq!("an answer", rows[1]);
-        assert!(rows[2].contains("2 lines"), "{:?} is no summary", rows[2]);
+        assert!(rows[2].contains("(+1 line)"), "{:?} is no summary", rows[2]);
         assert_eq!(3, rows.len());
     }
 

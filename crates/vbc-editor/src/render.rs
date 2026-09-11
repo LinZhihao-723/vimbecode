@@ -243,6 +243,69 @@ impl Renderer {
         self.mark_wide_gap(buffer, area, y, row.row(), next.map(StyledRow::row));
     }
 
+    /// Draws `text` into the cells of `screen_row` from the column `column` of the area onward,
+    /// each grapheme in the columns the renderer's metrics measure it at, and stops at the first
+    /// one the row has no room left for. A control character is drawn as nothing.
+    ///
+    /// # Returns
+    ///
+    /// The column past the last grapheme drawn.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `area` is not inside `buffer`.
+    pub fn draw_text(
+        &self,
+        buffer: &mut Buffer,
+        area: Rect,
+        screen_row: u16,
+        column: usize,
+        text: &str,
+        style: Style,
+    ) -> usize {
+        if area.height <= screen_row {
+            return column;
+        }
+
+        let y = area.y + screen_row;
+        let mut column = column;
+        for grapheme in graphemes(text) {
+            let width = self.metrics.grapheme_width(grapheme, column);
+            if usize::from(area.width) < column + width {
+                break;
+            }
+            if !grapheme.chars().any(char::is_control) {
+                self.draw_grapheme(
+                    buffer,
+                    area,
+                    Placement {
+                        y,
+                        column,
+                        grapheme,
+                        width,
+                        style,
+                    },
+                );
+            }
+            column += width;
+        }
+
+        column
+    }
+
+    /// Resets the cells of `screen_row` to blanks drawn in the renderer's style.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `area` is not inside `buffer`.
+    pub fn draw_blank(&self, buffer: &mut Buffer, area: Rect, screen_row: u16) {
+        if area.height <= screen_row {
+            return;
+        }
+
+        self.blank(buffer, area, area.y + screen_row);
+    }
+
     /// Draws the decoration a continuation row carries, which is drawn in the renderer's own style
     /// however the row's text is styled.
     ///

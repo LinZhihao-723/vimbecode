@@ -166,7 +166,7 @@ fn a_transcript_that_grows_keeps_every_fold_where_the_reader_left_it() {
             opened.entries()
         );
     };
-    assert_eq!("+--- 3 lines: result running 4 tests", summary.text());
+    assert_eq!("running 4 tests (+2 lines)", summary.text());
 }
 
 #[test]
@@ -318,10 +318,10 @@ fn a_fold_whose_content_changed_while_closed_stays_closed_and_says_what_it_now_h
 
     let before = View::of(&folds, &running);
     assert_eq!(
-        vec!["+---- 3 lines: result running 4 tests"],
+        vec!["running 4 tests (+2 lines)"],
         summaries(&before.render(Position::top(0), SCREEN, &wrapping(COLUMNS)))
             .into_iter()
-            .filter(|text| text.contains("result"))
+            .filter(|text| text.contains("running"))
             .collect::<Vec<String>>()
     );
 
@@ -346,12 +346,12 @@ fn a_fold_whose_content_changed_while_closed_stays_closed_and_says_what_it_now_h
             after.entries()
         );
     };
-    assert_eq!("+---- 9 lines: result running 4 tests", summary.text());
+    assert_eq!("running 4 tests (+8 lines)", summary.text());
 
     folds.apply(Command::CloseAll, ASKED);
     let closed = View::of(&folds, &finished);
     assert_eq!(
-        vec!["+-- 13 lines: Task review the anchor"],
+        vec!["Task(review the anchor) (+12 lines)"],
         summaries(&closed.render(Position::top(0), SCREEN, &wrapping(COLUMNS))),
         "the fold around the tool result did not count what the tool went on to write"
     );
@@ -599,6 +599,7 @@ fn texts(drawn: &[Row<'_>]) -> Vec<String> {
         .map(|row| match row {
             Row::Summary(summary) => summary.text().to_owned(),
             Row::Body { row, .. } => row.styled().row().text().to_owned(),
+            Row::Chrome(chrome) => chrome.text().to_owned(),
         })
         .collect()
 }
@@ -611,7 +612,7 @@ fn summaries(drawn: &[Row<'_>]) -> Vec<String> {
         .iter()
         .filter_map(|row| match row {
             Row::Summary(summary) => Some(summary.text().to_owned()),
-            Row::Body { .. } => None,
+            Row::Body { .. } | Row::Chrome(_) => None,
         })
         .collect()
 }

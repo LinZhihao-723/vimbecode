@@ -14,12 +14,12 @@
 //! them as the call it is, so a session that has stopped and is waiting says so where a reader is
 //! already looking rather than only in a status line they may not be reading.
 //!
-//! Rebuilding the panel is what an arrival costs, and it costs the conversation rather than the
-//! block that arrived, because the panel is built over a transcript rather than appended to. It is
-//! paid when something arrives and never on a keystroke, so reading a session that has stopped
-//! talking costs what reading a compiled-in exchange costs. What it also costs is the reader's
-//! place: a rebuilt panel is drawn from its first row, so a block arriving while somebody is
-//! reading carries them back to the top of what was said.
+//! Taking what arrived into the panel is what an arrival costs, and it costs the conversation
+//! rather than the block that arrived, because the panel lays its transcript out again rather than
+//! appending to it. It is paid when something arrives and never on a keystroke or a frame, so
+//! reading a session that has stopped talking costs what reading a compiled-in exchange costs. It
+//! does not cost the reader's place: the folds they opened, their cursor and the row the panel is
+//! drawn from are where they were.
 //!
 //! The gate is here as well, and it is here rather than in the binary because it is not a dialog
 //! -- it is the step between deciding what a directory may run and starting a child in it, and a
@@ -538,19 +538,23 @@ fn pump(mut client: Client, errands: &Receiver<Errand>, arrivals: &Sender<Result
 /// The block a question the session is waiting on is drawn as, which is the call it is asking to
 /// make and, under it, whatever the call is actually asking for.
 fn asked(ask: &Ask) -> Block {
-    let body = match ask.subject() {
-        Subject::Tool => detailed(ask),
-        Subject::Questions(questions) => questions
-            .iter()
-            .map(spoken)
-            .collect::<Vec<String>>()
-            .join("\n\n"),
-        Subject::Plan(plan) => plan,
+    let (body, words) = match ask.subject() {
+        Subject::Tool => (detailed(ask), false),
+        Subject::Questions(questions) => (
+            questions
+                .iter()
+                .map(spoken)
+                .collect::<Vec<String>>()
+                .join("\n\n"),
+            true,
+        ),
+        Subject::Plan(plan) => (plan, false),
     };
 
     Block::new(
-        BlockKind::ToolCall {
+        BlockKind::Waiting {
             name: ask.tool().to_owned(),
+            words,
         },
         format!("{WAITING}\n{body}"),
     )

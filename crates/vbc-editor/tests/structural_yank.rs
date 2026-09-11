@@ -108,8 +108,8 @@ const MOVED: &str = "offset";
 /// The escape every ANSI sequence starts with.
 const ESCAPE: char = '\u{1b}';
 
-/// What a closed fold's summary row is written under.
-const SUMMARY_MARK: &str = "+--";
+/// What a closed fold's summary row opens with, which is the header naming the call it folds.
+const SUMMARY_MARK: &str = "Bash(";
 
 #[test]
 fn a_yank_carries_none_of_the_numbers_the_gutter_drew_beside_the_rows() {
@@ -373,7 +373,7 @@ fn a_yank_of_a_closed_fold_takes_what_it_covers_and_never_the_row_it_is_drawn_in
         .into_iter()
         .filter_map(|row| match row {
             fold::Row::Summary(summary) => Some(summary.text()),
-            fold::Row::Body { .. } => None,
+            fold::Row::Body { .. } | fold::Row::Chrome(_) => None,
         })
         .collect();
 
@@ -568,6 +568,7 @@ fn drawn(transcript: &Transcript, folds: &Folds) -> Vec<String> {
 
                 format!("{cells}{}", row.styled().row().text())
             }
+            fold::Row::Chrome(chrome) => chrome.text().to_owned(),
         })
         .collect()
 }
@@ -583,7 +584,7 @@ fn numbers(transcript: &Transcript, folds: &Folds) -> Vec<String> {
         .render(FoldPosition::top(0), ROWS, &wrapping())
         .into_iter()
         .filter_map(|row| match row {
-            fold::Row::Summary(_) => None,
+            fold::Row::Summary(_) | fold::Row::Chrome(_) => None,
             fold::Row::Body { row, .. } => gutter.label(row.styled().row(), 0),
         })
         .filter(|label| matches!(label, Label::Absolute(_)))

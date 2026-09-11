@@ -45,6 +45,7 @@ use ratatui::buffer::Buffer as Cells;
 use ratatui::layout::Rect;
 use vbc_editor::app::{App, Focus};
 use vbc_editor::chat::block::{Block, Kind, Role};
+use vbc_editor::chat::chrome::GUTTER;
 use vbc_editor::chat::fold::Position as Placed;
 use vbc_editor::chat::policy::{Drawn, Panel, Policy};
 use vbc_editor::chat::selection::{Mode, Source};
@@ -187,9 +188,9 @@ fn the_panel_draws_the_cursor_where_the_keys_left_it() {
         u16::try_from(INSIDE_THE_CODE).expect("the fixture is short"),
         landed.y
     );
-    assert_eq!(0, landed.x);
+    assert_eq!(GUTTER, usize::from(landed.x));
     assert_eq!(landed.y, moved.y);
-    assert_eq!(1, moved.x);
+    assert_eq!(GUTTER + 1, usize::from(moved.x));
 }
 
 #[test]
@@ -209,9 +210,9 @@ fn the_panel_draws_the_cursor_on_the_row_a_closed_fold_is_drawn_in() {
         u16::try_from(LAST_OF_THE_ANSWER + 1).expect("the fixture is short"),
         on_the_fold.y
     );
-    assert_eq!(0, on_the_fold.x);
+    assert_eq!(GUTTER, usize::from(on_the_fold.x));
     assert!(
-        row.contains("2 lines"),
+        row.contains("(+1 line)"),
         "{row:?} is not the row the closed fold is drawn in"
     );
 
@@ -515,13 +516,14 @@ fn the_panel_draws_the_blocks_that_were_said_and_the_row_a_closed_fold_is() {
         .map(|row| match row {
             Drawn::Summary(summary) => summary.text().to_owned(),
             Drawn::Body { row, .. } => row.styled().cells(),
+            Drawn::Chrome(chrome) => chrome.text().to_owned(),
         })
         .collect();
 
     assert_eq!(ASKED, rows[0]);
     assert_eq!("```rust", rows[3]);
     assert!(
-        rows[LAST_OF_THE_ANSWER + 1].contains("2 lines"),
+        rows[LAST_OF_THE_ANSWER + 1].contains("(+1 line)"),
         "{:?} is not the row the closed fold is drawn in",
         rows[LAST_OF_THE_ANSWER + 1]
     );
@@ -564,6 +566,7 @@ fn a_window_deep_in_the_panel_draws_the_rows_it_was_asked_for() {
         .map(|row| match row {
             Drawn::Summary(summary) => summary.text().to_owned(),
             Drawn::Body { row, .. } => row.styled().cells(),
+            Drawn::Chrome(chrome) => chrome.text().to_owned(),
         })
         .collect();
 

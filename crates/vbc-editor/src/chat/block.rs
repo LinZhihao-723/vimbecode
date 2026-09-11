@@ -76,7 +76,7 @@ use vbc_layout::anchor::Wrapping;
 use vbc_layout::buffer::LINE_SEPARATOR;
 use vbc_layout::line::{self, DisplayRow, Options};
 
-use crate::chat::{ansi, diff};
+use crate::chat::{ansi, diff, markdown};
 use crate::style::{self, Span, StyledRow};
 
 /// The bytes a line whose rows are its length over the width may be written from: the printable
@@ -104,6 +104,12 @@ const PROBE_BYTES_PER_COLUMN: usize = 1;
 /// The characters a logical line's indent is written from, which a prefix of the line reaches past
 /// so that a continuation row of it carries the decoration the whole line gives it.
 const BLANK: [char; 2] = [' ', '\t'];
+
+/// What a diff's header calls the edit it was.
+const EDIT: &str = "Edit";
+
+/// The most of a call's argument a header reads, which is more than a row of any terminal holds.
+const HEADER_REACH: usize = 512;
 
 /// Who a message was said by.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -149,6 +155,15 @@ pub enum Kind {
         /// The path of the file the edit was to, which is what a patch written from the block
         /// names.
         path: String,
+    },
+
+    /// A call the session stopped to ask the reader about, which it is still waiting on.
+    Waiting {
+        /// The name of the tool the session is waiting to call.
+        name: String,
+
+        /// Whether the reader answers it in words rather than by allowing or refusing the call.
+        words: bool,
     },
 }
 
@@ -350,6 +365,35 @@ impl Block {
     #[must_use]
     pub fn diff(path: String, old: &str, new: &str) -> Self {
         Self::of(Kind::Diff { path }, diff::compute(old, new))
+    }
+
+    /// Factory function.
+    ///
+    /// # Returns
+    ///
+    /// A message Claude said, holding `source` as it was written and styled by the markdown it is
+    /// written in.
+    #[must_use]
+    pub fn reply(source: String) -> Self {
+        let spans = markdown::spans(&source);
+
+        Self::with_spans(Kind::Message(Role::Assistant), source, spans)
+    }
+
+    /// # Returns
+    ///
+    /// The line a call to a tool is headed by where it is drawn: the tool, and in brackets what it
+    /// was called on, on one line, with every path inside `directory` written relative to it. A
+    /// diff is headed by the edit it was, and every other block by nothing.
+    #[must_use]
+    pub fn header(&self, directory: Option<&str>) -> Option<String> {
+        let (name, subject) = match &self.kind {
+            Kind::ToolCall { name } => (name.as_str(), self.body.source()),
+            Kind::Diff { path } => (EDIT, path.as_str()),
+            _ => return None,
+        };
+
+        Some(format!("{name}({})", subject_of(subject, directory)))
     }
 
     /// Factory function.
@@ -846,6 +890,27 @@ fn is_plain(text: &str) -> bool {
 /// leaves a plain line's rows to be read off its length.
 fn breaks_at_the_column(options: &Options) -> bool {
     !options.break_indent() && !options.line_break() && options.show_break().is_empty()
+}
+
+/// # Returns
+///
+/// What a header says a call was made on: the start of `argument` on one line, its blanks and
+/// line breaks run together, and every path inside `directory` written relative to it. A directory
+/// that is not absolute names nothing a path could be written relative to.
+fn subject_of(argument: &str, directory: Option<&str>) -> String {
+    let reached = &argument[..boundary(argument, HEADER_REACH)];
+    let subject = reached.split_whitespace().collect::<Vec<&str>>().join(" ");
+    let Some(directory) = directory
+        .map(|directory| directory.trim_end_matches('/'))
+        .filter(|directory| directory.starts_with('/'))
+    else {
+        return subject;
+    };
+    if subject == directory {
+        return ".".to_owned();
+    }
+
+    subject.replace(&format!("{directory}/"), "")
 }
 
 #[cfg(test)]

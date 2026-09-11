@@ -55,12 +55,15 @@ use modalkit::editing::context::EditContext;
 use modalkit::env::vim::VimMode;
 use modalkit::key::TerminalKey;
 use vbc_layout::anchor::Wrapping;
+use vbc_layout::buffer::LINE_SEPARATOR;
 use vbc_layout::position::LogicalPosition;
+use vbc_layout::width::grapheme_indices;
 
 use crate::chat::block::RenderedRow;
+use crate::chat::chrome::Chrome;
 use crate::chat::dispatch::{self, Command, Flattened};
 use crate::chat::fold::{
-    Command as Fold, Fold as Folded, Folds, Position as Placed, Row, Summary, Tag, View,
+    Command as Fold, Entry, Fold as Folded, Folds, Position as Placed, Row, Summary, Tag, View,
 };
 use crate::chat::object::{Kind as ObjectKind, Object, Position};
 use crate::chat::selection::{Mode, Selection, Source};
@@ -160,6 +163,9 @@ pub enum Drawn {
         /// The row itself, naming the bytes of that block it shows.
         row: RenderedRow,
     },
+
+    /// A row holding no byte of any block, standing above the entry it belongs to.
+    Chrome(Chrome),
 }
 
 /// What the selection the keys typed so far are making covers: the block it falls in, and the
@@ -209,6 +215,7 @@ pub struct Panel {
     transcript: Transcript,
     tags: Vec<Tag>,
     folds: Folds,
+    entries: Vec<Entry>,
     flattened: Flattened,
     engine: Engine,
     geometry: Geometry,
@@ -419,7 +426,7 @@ impl Panel {
     /// ends inside them.
     #[must_use]
     pub fn rows(&self, from: Placed, rows: usize) -> Vec<Drawn> {
-        let view = View::of(&self.folds, &self.transcript);
+        let view = View::over(&self.transcript, &self.entries);
         let wrapping = self.wrapping();
 
         view.render(from, rows, &wrapping)
@@ -427,6 +434,7 @@ impl Panel {
             .map(|row| match row {
                 Row::Summary(summary) => Drawn::Summary(summary.clone()),
                 Row::Body { block, row } => Drawn::Body { block, row },
+                Row::Chrome(chrome) => Drawn::Chrome(chrome),
             })
             .collect()
     }
@@ -437,7 +445,7 @@ impl Panel {
     /// closed fold is one row, so a step over one costs nothing however much it hides.
     #[must_use]
     pub fn below(&self, at: Placed) -> Option<Placed> {
-        View::of(&self.folds, &self.transcript).down(at, &self.wrapping())
+        View::over(&self.transcript, &self.entries).down(at, &self.wrapping())
     }
 
     /// # Returns
@@ -445,7 +453,7 @@ impl Panel {
     /// The row of the folded transcript above `at`, or [`None`] where `at` is its first row.
     #[must_use]
     pub fn above(&self, at: Placed) -> Option<Placed> {
-        View::of(&self.folds, &self.transcript).up(at, &self.wrapping())
+        View::over(&self.transcript, &self.entries).up(at, &self.wrapping())
     }
 
     /// # Returns
@@ -453,10 +461,75 @@ impl Panel {
     /// The last row of the folded transcript, or [`None`] where it holds nothing.
     #[must_use]
     pub fn last(&self) -> Option<Placed> {
-        let view = View::of(&self.folds, &self.transcript);
+        let view = View::over(&self.transcript, &self.entries);
         let entry = view.entries().len().checked_sub(1)?;
 
         Some(Placed::new(entry, view.bottom(entry, &self.wrapping())))
+    }
+
+    /// Takes in `transcript`, which is what the panel's transcript grew into, and the tags its
+    /// blocks arrived with, keeping every fold as it was opened, the cursor on the byte it rested
+    /// on and a selection over what it covered.
+    ///
+    /// # Returns
+    ///
+    /// Where `top` now stands: the same row of the same block wherever the entries above it moved,
+    /// or the first row of the entry numbered as it was where that block is no longer drawn.
+    pub fn update(&mut self, transcript: Transcript, tags: Vec<Tag>, top: Placed) -> Placed {
+        let stood = self.entries.get(top.entry()).map(Entry::block);
+        let resting = self.resting;
+        let selected = self.engine.selection().map(|(cursor, anchor, shape)| {
+            let at = |caret| self.flattened.at(self.flattened.caret_at(caret));
+
+            (at(cursor), at(anchor), shape)
+        });
+
+        self.transcript = transcript;
+        self.tags = tags;
+        self.folds.rebuild(&self.transcript, &self.tags);
+        self.project();
+
+        let rested = self
+            .offset_of(resting)
+            .unwrap_or(self.flattened.text().len());
+        self.rest_at(rested);
+        if let Some((Some(cursor), Some(anchor), shape)) = selected {
+            if let (Some(cursor), Some(anchor)) = (self.offset_of(cursor), self.offset_of(anchor)) {
+                self.engine.select(
+                    self.flattened.caret_of(cursor),
+                    self.flattened.caret_of(anchor),
+                    shape,
+                );
+            }
+        }
+        self.adopt();
+
+        stood
+            .and_then(|block| self.entries.iter().position(|entry| block == entry.block()))
+            .map_or_else(
+                || Placed::top(top.entry().min(self.entries.len().saturating_sub(1))),
+                |entry| top.moved_to(entry),
+            )
+    }
+
+    /// # Returns
+    ///
+    /// Whether the cursor rests on the last line of the folded transcript, which is where it rests
+    /// while the panel follows what arrives.
+    pub fn at_end(&mut self) -> bool {
+        let last = self.flattened.text().matches(LINE_SEPARATOR).count();
+
+        last <= self.engine.cursor().line
+    }
+
+    /// Rests the cursor at the start of the last line of the folded transcript.
+    pub fn to_end(&mut self) {
+        let text = self.flattened.text();
+        let last = text
+            .rfind(LINE_SEPARATOR)
+            .map_or(0, |separator| separator + LINE_SEPARATOR.len_utf8());
+        self.rest_at(last);
+        self.adopt();
     }
 
     /// # Returns
@@ -556,10 +629,11 @@ impl Panel {
     /// nothing refused.
     fn over(transcript: Transcript, tags: Vec<Tag>, geometry: Geometry) -> Self {
         let folds = Folds::of(&transcript, &tags);
-        let flattened = {
+        let (flattened, entries) = {
             let view = View::of(&folds, &transcript);
+            let flattened = Flattened::of(&view, &transcript);
 
-            Flattened::of(&view, &transcript)
+            (flattened, view.into_entries())
         };
         let keys = Keys::new(dispatch::bindings());
         let engine =
@@ -569,6 +643,7 @@ impl Panel {
             transcript,
             tags,
             folds,
+            entries,
             flattened,
             engine,
             geometry,
@@ -655,26 +730,51 @@ impl Panel {
     /// the top of the entry that now draws the block `at`, which is the row of the fold that
     /// covers it where a fold closed over it.
     fn reflow(&mut self, at: usize) {
-        let flattened = {
-            let view = View::of(&self.folds, &self.transcript);
-
-            Flattened::of(&view, &self.transcript)
-        };
-        let resting = flattened.start_of(at).or_else(|| {
+        self.project();
+        let resting = self.flattened.start_of(at).or_else(|| {
             self.folds
                 .covering(at)
                 .filter(|fold| !self.folds.is_open(fold.head()))
                 .map(Folded::head)
-                .find_map(|head| flattened.start_of(head))
+                .find_map(|head| self.flattened.start_of(head))
         });
-        let caret = flattened.caret_of(resting.unwrap_or(0));
-        self.engine.reload(flattened.text());
+        let caret = self.flattened.caret_of(resting.unwrap_or(0));
         self.engine.place(LogicalPosition {
             line: caret.line,
             grapheme: 0,
         });
-        self.flattened = flattened;
         self.adopt();
+    }
+
+    /// Works out the entries the folds leave drawn and the text they flatten to, and hands that
+    /// text to the engine.
+    fn project(&mut self) {
+        let view = View::of(&self.folds, &self.transcript);
+        self.flattened = Flattened::of(&view, &self.transcript);
+        self.entries = view.into_entries();
+        self.engine.reload(self.flattened.text());
+    }
+
+    /// # Returns
+    ///
+    /// The byte of the flattened text `at` is drawn at, which is the row of the fold heading its
+    /// block where that block is folded away, or [`None`] where no entry draws it.
+    fn offset_of(&self, at: Position) -> Option<usize> {
+        self.flattened
+            .offset_of(at.block(), at.offset())
+            .or_else(|| self.flattened.start_of(at.block()))
+    }
+
+    /// Rests the cursor on the byte `offset` of the flattened text.
+    fn rest_at(&mut self, offset: usize) {
+        let text = self.flattened.text();
+        let offset = offset.min(text.len());
+        let caret = self.flattened.caret_of(offset);
+        let grapheme = grapheme_indices(&text[offset - caret.column..offset]).count();
+        self.engine.place(LogicalPosition {
+            line: caret.line,
+            grapheme,
+        });
     }
 
     /// # Returns

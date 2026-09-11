@@ -322,7 +322,10 @@ fn whole(kind: &block::Kind) -> Option<Kind> {
         block::Kind::Message(_) => Some(Kind::Message),
         block::Kind::Code { .. } => Some(Kind::Code),
         block::Kind::ToolResult => Some(Kind::ToolResult),
-        block::Kind::ToolCall { .. } | block::Kind::Thinking | block::Kind::Diff { .. } => None,
+        block::Kind::ToolCall { .. }
+        | block::Kind::Thinking
+        | block::Kind::Diff { .. }
+        | block::Kind::Waiting { .. } => None,
     }
 }
 

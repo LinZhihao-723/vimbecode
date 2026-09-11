@@ -226,6 +226,7 @@ impl Conversation {
                 self.session = Some(init.session_id.clone());
                 self.model = Some(init.model.clone());
                 self.commands.clone_from(&init.slash_commands);
+                self.transcript.set_directory(init.directory.clone());
             }
             Kind::Assistant => self.said(event.raw()),
             Kind::User => self.answered(event.raw()),
@@ -372,10 +373,11 @@ impl Conversation {
     /// them said beneath the call `beneath`.
     fn prose(&mut self, said: &str, beneath: Option<&str>) {
         for (kind, source) in written(said) {
-            self.push(
-                Block::new(kind, source),
-                Tag::new(None, beneath.map(str::to_owned)),
-            );
+            let block = match kind {
+                BlockKind::Message(Role::Assistant) => Block::reply(source),
+                kind => Block::new(kind, source),
+            };
+            self.push(block, Tag::new(None, beneath.map(str::to_owned)));
         }
     }
 
