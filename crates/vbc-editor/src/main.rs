@@ -6,6 +6,9 @@
 //! and edits with is the library's: the binary contributes the terminal it draws into, the keys it
 //! reads, and the command line it is started from.
 //!
+//! `"+` and `"*` are the desktop's clipboard rather than registers of the editor's own, so `"+yy`
+//! here is a line another Windows application can paste and `"+p` is what one of them last copied.
+//!
 //! A session is started only after the directory it would run in has been through the trust gate,
 //! and the question is put here rather than inside the editor because it has to be answered before
 //! the child exists. Headless Claude Code has no workspace-trust dialog of its own: in a directory
@@ -29,6 +32,7 @@ use ratatui::backend::CrosstermBackend;
 use ratatui::layout::Rect;
 use ratatui::Terminal;
 use vbc_editor::app::{App, Outcome};
+use vbc_editor::clipboard::register::Bridge;
 use vbc_editor::event::reader::TerminalReader;
 use vbc_editor::event::{Config, Event, Source};
 use vbc_editor::session::identity::{Identity, SessionId};
@@ -186,7 +190,9 @@ fn open(arguments: &Arguments) -> Result<App, Box<dyn Error>> {
         );
     }
 
-    Ok(App::chat().with_session(session))
+    Ok(App::chat()
+        .with_session(session)
+        .with_clipboard(Bridge::windows()))
 }
 
 /// Puts to the reader the question of whether a directory may run its own code, on the terminal
@@ -260,8 +266,9 @@ fn leave(mut terminal: Terminal<CrosstermBackend<Stdout>>) -> Result<(), Box<dyn
 /// The first frame is drawn after the application has been handed the timer's tick once, which is
 /// what lays it out in the terminal it is drawn into before anything is typed. A frame is drawn
 /// for every event but the timer's own tick, because a terminal written to sixty times a second
-/// is a terminal nothing else can read -- and for a tick that a session said something during,
-/// because a tick is the only event a turn nobody is typing through arrives on.
+/// is a terminal nothing else can read -- and for a tick that a session said something during, or
+/// that the desktop's clipboard answered a held put during, because a tick is the only event
+/// either of those arrives on.
 ///
 /// # Errors
 ///

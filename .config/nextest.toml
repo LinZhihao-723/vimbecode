@@ -8,7 +8,7 @@
 # rather than trusted.
 nextest-version = { required = "0.9.85", recommended = "0.9.143" }
 
-# The one system clipboard, which two test targets write to and read back. `cargo test` ran a
+# The one system clipboard, which three test targets write to and read back. `cargo test` ran a
 # single test binary at a time and kept them apart without meaning to; this runner runs every
 # binary at once, so whichever wrote last was what both read. The constraint is written down here
 # rather than left to a scheduling accident.
@@ -34,7 +34,7 @@ slow-timeout = { period = "60s" }
 retries = 0
 
 [[profile.default.overrides]]
-filter = "binary(clipboard_helper) + binary(clipboard_write)"
+filter = "binary(clipboard_helper) + binary(clipboard_registers) + binary(clipboard_write)"
 test-group = "system-clipboard"
 
 # What continuous integration runs the suite under. It differs from a run at a desk in one way: a
