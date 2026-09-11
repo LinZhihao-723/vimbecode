@@ -380,10 +380,11 @@ impl Conversation {
     /// them said beneath the call `beneath`.
     fn prose(&mut self, said: &str, beneath: Option<&str>) {
         for (kind, source) in written(said) {
-            self.push(
-                Block::new(kind, source),
-                Tag::new(None, beneath.map(str::to_owned)),
-            );
+            let block = match kind {
+                BlockKind::Code { language } => Block::code(language, source),
+                kind => Block::new(kind, source),
+            };
+            self.push(block, Tag::new(None, beneath.map(str::to_owned)));
         }
     }
 
