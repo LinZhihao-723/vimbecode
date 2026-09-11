@@ -19,3 +19,18 @@ editor-types, editor-types-parser, editor-types-macros and keybindings crates,
 and the editor's own keybinding table names those actions and was derived from
 modalkit's. The published packages of those crates carry no copy of their
 license, so one is kept at third_party/modalkit/LICENSE.
+
+This product includes software developed by the syntect project
+(https://github.com/trishume/syntect), Copyright (c) 2017 Tristan Hume, Keith
+Hall, Google Inc and other contributors, licensed under the MIT License, a copy
+of which is kept at third_party/syntect/LICENSE. The code in a transcript is
+highlighted by it, with the syntax definitions it bundles from Sublime HQ's
+Packages (https://github.com/sublimehq/Packages), whose license is kept at
+third_party/sublime-packages/LICENSE; a definition carrying license
+information of its own is under those terms instead.
+
+The colours code is highlighted in are base16's Ocean scheme, laid over the
+syntax scopes after base16's TextMate scheme
+(https://github.com/chriskempson/base16-textmate), Copyright (C) 2012 Chris
+Kempson, licensed under the MIT License, a copy of which is kept at
+third_party/base16/LICENSE.
