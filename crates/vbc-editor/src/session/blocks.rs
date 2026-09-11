@@ -256,6 +256,10 @@ impl Conversation {
         });
     }
 
+    pub fn set_directory(&mut self, directory: String) {
+        self.transcript.set_directory(directory);
+    }
+
     #[must_use]
     pub fn transcript(&self) -> &Transcript {
         &self.transcript

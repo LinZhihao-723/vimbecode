@@ -345,6 +345,14 @@ impl Replay {
         if flagged(event.raw(), SIDECHAIN_FIELD) {
             return;
         }
+        if let Some(directory) = event
+            .raw()
+            .get(DIRECTORY_FIELD)
+            .and_then(Value::as_str)
+            .filter(|_| self.conversation.transcript().directory().is_none())
+        {
+            self.conversation.set_directory(directory.to_owned());
+        }
 
         match event.kind() {
             Kind::User => self.user(event),

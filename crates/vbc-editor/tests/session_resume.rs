@@ -467,6 +467,14 @@ fn replays(live: &Conversation, before: &Conversation, after: &Conversation) -> 
         "the history from `/clear` on was replayed into other blocks than it was read into live"
     );
     assert_eq!(&tags[cleared..], after.tags());
+    for (replayed, part) in [(before, "before `/clear`"), (after, "from `/clear` on")] {
+        assert_eq!(
+            live.transcript().directory(),
+            replayed.transcript().directory(),
+            "the history {part} was replayed under another directory than it was read into live, \
+             so its calls are headed by other paths"
+        );
+    }
     assert_eq!(
         spoken
             .iter()
