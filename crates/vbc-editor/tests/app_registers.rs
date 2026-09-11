@@ -30,12 +30,12 @@
 //!
 //! The last two cases are the guard, and they are what `shared_registers.rs` cannot be. One walks
 //! every way an application can be built -- the panel it is built holding before any transcript
-//! replaces it, every ordering of the builders, a transcript replaced by another, a file opened
-//! off the disk -- and requires the crossing of each, so a constructor that forgets the register
-//! file fails here however green the component tests are. The other reads the source that builds
-//! the application and requires that it builds exactly one register file: every engine and every
-//! panel it constructs beyond the first is handed that one, which is the property a constructor
-//! written next year is held to without anyone remembering to add it below.
+//! replaces it, every ordering of the builders, a transcript replaced by another, the conversation
+//! screen the binary builds -- and requires the crossing of each, so a constructor that forgets
+//! the register file fails here however green the component tests are. The other reads the source
+//! that builds the application and requires that it builds exactly one register file: every
+//! engine and every panel it constructs beyond the first is handed that one, which is the property
+//! a constructor written next year is held to without anyone remembering to add it below.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -99,9 +99,7 @@ const THE_CLOSED_FOLD: usize = LAST_OF_THE_ANSWER + 1;
 /// The first word of the question, which is what a charwise yank in the panel takes.
 const FIRST_WORD: &str = "why";
 
-/// The name the file opened off the disk is written under, and the name the patch is written under
-/// while `git apply` is asked to take it.
-const OPENED_FILE: &str = "left-open.txt";
+/// The name the patch is written under while `git apply` is asked to take it.
 const PATCH_FILE: &str = "yanked.patch";
 
 /// What `git apply` says when it had to move a hunk to make it fit.
@@ -138,7 +136,7 @@ fn a_code_block_yanked_in_the_panel_is_what_a_put_in_the_file_inserts() {
     cross(&mut app);
     press(&mut app, "p");
 
-    assert_eq!(Focus::Text, app.focus(), "`<C-T>` did not come back");
+    assert_eq!(Focus::Prompt, app.focus(), "`<C-T>` did not come back");
     assert_eq!(format!("{FILE}\n{CODE}"), app.text().text());
 }
 
@@ -316,10 +314,6 @@ fn a_plain_put_reads_what_was_yanked_rather_than_what_reached_the_clipboard() {
 /// that builds a panel or an engine of its own fails here rather than in a bug report.
 #[test]
 fn every_way_an_application_is_built_hands_both_halves_the_one_register_file() -> Result<()> {
-    let directory = tempfile::tempdir()?;
-    let path = directory.path().join(OPENED_FILE);
-    fs::write(&path, format!("{FILE}\n"))?;
-
     let mut bare = App::new(Buffer::from_text(FILE));
     press(&mut bare, "yy");
 
@@ -348,8 +342,7 @@ fn every_way_an_application_is_built_hands_both_halves_the_one_register_file() -
                 .with_transcript(said())
                 .with_status(true)
                 .with_metrics(Metrics::default())
-                .with_options(Options::new())
-                .with_path(path.clone()),
+                .with_options(Options::new()),
         ),
         (
             "a transcript replaced by another",
@@ -358,8 +351,10 @@ fn every_way_an_application_is_built_hands_both_halves_the_one_register_file() -
                 .with_transcript(said()),
         ),
         (
-            "a file opened off the disk",
-            App::opened(path.clone())?.with_transcript(said()),
+            "the conversation screen the binary builds",
+            App::new(Buffer::from_text(FILE))
+                .with_transcript(said())
+                .composing(),
         ),
     ];
 
@@ -367,7 +362,7 @@ fn every_way_an_application_is_built_hands_both_halves_the_one_register_file() -
         cross(&mut app);
 
         assert_eq!(
-            Focus::Transcript,
+            Focus::History,
             app.focus(),
             "`<C-T>` reached no panel in an application built with {built_by}"
         );
@@ -375,6 +370,7 @@ fn every_way_an_application_is_built_hands_both_halves_the_one_register_file() -
         walk(&mut app, INSIDE_THE_CODE);
         press(&mut app, "yac");
         cross(&mut app);
+        app.press(area(), KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
         press(&mut app, "p");
 
         assert_eq!(
@@ -427,7 +423,7 @@ fn reading(file: &str) -> App {
         .with_transcript(said());
     app.press(area(), control('t'));
 
-    assert_eq!(Focus::Transcript, app.focus(), "`<C-T>` reached no panel");
+    assert_eq!(Focus::History, app.focus(), "`<C-T>` reached no panel");
 
     app
 }

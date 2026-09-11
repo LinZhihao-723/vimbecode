@@ -578,7 +578,7 @@ fn reading_over(said: Transcript, options: &Options, area: Rect) -> App {
     app.press(area, control('t'));
     app.press(area, typed('0'));
 
-    assert_eq!(Focus::Transcript, app.focus(), "`CTRL-T` reached no panel");
+    assert_eq!(Focus::History, app.focus(), "`CTRL-T` reached no panel");
 
     app
 }

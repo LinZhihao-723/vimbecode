@@ -436,11 +436,11 @@ fn a_window_stranded_past_the_end_of_a_shortened_text_comes_back_to_the_cursor()
     Ok(())
 }
 
-/// The program stops on the interrupt, from a mode where the keys are text as well as from the
-/// one they are commands in, and `q` is a key vim reads a register name after rather than the one
-/// that ends the program.
+/// The program goes on through the interrupt, from a mode where the keys are text as well as from
+/// the one they are commands in, because the interrupt stops a session's turn rather than the
+/// program; and `q` is a key vim reads a register name after rather than the one that ends it.
 #[test]
-fn the_program_stops_on_the_interrupt_from_every_mode() {
+fn the_program_goes_on_through_the_interrupt_from_every_mode() {
     let area = area(WIDE);
     let mut app = App::new(Buffer::from_text(TALL));
 
@@ -449,7 +449,11 @@ fn the_program_stops_on_the_interrupt_from_every_mode() {
         app.press(area, KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE)),
         "`q` records a macro this editor does not keep rather than ending the program"
     );
-    assert_eq!(Outcome::Stops, app.press(area, control('c')));
+    assert_eq!(
+        Outcome::Continues,
+        app.press(area, control('c')),
+        "the interrupt ended the program from normal mode"
+    );
 
     let mut inserting = App::new(Buffer::from_text(TALL));
     inserting.press(area, KeyEvent::new(KeyCode::Char('i'), KeyModifiers::NONE));
@@ -463,7 +467,12 @@ fn the_program_stops_on_the_interrupt_from_every_mode() {
     assert_eq!(
         Outcome::Continues,
         inserting.press(area, control('c')),
-        "the interrupt leaves an unwritten text where it stands"
+        "the interrupt ended the program from insert mode"
+    );
+    assert_eq!(
+        "qone\ntwo\nthree",
+        inserting.text().lines()[..3].join("\n"),
+        "the interrupt changed the text it was typed over"
     );
 }
 
