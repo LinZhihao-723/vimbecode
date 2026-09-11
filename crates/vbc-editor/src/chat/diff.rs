@@ -56,7 +56,7 @@ use vbc_layout::buffer::LINE_SEPARATOR;
 
 use crate::chat::highlight::{Language, MAX_SOURCE};
 use crate::chat::palette::{
-    Palette, ADDED_BAND, ADDED_EMPHASIS, COMMENT, GREEN, RED, REMOVED_BAND, REMOVED_EMPHASIS,
+    Palette, Rgb, ADDED_BAND, ADDED_EMPHASIS, COMMENT, GREEN, RED, REMOVED_BAND, REMOVED_EMPHASIS,
 };
 use crate::style::{Block, Span};
 
@@ -734,8 +734,8 @@ fn draw(
     palette: Palette,
 ) -> Drawn {
     let length = |lines: &[&str]| lines.iter().map(|line| line.len() + 1).sum::<usize>();
-    let language = Language::of_path(path)
-        .filter(|_| length(sides.old) + length(sides.new) <= MAX_SOURCE);
+    let language =
+        Language::of_path(path).filter(|_| length(sides.old) + length(sides.new) <= MAX_SOURCE);
     let old_colours = highlighted(sides.old, language, palette);
     let new_colours = highlighted(sides.new, language, palette);
     let changed = emphasised(shown);
@@ -1120,7 +1120,7 @@ fn layered(
 /// # Returns
 ///
 /// A style drawing the cells it covers on `rgb`, as `palette` draws it.
-fn band(palette: Palette, rgb: crate::chat::palette::Rgb) -> Style {
+fn band(palette: Palette, rgb: Rgb) -> Style {
     Style::new().bg(palette.color(rgb))
 }
 
