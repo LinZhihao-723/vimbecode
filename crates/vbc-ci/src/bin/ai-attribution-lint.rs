@@ -1,4 +1,5 @@
-//! Command-line entry point checking a pull request for credit given to an AI.
+//! Command-line entry point checking a pull request for credit given to an AI, and for a link to
+//! the session it was written in.
 //!
 //! A pull request is squashed before it lands, and a squash carries every trailer of every commit
 //! it folds forward into the one commit that stays. So the tip is not what is read: the whole
@@ -36,7 +37,8 @@ const BODY: &str = "the pull request body";
 /// # Returns
 ///
 /// [`ExitCode::SUCCESS`] if no commit of the range, and no line of the title or of the body,
-/// credits an AI as an author or as a generator, and [`ExitCode::FAILURE`] otherwise.
+/// credits an AI as an author or as a generator or links the session it was written in, and
+/// [`ExitCode::FAILURE`] otherwise.
 fn main() -> ExitCode {
     let arguments: Vec<String> = args().skip(1).collect();
     let Some(range) = flag(&arguments, RANGE_FLAG) else {
@@ -69,13 +71,17 @@ fn main() -> ExitCode {
         eprint!("{report}");
         eprintln!(
             "A commit, a title, or a body above credits an AI, a model, or an assistant as an \
-             author or as a generator, which nothing that lands in this repository may do. Naming \
-             one in prose is fine; signing its work over to one is not."
+             author or as a generator, or links the session it was written in, which nothing that \
+             lands in this repository may do. Naming one in prose is fine; signing its work over \
+             to one, or pointing at the session it was done in, is not."
         );
         return ExitCode::FAILURE;
     }
 
-    println!("{} texts credit no AI as an author.", texts.len());
+    println!(
+        "{} texts credit no AI as an author and link no session.",
+        texts.len()
+    );
     ExitCode::SUCCESS
 }
 
