@@ -24,20 +24,31 @@ use vbc_oracle::state::EditorState;
 /// The number of cases whose cursor cell this mapping reproduces, which is the sample the
 /// cross-check is worth. A case added to the corpus lands in the sample or in one of the lists
 /// below, and either way this number moves.
-const CURSORS_ANCHORED: usize = 63;
+const CURSORS_ANCHORED: usize = 141;
 
 /// The number of cases whose text holds a logical line drawn on more than one row with another
 /// line under it, which is the shape that makes the rows a walk crosses differ from the lines it
 /// crosses.
-const WRAPPED_LINE_ABOVE_A_LATER_LINE: usize = 11;
+const WRAPPED_LINE_ABOVE_A_LATER_LINE: usize = 61;
 
 /// The number of cases whose cursor vim draws below a wrapped line, so that the walk from the top
 /// of the window has to count that line's rows rather than the line itself.
-const CURSORS_BELOW_A_WRAPPED_LINE: usize = 8;
+const CURSORS_BELOW_A_WRAPPED_LINE: usize = 23;
 
 /// The cases whose window scrolls sideways rather than wrapping, which an anchor at the top left
 /// of the window does not describe.
-const NOT_WRAPPED: [&str; 2] = ["nowrap-w20-cjk", "nowrap-w40-horizontal-scroll"];
+const NOT_WRAPPED: [&str; 10] = [
+    "matrix-tab-w20-ts8-nowrap",
+    "matrix-tab-w24-ts8-nowrap",
+    "matrix-tab-w40-ts8-nowrap",
+    "matrix-w12-nowrap",
+    "matrix-w20-nowrap",
+    "matrix-w24-nowrap",
+    "matrix-w40-nowrap",
+    "matrix-w80-nowrap",
+    "nowrap-w20-cjk",
+    "nowrap-w40-horizontal-scroll",
+];
 
 /// The cases whose cursor vim leaves inside a grapheme cluster, which is not a position this
 /// crate's coordinates can name.
@@ -52,12 +63,14 @@ const CURSOR_INSIDE_A_CLUSTER: [&str; 6] = [
 
 /// The cases whose cursor vim draws in another cell than the one this mapping puts it in, with the
 /// reason.
-const CURSOR_DIVERGENCES: [(&str, &str); 4] = [
+const CURSOR_DIVERGENCES: [(&str, &str); 6] = [
     (
         "combining-hangul-jamo-decomposed",
         "vim draws a decomposed jamo syllable four columns wide, a cluster two",
     ),
     ("flag-wrap-narrow-viewport", REGIONAL_INDICATOR),
+    ("matrix-tab-w24-ts8-linebreak", LINE_BREAK_BESIDE_A_TAB),
+    ("matrix-tab-w40-ts8-linebreak", LINE_BREAK_BESIDE_A_TAB),
     (
         "tab-leading-indent-ts8",
         "vim draws the cursor on a tab's last cell rather than at the column the tab starts at",
@@ -66,15 +79,17 @@ const CURSOR_DIVERGENCES: [(&str, &str); 4] = [
 ];
 
 /// The number of cases whose every position this mapping draws where vim drew it.
-const SCREENS_ANCHORED: usize = 63;
+const SCREENS_ANCHORED: usize = 141;
 
 /// The cases whose recorded screen holds something other than the graphemes this crate lays out,
 /// with the reason.
-const SCREEN_DIVERGENCES: [(&str, &str); 10] = [
+const SCREEN_DIVERGENCES: [(&str, &str); 12] = [
     ("emoji-skin-tone-modifier", ZERO_WIDTH_JOINER),
     ("emoji-zwj-family-delete-cluster", ZERO_WIDTH_JOINER),
     ("emoji-zwj-family-wrap-edge", ZERO_WIDTH_JOINER),
     ("flag-wrap-narrow-viewport", REGIONAL_INDICATOR),
+    ("matrix-tab-w24-ts8-linebreak", LINE_BREAK_BESIDE_A_TAB),
+    ("matrix-tab-w40-ts8-linebreak", LINE_BREAK_BESIDE_A_TAB),
     ("word-b-zwj-family", ZERO_WIDTH_JOINER),
     ("word-big-b-zwj-family", ZERO_WIDTH_JOINER),
     ("word-big-e-zwj-family", ZERO_WIDTH_JOINER),
@@ -87,6 +102,12 @@ const SCREEN_DIVERGENCES: [(&str, &str); 10] = [
 const ZERO_WIDTH_JOINER: &str =
     "vim spells a zero-width joiner as the escape `<200d>`, six columns this crate measures as \
      none";
+
+/// The reason vim ends a word-wrapped row beside a tab further along than this crate does, which
+/// is the `'linebreak'` gap `vbc_layout::line`'s own documentation states.
+const LINE_BREAK_BESIDE_A_TAB: &str =
+    "vim measures a word from the column the break character in front of it starts at, so a tab \
+     separating two words does not count against the word behind it";
 
 /// The reason vim draws a flag in cells this crate does not account for.
 const REGIONAL_INDICATOR: &str =

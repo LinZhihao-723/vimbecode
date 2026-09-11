@@ -48,9 +48,9 @@ range would not be laid out where it says it is.
 
 ## Tags
 
-`ambiwidth`, `ascii`, `breakindent`, `cjk`, `code`, `combining`, `emoji`, `flag`, `nfd`, `nowrap`,
-`showbreak`, `tab`, `wrap`, `word-motion`. A tag the loader does not know is a load failure, so
-adding one means adding it to `Tag` in the loader first.
+`ambiwidth`, `ascii`, `breakindent`, `cjk`, `code`, `combining`, `emoji`, `flag`, `linebreak`,
+`nfd`, `nowrap`, `showbreak`, `tab`, `wrap`, `word-motion`. A tag the loader does not know is a
+load failure, so adding one means adding it to `Tag` in the loader first.
 
 ## Writing text
 

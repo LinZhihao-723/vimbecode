@@ -265,11 +265,13 @@ const HELD_APART: [&str; 1] = ["vbc_layout::invariants"];
 /// joining them fails this rule and a module wired up to a keystroke fails it until its line is
 /// struck out.
 ///
-/// There are none. The five that stood here were the clipboard's -- the wire, the helper's life,
-/// the reading, the write path and the module holding them -- and they stood here because `"+`
-/// was a name the keybinding table knew and nothing behind it. `"+` is the desktop's clipboard
-/// now, so a keystroke arrives at all five, and the list this rule is held to is empty rather than
-/// short.
+/// There are none. The session client stood here for twelve lines: it spoke the whole of Claude
+/// Code's subprocess protocol and turned what came back into the blocks the panel draws, and it was
+/// struck out when the panel was fed by a real session. The five after it were the clipboard's --
+/// the wire, the helper's life, the reading, the write path and the module holding them -- and they
+/// stood here because `"+` was a name the keybinding table knew and nothing behind it. `"+` is the
+/// desktop's clipboard now, so a keystroke arrives at all five, and the list this rule is held to
+/// is empty rather than short.
 const ORPHANED: [&str; 0] = [];
 
 /// A scan of a tree, which reads every crate and every module of it and says what it found.
@@ -447,6 +449,7 @@ fn the_reachability_scan_starts_at_every_binary_the_workspace_holds() {
 
     assert_eq!(
         vec![
+            "crates/vbc-ci/src/bin/ai-attribution-lint.rs",
             "crates/vbc-ci/src/bin/pr-title-lint.rs",
             "crates/vbc-editor/src/main.rs",
             "crates/vbc-oracle/src/bin/differential-run.rs",

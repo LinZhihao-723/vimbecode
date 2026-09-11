@@ -22,15 +22,26 @@ use vbc_oracle::state::{EditorState, ScreenText};
 /// The number of cases whose whole screen this module reproduces, which is the sample the
 /// cross-check is worth. A case added to the corpus lands in the sample or in one of the lists
 /// below, and either way this number moves.
-const SCREENS_ANCHORED: usize = 63;
+const SCREENS_ANCHORED: usize = 141;
 
 /// The cases whose window scrolls sideways rather than wrapping, which a viewport decides and a
 /// line layout therefore says nothing about.
-const NOT_WRAPPED: [&str; 2] = ["nowrap-w20-cjk", "nowrap-w40-horizontal-scroll"];
+const NOT_WRAPPED: [&str; 10] = [
+    "matrix-tab-w20-ts8-nowrap",
+    "matrix-tab-w24-ts8-nowrap",
+    "matrix-tab-w40-ts8-nowrap",
+    "matrix-w12-nowrap",
+    "matrix-w20-nowrap",
+    "matrix-w24-nowrap",
+    "matrix-w40-nowrap",
+    "matrix-w80-nowrap",
+    "nowrap-w20-cjk",
+    "nowrap-w40-horizontal-scroll",
+];
 
 /// The cases whose recorded screen holds something other than the graphemes this module lays out,
 /// with the reason.
-const SCREEN_DIVERGENCES: [(&str, &str); 10] = [
+const SCREEN_DIVERGENCES: [(&str, &str); 12] = [
     ("emoji-skin-tone-modifier", ZERO_WIDTH_JOINER),
     ("emoji-zwj-family-delete-cluster", ZERO_WIDTH_JOINER),
     ("emoji-zwj-family-wrap-edge", ZERO_WIDTH_JOINER),
@@ -38,6 +49,8 @@ const SCREEN_DIVERGENCES: [(&str, &str); 10] = [
         "flag-wrap-narrow-viewport",
         "vim draws each regional indicator two columns wide, a flag cluster two together",
     ),
+    ("matrix-tab-w24-ts8-linebreak", LINE_BREAK_BESIDE_A_TAB),
+    ("matrix-tab-w40-ts8-linebreak", LINE_BREAK_BESIDE_A_TAB),
     ("word-b-zwj-family", ZERO_WIDTH_JOINER),
     ("word-big-b-zwj-family", ZERO_WIDTH_JOINER),
     ("word-big-e-zwj-family", ZERO_WIDTH_JOINER),
@@ -45,6 +58,12 @@ const SCREEN_DIVERGENCES: [(&str, &str); 10] = [
     ("word-e-zwj-family", ZERO_WIDTH_JOINER),
     ("word-w-zwj-family", ZERO_WIDTH_JOINER),
 ];
+
+/// The reason vim fits a word onto a word-wrapped row that this module carries to the next one,
+/// which is the `'linebreak'` gap `vbc_layout::line`'s own documentation states.
+const LINE_BREAK_BESIDE_A_TAB: &str =
+    "vim measures a word from the column the break character in front of it starts at, so a tab \
+     separating two words does not count against the word behind it";
 
 /// The reason vim draws a joined emoji cluster in cells this module does not account for.
 const ZERO_WIDTH_JOINER: &str =

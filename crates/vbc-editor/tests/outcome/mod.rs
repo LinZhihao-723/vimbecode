@@ -40,12 +40,13 @@ impl Outcome {
     /// Panics if the engine is in a mode the harness has no name for.
     pub fn of(engine: &mut Engine) -> Self {
         let cursor = engine.cursor();
+        let mode = mode(engine);
 
         Self {
             text: engine.text(),
             line: cursor.line as u64,
             column: cursor.column as u64,
-            mode: mode(engine),
+            mode,
             registers: engine
                 .registers()
                 .into_iter()
@@ -71,14 +72,24 @@ impl From<EditorState> for Outcome {
 ///
 /// The mode the engine is in, in the terms the harness compares modes in.
 ///
+/// vim has three visual modes where modalkit has one mode and a shape beside it, and vim reports
+/// which of the three it is in. So the shape of the selection is read back too: an engine in
+/// visual mode with no selection to read is charwise, which is where one starts.
+///
 /// # Panics
 ///
 /// Panics if the engine is in a mode the harness has no name for.
-fn mode(engine: &Engine) -> Mode {
+fn mode(engine: &mut Engine) -> Mode {
     match engine.mode() {
         VimMode::Normal => Mode::Normal,
         VimMode::Insert => Mode::Insert,
-        VimMode::Visual | VimMode::Select => Mode::Visual,
+        VimMode::Visual | VimMode::Select => {
+            match engine.selection().map(|(_cursor, _anchor, shape)| shape) {
+                Some(Shape::Linewise) => Mode::VisualLine,
+                Some(Shape::Blockwise) => Mode::VisualBlock,
+                Some(Shape::Charwise) | None => Mode::Visual,
+            }
+        }
         VimMode::OperationPending => Mode::OperatorPending,
         VimMode::Command => Mode::CommandLine,
         mode => panic!("`{mode:?}` is a mode the harness has no name for"),

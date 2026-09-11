@@ -30,6 +30,26 @@ const WIDE_VIEWPORT_WIDTH: u16 = 400;
 /// cursor's own line.
 const LAYOUT_ROW: u64 = 2;
 
+/// The `'breakindent'` cases whose window leaves no room beside a repeated indent, so that vim
+/// draws none: vim keeps at least twenty columns for the text next to the indent, and these cases
+/// are in the corpus to pin that threshold rather than the indent. Naming them is what keeps a
+/// case which starts or stops being suppressed from leaving the sample unremarked.
+const BREAK_INDENT_SUPPRESSED: [&str; 6] = [
+    "matrix-tab-w20-ts4-breakindent-showbreak",
+    "matrix-tab-w20-ts8-breakindent",
+    "matrix-w12-breakindent",
+    "matrix-w12-breakindent-showbreak",
+    "matrix-w20-breakindent",
+    "matrix-w20-breakindent-showbreak",
+];
+
+/// The `'breakindent'` cases whose continuation row opens with a tab carried across the boundary
+/// above it. Such a tab is drawn as spaces, so the row starts with one whether or not the indent
+/// is repeated, and the last check below -- that nothing but `'breakindent'` indents a
+/// continuation row -- cannot tell the two apart. The checks that the option changes that row and
+/// that it is indented still run.
+const CONTINUATION_ROW_OPENED_BY_A_TAB: [&str; 1] = ["matrix-tab-w28-ts8-straddle-breakindent"];
+
 /// A line of fifteen double-width characters, which fill twice their number of cells.
 const CJK_BUFFER: &str = "中文测试行一二三四五六七八九十\nascii\n";
 
@@ -375,6 +395,8 @@ fn every_breakindent_case_repeats_its_indent_below_the_first_row() -> anyhow::Re
     let indented: Vec<&Case> = corpus.with_tag(Tag::Breakindent).collect();
 
     assert_ne!(indented, Vec::<&Case>::new());
+    let mut suppressed = BTreeSet::new();
+    let mut opened_by_a_tab = BTreeSet::new();
     for case in indented {
         let flat = Case {
             options: Options {
@@ -386,6 +408,19 @@ fn every_breakindent_case_repeats_its_indent_below_the_first_row() -> anyhow::Re
 
         let drawn = driver.run_case(case)?.screen_text;
         let drawn_flat = driver.run_case(&flat)?.screen_text;
+
+        if BREAK_INDENT_SUPPRESSED.contains(&case.id.as_str()) {
+            assert_eq!(
+                drawn.rows(),
+                drawn_flat.rows(),
+                "the case `{}` is named as one whose window leaves `breakindent` no room, and it \
+                 draws something other than the screen it draws with the option cleared",
+                case.id
+            );
+            suppressed.insert(case.id.as_str());
+
+            continue;
+        }
 
         let continuation = drawn.row(1).expect("a wrapped line has a second row");
         let flat_continuation = drawn_flat.row(1).expect("a wrapped line has a second row");
@@ -401,6 +436,11 @@ fn every_breakindent_case_repeats_its_indent_below_the_first_row() -> anyhow::Re
              of the text",
             case.id
         );
+        if CONTINUATION_ROW_OPENED_BY_A_TAB.contains(&case.id.as_str()) {
+            opened_by_a_tab.insert(case.id.as_str());
+
+            continue;
+        }
         assert!(
             !flat_continuation.starts_with(' '),
             "the case `{}` indents its continuation row {flat_continuation:?} even with \
@@ -408,6 +448,12 @@ fn every_breakindent_case_repeats_its_indent_below_the_first_row() -> anyhow::Re
             case.id
         );
     }
+    assert_eq!(BTreeSet::from(BREAK_INDENT_SUPPRESSED), suppressed);
+    assert_eq!(
+        BTreeSet::from(CONTINUATION_ROW_OPENED_BY_A_TAB),
+        opened_by_a_tab
+    );
+
     Ok(())
 }
 

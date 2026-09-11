@@ -27,17 +27,46 @@
 //! [`Action`] together with the [`EditContext`] it runs under, which is what the engine above
 //! already runs, so nothing downstream of the seam can tell where the actions came from.
 //!
+//! One binding is not a step of that table at all. `.` repeats the last change, and what it
+//! repeats is the keys that made it rather than the actions they produced: the keys of a change
+//! are kept as they are typed, with the digits of their counts left out and the count they
+//! resolved to kept beside them, and `.` types them at the machine again with the count a caller
+//! typed in front of it standing in for the one they were typed with. So a repeat is measured
+//! where it is typed rather than where it was recorded -- an operator over a display motion walks
+//! the rows below the cursor it is repeated at, and the seam below this one answers it as it
+//! answers a motion typed by hand -- and a repeat is bound by nothing this table does not already
+//! bind.
+//!
+//! The arrow keys are not a second set of motions beside the letters. `<Left>`, `<Down>`, `<Up>`
+//! and `<Right>` are bound to what `h`, `j`, `k` and `l` are bound to and `<Home>` and `<End>` to
+//! what `0` and `$` are, so a count, an operator and a visual selection reach them the way they
+//! reach the letters, and `<Down>` walks a line of the text rather than a row of the screen
+//! because `j` does. The same six are bound again in an inserting mode, where the letters are text
+//! and a key that is not text is the only thing left to move by. [`CURSOR_KEYS`] is where the six
+//! are named, once, so that a letter and the key beside it cannot drift apart.
+//!
 //! What is deliberately not bound: windows, tabs, scrolling, macros, marks, regular-expression
-//! search, command mode and select mode, because this editor drives none of them. Nor are the
-//! motions and the text objects modalkit's own text cannot answer, which are left unbound rather
-//! than bound to a keystroke that reaches the text and quietly changes nothing -- the harder of
-//! the two to notice. `iw` and `aw` name one range apiece because modalkit's text draws no
-//! distinction between them.
+//! search, command mode and select mode, because this editor drives none of them. `<PageUp>` and
+//! `<PageDown>` are among them rather than among the cursor keys above, because what they stand
+//! for is `CTRL-B` and `CTRL-F`, and scrolling is answered above this table rather than by it. Nor
+//! are the motions and the text objects modalkit's own text cannot answer bound, which are left
+//! unbound rather than bound to a keystroke that reaches the text and quietly changes nothing --
+//! the harder of the two to notice. `iw` and `aw` name one range apiece because modalkit's text
+//! draws no distinction between them.
+//!
+//! Some of what is not bound is not a key on its own. vim reads the key after `m`, `q`, `@`, `'`
+//! and `` ` `` as the name of a mark or a register, and the key after `Z`, `z`, `[`, `]` and
+//! `CTRL-W` as the rest of a command, rather than as a command in its own right. A table that
+//! binds none of them leaves that further key to be looked up on its own: the `a` of `ma` and of
+//! `za` opens insert mode, and the `x` of `` `x `` deletes a character. [`ARGUMENTS`] names every
+//! key vim reads a further key after and [`Bindings::argument`] says how this table reads each
+//! one, so a caller can consume a key nothing binds rather than run it, and so a binding added
+//! for one of them without the key it takes is a binding that can be found.
 
 use std::collections::VecDeque;
 use std::str::FromStr;
 
-use editor_types::context::{EditContext, EditContextBuilder};
+use editor_types::context::{EditContext, EditContextBuilder, Resolve};
 use editor_types::prelude::{
     Case, Char, Count, CursorCloseTarget, CursorEnd, EditTarget, IndentChange, InsertStyle,
     JoinStyle, MoveDir1D, MoveDirMod, MovePosition, MoveType, PasteStyle, RangeType, Register,
@@ -62,6 +91,73 @@ pub const PREFIX: char = 'g';
 /// The character a register is named after in vim, which is the one the table reads a register
 /// prefix by.
 pub const REGISTER_PREFIX: char = '"';
+
+/// The keys that move a cursor without spelling a letter, each with the motion the letter beside
+/// it is bound to.
+///
+/// These are the keys a reader who has not learned `hjkl` reaches for, and the only ones left to
+/// move by once the letters are text, so each is bound both where its letter is -- normal, visual
+/// and operator-pending -- and in an inserting mode.
+pub const CURSOR_KEYS: [(&str, MoveType, Count); 6] = [
+    (
+        "<Left>",
+        MoveType::Column(MoveDir1D::Previous, false),
+        Count::Contextual,
+    ),
+    (
+        "<Right>",
+        MoveType::Column(MoveDir1D::Next, false),
+        Count::Contextual,
+    ),
+    ("<Down>", MoveType::Line(MoveDir1D::Next), Count::Contextual),
+    (
+        "<Up>",
+        MoveType::Line(MoveDir1D::Previous),
+        Count::Contextual,
+    ),
+    (
+        "<Home>",
+        MoveType::LinePos(MovePosition::Beginning),
+        Count::Exact(0),
+    ),
+    (
+        "<End>",
+        MoveType::LinePos(MovePosition::End),
+        Count::MinusOne,
+    ),
+];
+
+/// Every key vim reads a further key after rather than answering on its own, spelled as a binding
+/// of the table spells it.
+///
+/// Two kinds of key are named here. The character searches, the replace, the [`REGISTER_PREFIX`],
+/// the mark that is set and the two the marks are jumped to by, and the two ends of a macro all
+/// read the further key as a name. `Z`, `z`, `[`, `]` and `CTRL-W` read it as the rest of a
+/// command they are only the beginning of. They are one kind here, because a table that binds
+/// neither owes that further key the same fate: an editor that runs it answers `ma` and `za`
+/// alike by opening insert mode, which is nothing vim does for either.
+pub const ARGUMENTS: [&str; 16] = [
+    "f", "F", "t", "T", "r", "\"", "m", "q", "@", "'", "`", "Z", "z", "[", "]", "<C-W>",
+];
+
+/// How a table reads the key after one of [`ARGUMENTS`].
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Argument {
+    /// The table binds the key only as the beginning of a longer sequence, so the key after it is
+    /// read by that sequence.
+    Read,
+
+    /// The machine reads the key after it itself, ahead of the table, which is what a register
+    /// prefix is.
+    Prefix,
+
+    /// Nothing binds the key, so the key after it is one a caller has to consume rather than run.
+    Unimplemented,
+
+    /// The table binds the key on its own, which is a binding that lets the key vim reads after it
+    /// through as a command of its own.
+    Leaked,
+}
 
 /// One key of a bound sequence.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -139,6 +235,15 @@ pub enum Step {
         /// What the operator does when its own keys, or its last key alone, are typed again.
         doubled: Box<Step>,
     },
+
+    /// Type the keys of the last change at the machine again, which is what `.` does.
+    ///
+    /// A count typed in front of the repeat stands in for the count the change was typed with,
+    /// which is vim's rule for it, and the keys are read as though they were typed by hand, so
+    /// what a motion of the change is measured against is measured where the repeat is typed. A
+    /// repeat reached while one is already typing its keys again does nothing, which is what keeps
+    /// a table that binds this step where a change can reach it from typing itself forever.
+    Repeat,
 
     /// Start a visual selection of a shape, or end the one that already has that shape.
     Visual(TargetShape),
@@ -240,6 +345,37 @@ impl Bindings {
         &self.entries
     }
 
+    /// # Returns
+    ///
+    /// How a sequence read in `mode` and begun by `typed` reads the key vim reads after it, and
+    /// [`None`] where vim reads none.
+    #[must_use]
+    pub fn argument(&self, mode: VimMode, typed: TerminalKey) -> Option<Argument> {
+        if !ARGUMENTS.iter().any(|spelled| named(spelled) == typed) {
+            return None;
+        }
+        if self.register == typed {
+            return Some(Argument::Prefix);
+        }
+        let mut begun = self
+            .entries
+            .iter()
+            .filter(|binding| {
+                binding.mode == mode
+                    && binding.operator.is_none()
+                    && Some(&Edge::Key(typed)) == binding.keys.first()
+            })
+            .peekable();
+        if begun.peek().is_none() {
+            return Some(Argument::Unimplemented);
+        }
+        if begun.any(|binding| binding.keys.len() < 2) {
+            return Some(Argument::Leaked);
+        }
+
+        Some(Argument::Read)
+    }
+
     /// Binds `keys` in `mode` to `step`, replacing whatever those keys were bound to in it.
     ///
     /// # Panics
@@ -322,6 +458,11 @@ pub struct Keys {
     operator: Option<Operator>,
     reading_register: bool,
     unbound: Option<Vec<TerminalKey>>,
+    recorded: Vec<TerminalKey>,
+    counted: Option<usize>,
+    changing: bool,
+    repeating: bool,
+    repeated: Option<Repeated>,
     queue: VecDeque<(Action, EditContext)>,
     asked: VecDeque<Chat>,
 }
@@ -354,6 +495,11 @@ impl Keys {
             operator: None,
             reading_register: false,
             unbound: None,
+            recorded: Vec::new(),
+            counted: None,
+            changing: false,
+            repeating: false,
+            repeated: None,
             queue: VecDeque::new(),
             asked: VecDeque::new(),
         }
@@ -383,9 +529,11 @@ impl Keys {
     pub fn input_key(&mut self, typed: TerminalKey) {
         self.unbound = None;
         if self.reading_register {
+            self.recorded.push(typed);
             self.reading_register = false;
             let Some((register, append)) = register_of(typed) else {
                 self.unbound = Some(vec![self.bindings.register, typed]);
+                self.forget();
 
                 return;
             };
@@ -405,12 +553,14 @@ impl Keys {
             }
         }
         self.save_counting();
+        self.recorded.push(typed);
         if self.pending.is_empty() && self.registers() && typed == self.bindings.register {
             self.reading_register = true;
 
             return;
         }
         self.matched(typed);
+        self.settle();
     }
 
     /// # Returns
@@ -445,7 +595,7 @@ impl Keys {
     /// unnamed one or a register vim does not name with a character.
     #[must_use]
     pub fn named_register(&self) -> Option<char> {
-        named(self.register.as_ref()?)
+        register_name(self.register.as_ref()?)
     }
 
     /// # Returns
@@ -468,7 +618,16 @@ impl Keys {
             .queue
             .iter()
             .filter(|(action, _)| pastes(action))
-            .find_map(|(_, context)| named(&context.get_register()?))
+            .find_map(|(_, context)| register_name(&context.get_register()?))
+    }
+
+    /// # Returns
+    ///
+    /// How the table reads the key vim reads after `typed`, in the mode the machine stands in, as
+    /// [`Bindings::argument`] answers it.
+    #[must_use]
+    pub fn argument(&self, typed: TerminalKey) -> Option<Argument> {
+        self.bindings.argument(self.mode, typed)
     }
 
     /// Looks `typed` up in the table, firing what it completes and abandoning what it kills.
@@ -567,6 +726,25 @@ impl Keys {
                     doubled: (**doubled).clone(),
                 });
             }
+            Step::Repeat => {
+                self.operator = None;
+                let count = self.count.take();
+                let _discarded = self.take();
+                let repeated = self.repeated.clone();
+                self.forget();
+                if self.repeating {
+                    return;
+                }
+                let Some(repeated) = repeated else {
+                    return;
+                };
+                self.count = count.or(repeated.count);
+                self.repeating = true;
+                for again in repeated.keys {
+                    self.input_key(again);
+                }
+                self.repeating = false;
+            }
             Step::Visual(shape) => {
                 self.operator = None;
                 if Some(*shape) == self.shape {
@@ -636,6 +814,7 @@ impl Keys {
             return;
         }
         let context = self.take();
+        self.changing = self.changing || actions.iter().any(|action| changes(action, &context));
         for action in actions {
             self.queue.push_back((action, context.clone()));
         }
@@ -643,7 +822,11 @@ impl Keys {
     }
 
     /// Leaves the machine in `mode`, queueing what entering it asks for.
+    ///
+    /// An inserting mode is entered by a change however little is typed in it, which is what makes
+    /// `i<Esc>` a command `.` types again rather than one it passes over.
     fn goto(&mut self, mode: VimMode) {
+        self.changing = self.changing || VimMode::Insert == mode;
         let previous = self.mode;
         self.mode = mode;
         let actions = self.entered(previous);
@@ -744,6 +927,7 @@ impl Keys {
         ))
         .into();
         let context = self.take();
+        self.changing = true;
         self.queue.push_back((action, context));
     }
 
@@ -773,11 +957,50 @@ impl Keys {
         let _abandoned = self.take();
     }
 
+    /// Keeps the keys of a change that is complete as the keys `.` types again, and forgets the
+    /// keys of a command that changed nothing.
+    ///
+    /// A command is complete where the keys typed so far are waiting for none of what a command is
+    /// spelled with, which an inserting mode, a visual selection, a held operator, a half-typed
+    /// sequence, a register prefix and a count are each waiting for.
+    fn settle(&mut self) {
+        if self.unfinished() {
+            return;
+        }
+        if self.changing && !self.recorded.is_empty() {
+            self.repeated = Some(Repeated {
+                keys: std::mem::take(&mut self.recorded),
+                count: self.counted,
+            });
+        }
+        self.forget();
+    }
+
+    /// Forgets the keys typed at the command in progress, which are the keys of no change.
+    fn forget(&mut self) {
+        self.recorded.clear();
+        self.counted = None;
+        self.changing = false;
+    }
+
+    /// # Returns
+    ///
+    /// Whether the keys typed so far are in the middle of a command rather than at the end of one.
+    fn unfinished(&self) -> bool {
+        VimMode::Normal != self.mode
+            || !self.pending.is_empty()
+            || self.operator.is_some()
+            || self.reading_register
+            || self.counting.is_some()
+            || self.count.is_some()
+    }
+
     /// # Returns
     ///
     /// The context the actions of the sequence just completed run under, leaving the machine
     /// holding nothing of that sequence.
     fn take(&mut self) -> EditContext {
+        self.counted = self.counted.or(self.count);
         let search_char = self
             .charsearch
             .clone()
@@ -880,6 +1103,14 @@ struct Operator {
     doubled: Step,
 }
 
+/// The last change, in the terms `.` types it again: the keys it was typed by with the digits of
+/// its counts left out, and the count those digits resolved to.
+#[derive(Clone, Debug)]
+struct Repeated {
+    keys: Vec<TerminalKey>,
+    count: Option<usize>,
+}
+
 /// # Returns
 ///
 /// Every entry of the editor's own vim table that is not an operator's own.
@@ -976,7 +1207,10 @@ fn motion_table() -> Vec<Entry> {
             MoveType::ScreenLinePos(MovePosition::Middle),
             Count::Exact(0),
         ),
-    ] {
+    ]
+    .into_iter()
+    .chain(CURSOR_KEYS)
+    {
         entries.push(entry(&MOTION_MODES, keys, motion(move_type, count)));
     }
     entries.push(entry(
@@ -1330,6 +1564,7 @@ fn normal_table() -> Vec<Entry> {
             ),
         ));
     }
+    entries.push(entry(&NORMAL_MODES, ".", Step::Repeat));
     entries.push(entry(
         &NORMAL_MODES,
         "<Esc>",
@@ -1503,7 +1738,24 @@ fn visual_table() -> Vec<Entry> {
 ///
 /// The entries read only in an inserting mode, which are the keys that are not text.
 fn insert_table() -> Vec<Entry> {
-    vec![
+    let mut entries: Vec<Entry> = CURSOR_KEYS
+        .into_iter()
+        .map(|(keys, move_type, count)| {
+            entry(
+                &INSERT_MODES,
+                keys,
+                run(
+                    Vec::new(),
+                    vec![target(
+                        Specifier::Exact(EditAction::Motion),
+                        EditTarget::Motion(move_type, count),
+                    )],
+                    None,
+                ),
+            )
+        })
+        .collect();
+    entries.extend([
         entry(
             &INSERT_MODES,
             "<Esc>",
@@ -1540,7 +1792,24 @@ fn insert_table() -> Vec<Entry> {
                 None,
             ),
         ),
-    ]
+        entry(
+            &INSERT_MODES,
+            "<C-W>",
+            run(
+                vec![Change::Register(Register::Blackhole)],
+                vec![target(
+                    Specifier::Exact(EditAction::Delete),
+                    EditTarget::Motion(
+                        MoveType::WordBegin(WordStyle::Little, MoveDir1D::Previous),
+                        Count::Contextual,
+                    ),
+                )],
+                None,
+            ),
+        ),
+    ]);
+
+    entries
 }
 
 /// # Returns
@@ -1802,14 +2071,26 @@ fn closed(text: &str, open: char, close: char) -> Option<usize> {
 
 /// # Returns
 ///
+/// The key `spelled` names, in the spelling a binding of the table is written in and
+/// [`ARGUMENTS`] is listed in.
+///
+/// # Panics
+///
+/// Panics if `spelled` names no key, which no member of [`ARGUMENTS`] does.
+#[must_use]
+pub fn named(spelled: &str) -> TerminalKey {
+    TerminalKey::from_str(spelled).unwrap_or_else(|_| panic!("`{spelled}` names a key"))
+}
+
+/// # Returns
+///
 /// The key typed when `character` is typed with no modifier held.
 ///
 /// # Panics
 ///
 /// Panics if `character` names no key, which no character does.
 fn key(character: char) -> TerminalKey {
-    TerminalKey::from_str(&character.to_string())
-        .unwrap_or_else(|_| panic!("`{character}` names a key"))
+    named(&character.to_string())
 }
 
 /// # Returns
@@ -1862,6 +2143,22 @@ fn any_of(edges: &[Edge], keys: &[TerminalKey]) -> Option<char> {
 
 /// # Returns
 ///
+/// Whether running `action` under `context` could leave the text other than it was, which is what
+/// makes the keys that produced it the keys `.` types again. A motion and a yank are the edits vim
+/// does not count as changes, and an undo, a redo and a checkpoint are not edits at all.
+fn changes(action: &Action, context: &EditContext) -> bool {
+    let Action::Editor(editor) = action else {
+        return false;
+    };
+    match editor {
+        EditorAction::Edit(operation, _) => !context.resolve(operation).is_readonly(),
+        EditorAction::InsertText(_) => true,
+        _ => false,
+    }
+}
+
+/// # Returns
+///
 /// The digit `typed` names, and [`None`] where it names none.
 fn digit_of(typed: TerminalKey) -> Option<usize> {
     typed
@@ -1885,7 +2182,7 @@ fn pastes(action: &Action) -> bool {
 ///
 /// The character vim addresses `register` by, and [`None`] for a register it addresses by no
 /// character at all.
-fn named(register: &Register) -> Option<char> {
+pub fn register_name(register: &Register) -> Option<char> {
     match register {
         Register::Named(name) => Some(*name),
         Register::Unnamed => Some('"'),
@@ -1940,6 +2237,17 @@ mod tests {
         (produced, machine.mode())
     }
 
+    /// # Returns
+    ///
+    /// The count every edit of `produced` runs with, in the order the edits were produced.
+    fn counted(produced: &[(Action, EditContext)]) -> Vec<Option<usize>> {
+        produced
+            .iter()
+            .filter(|(action, _context)| matches!(action, Action::Editor(EditorAction::Edit(_, _))))
+            .map(|(_action, context)| context.get_count())
+            .collect()
+    }
+
     #[test]
     fn a_sequence_names_the_prefix_and_a_key_of_any_kind_apart_from_the_keys_it_spells() {
         assert_eq!(
@@ -1958,6 +2266,63 @@ mod tests {
         let (produced, _mode) = produced("2d3w");
 
         assert_eq!(Some(6), produced[0].1.get_count());
+    }
+
+    #[test]
+    fn a_count_in_front_of_a_repeat_stands_in_for_every_count_the_change_was_typed_with() {
+        let (produced, _mode) = produced("2d3w4.");
+
+        assert_eq!(vec![Some(6), Some(4)], counted(&produced));
+    }
+
+    #[test]
+    fn a_repeat_with_no_change_behind_it_asks_for_nothing() {
+        let (produced, mode) = produced("w.");
+
+        assert_eq!(vec![None], counted(&produced));
+        assert_eq!(VimMode::Normal, mode);
+    }
+
+    #[test]
+    fn an_argument_key_bound_without_its_argument_is_a_binding_that_leaks_it() {
+        let mut bindings = Bindings::vim();
+
+        for spelled in ["m", "z", "<C-W>"] {
+            assert_eq!(
+                Some(Argument::Unimplemented),
+                bindings.argument(VimMode::Normal, named(spelled)),
+                "`{spelled}` is bound to something after all"
+            );
+        }
+        assert_eq!(
+            Some(Argument::Read),
+            bindings.argument(VimMode::Normal, named("f"))
+        );
+        assert_eq!(
+            Some(Argument::Prefix),
+            bindings.argument(VimMode::Normal, key(REGISTER_PREFIX))
+        );
+        assert_eq!(None, bindings.argument(VimMode::Normal, named("j")));
+
+        let prefixed = Bindings::prefixed('z');
+
+        assert_eq!(
+            Some(Argument::Read),
+            prefixed.argument(VimMode::Normal, named("z")),
+            "a prefix whose every sequence is longer than one key reads the key after it"
+        );
+
+        bindings.bind(VimMode::Normal, "m", Step::Repeat);
+        bindings.bind(VimMode::Normal, "<C-W>", Step::Repeat);
+
+        for spelled in ["m", "<C-W>"] {
+            assert_eq!(
+                Some(Argument::Leaked),
+                bindings.argument(VimMode::Normal, named(spelled)),
+                "`{spelled}` is bound without the key vim reads after it, which lets that key \
+                 through"
+            );
+        }
     }
 
     #[test]

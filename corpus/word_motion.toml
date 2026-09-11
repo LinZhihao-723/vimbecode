@@ -241,3 +241,247 @@ buffer = "data-source-name and other-value-2 end\n"
 keys = "$BB"
 viewport_width = 80
 tags = ["word-motion", "ascii", "code"]
+
+# The same grid over the shapes a word motion has no reason to be right on: letters vim's
+# default 'iskeyword' counts in and letters it leaves out, CJK punctuation, unjoined emoji,
+# and runs of punctuation. Buffers are shared within a scenario, as above.
+
+[[case]]
+id = "word-w-latin1-keyword"
+description = "`w` three times across precomposed Latin-1 letters, which vim counts into a word."
+buffer = "caf\u00E9 na\u00EFve \u00FCber soon\n"
+keys = "0www"
+viewport_width = 80
+tags = ["word-motion"]
+
+[[case]]
+id = "word-e-latin1-keyword"
+description = "`e` three times across precomposed Latin-1 letters, which vim counts into a word."
+buffer = "caf\u00E9 na\u00EFve \u00FCber soon\n"
+keys = "0eee"
+viewport_width = 80
+tags = ["word-motion"]
+
+[[case]]
+id = "word-b-latin1-keyword"
+description = "`b` three times from the line end across precomposed Latin-1 letters, which vim counts into a word."
+buffer = "caf\u00E9 na\u00EFve \u00FCber soon\n"
+keys = "$bbb"
+viewport_width = 80
+tags = ["word-motion"]
+
+[[case]]
+id = "word-big-w-latin1-keyword"
+description = "`W` twice across precomposed Latin-1 letters, which vim counts into a word."
+buffer = "caf\u00E9 na\u00EFve \u00FCber soon\n"
+keys = "0WW"
+viewport_width = 80
+tags = ["word-motion"]
+
+[[case]]
+id = "word-big-e-latin1-keyword"
+description = "`E` twice across precomposed Latin-1 letters, which vim counts into a word."
+buffer = "caf\u00E9 na\u00EFve \u00FCber soon\n"
+keys = "0EE"
+viewport_width = 80
+tags = ["word-motion"]
+
+[[case]]
+id = "word-big-b-latin1-keyword"
+description = "`B` twice from the line end across precomposed Latin-1 letters, which vim counts into a word."
+buffer = "caf\u00E9 na\u00EFve \u00FCber soon\n"
+keys = "$BB"
+viewport_width = 80
+tags = ["word-motion"]
+
+[[case]]
+id = "word-w-latin-extended"
+description = "`w` three times across Latin letters past U+00FF."
+buffer = "m\u0101cron \u01CEnd \u014Dthers here\n"
+keys = "0www"
+viewport_width = 80
+tags = ["word-motion"]
+
+[[case]]
+id = "word-e-latin-extended"
+description = "`e` three times across Latin letters past U+00FF."
+buffer = "m\u0101cron \u01CEnd \u014Dthers here\n"
+keys = "0eee"
+viewport_width = 80
+tags = ["word-motion"]
+
+[[case]]
+id = "word-b-latin-extended"
+description = "`b` three times from the line end across Latin letters past U+00FF."
+buffer = "m\u0101cron \u01CEnd \u014Dthers here\n"
+keys = "$bbb"
+viewport_width = 80
+tags = ["word-motion"]
+
+[[case]]
+id = "word-big-w-latin-extended"
+description = "`W` twice across Latin letters past U+00FF."
+buffer = "m\u0101cron \u01CEnd \u014Dthers here\n"
+keys = "0WW"
+viewport_width = 80
+tags = ["word-motion"]
+
+[[case]]
+id = "word-big-e-latin-extended"
+description = "`E` twice across Latin letters past U+00FF."
+buffer = "m\u0101cron \u01CEnd \u014Dthers here\n"
+keys = "0EE"
+viewport_width = 80
+tags = ["word-motion"]
+
+[[case]]
+id = "word-big-b-latin-extended"
+description = "`B` twice from the line end across Latin letters past U+00FF."
+buffer = "m\u0101cron \u01CEnd \u014Dthers here\n"
+keys = "$BB"
+viewport_width = 80
+tags = ["word-motion"]
+
+[[case]]
+id = "word-w-cjk-punctuation"
+description = "`w` three times across CJK punctuation and the ideographs beside it."
+buffer = "中文、日本語。 한국어！done 结束\n"
+keys = "0www"
+viewport_width = 80
+tags = ["word-motion", "cjk"]
+
+[[case]]
+id = "word-e-cjk-punctuation"
+description = "`e` three times across CJK punctuation and the ideographs beside it."
+buffer = "中文、日本語。 한국어！done 结束\n"
+keys = "0eee"
+viewport_width = 80
+tags = ["word-motion", "cjk"]
+
+[[case]]
+id = "word-b-cjk-punctuation"
+description = "`b` three times from the line end across CJK punctuation and the ideographs beside it."
+buffer = "中文、日本語。 한국어！done 结束\n"
+keys = "$bbb"
+viewport_width = 80
+tags = ["word-motion", "cjk"]
+
+[[case]]
+id = "word-big-w-cjk-punctuation"
+description = "`W` twice across CJK punctuation and the ideographs beside it."
+buffer = "中文、日本語。 한국어！done 结束\n"
+keys = "0WW"
+viewport_width = 80
+tags = ["word-motion", "cjk"]
+
+[[case]]
+id = "word-big-e-cjk-punctuation"
+description = "`E` twice across CJK punctuation and the ideographs beside it."
+buffer = "中文、日本語。 한국어！done 结束\n"
+keys = "0EE"
+viewport_width = 80
+tags = ["word-motion", "cjk"]
+
+[[case]]
+id = "word-big-b-cjk-punctuation"
+description = "`B` twice from the line end across CJK punctuation and the ideographs beside it."
+buffer = "中文、日本語。 한국어！done 结束\n"
+keys = "$BB"
+viewport_width = 80
+tags = ["word-motion", "cjk"]
+
+[[case]]
+id = "word-w-emoji-run"
+description = "`w` three times across a run of unjoined emoji, each of which is a cluster of its own."
+buffer = "fruit \U0001F34E\U0001F34A and \U0001F347 end\n"
+keys = "0www"
+viewport_width = 80
+tags = ["word-motion", "emoji"]
+
+[[case]]
+id = "word-e-emoji-run"
+description = "`e` three times across a run of unjoined emoji, each of which is a cluster of its own."
+buffer = "fruit \U0001F34E\U0001F34A and \U0001F347 end\n"
+keys = "0eee"
+viewport_width = 80
+tags = ["word-motion", "emoji"]
+
+[[case]]
+id = "word-b-emoji-run"
+description = "`b` three times from the line end across a run of unjoined emoji, each of which is a cluster of its own."
+buffer = "fruit \U0001F34E\U0001F34A and \U0001F347 end\n"
+keys = "$bbb"
+viewport_width = 80
+tags = ["word-motion", "emoji"]
+
+[[case]]
+id = "word-big-w-emoji-run"
+description = "`W` twice across a run of unjoined emoji, each of which is a cluster of its own."
+buffer = "fruit \U0001F34E\U0001F34A and \U0001F347 end\n"
+keys = "0WW"
+viewport_width = 80
+tags = ["word-motion", "emoji"]
+
+[[case]]
+id = "word-big-e-emoji-run"
+description = "`E` twice across a run of unjoined emoji, each of which is a cluster of its own."
+buffer = "fruit \U0001F34E\U0001F34A and \U0001F347 end\n"
+keys = "0EE"
+viewport_width = 80
+tags = ["word-motion", "emoji"]
+
+[[case]]
+id = "word-big-b-emoji-run"
+description = "`B` twice from the line end across a run of unjoined emoji, each of which is a cluster of its own."
+buffer = "fruit \U0001F34E\U0001F34A and \U0001F347 end\n"
+keys = "$BB"
+viewport_width = 80
+tags = ["word-motion", "emoji"]
+
+[[case]]
+id = "word-w-punctuation-run"
+description = "`w` three times across runs of punctuation between identifiers."
+buffer = "start foo.bar->baz::qux end\n"
+keys = "0www"
+viewport_width = 80
+tags = ["word-motion", "ascii", "code"]
+
+[[case]]
+id = "word-e-punctuation-run"
+description = "`e` three times across runs of punctuation between identifiers."
+buffer = "start foo.bar->baz::qux end\n"
+keys = "0eee"
+viewport_width = 80
+tags = ["word-motion", "ascii", "code"]
+
+[[case]]
+id = "word-b-punctuation-run"
+description = "`b` three times from the line end across runs of punctuation between identifiers."
+buffer = "start foo.bar->baz::qux end\n"
+keys = "$bbb"
+viewport_width = 80
+tags = ["word-motion", "ascii", "code"]
+
+[[case]]
+id = "word-big-w-punctuation-run"
+description = "`W` twice across runs of punctuation between identifiers."
+buffer = "start foo.bar->baz::qux end\n"
+keys = "0WW"
+viewport_width = 80
+tags = ["word-motion", "ascii", "code"]
+
+[[case]]
+id = "word-big-e-punctuation-run"
+description = "`E` twice across runs of punctuation between identifiers."
+buffer = "start foo.bar->baz::qux end\n"
+keys = "0EE"
+viewport_width = 80
+tags = ["word-motion", "ascii", "code"]
+
+[[case]]
+id = "word-big-b-punctuation-run"
+description = "`B` twice from the line end across runs of punctuation between identifiers."
+buffer = "start foo.bar->baz::qux end\n"
+keys = "$BB"
+viewport_width = 80
+tags = ["word-motion", "ascii", "code"]

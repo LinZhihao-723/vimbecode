@@ -6,7 +6,7 @@
       "minor": 1,
       "patch": 697
     },
-    "corpus_hash": "5654aa8e721477785ad1e686840dab1374a09728ff09334f816bd5e79effc888"
+    "corpus_hash": "7971e8f18de6d202d971a2ec6d5484e5c6af6a927425440b2c048f8ba736ee5c"
   },
   "cases": {
     "anchor-walk-w20-last-line": {
@@ -1218,6 +1218,2268 @@
         "~"
       ]
     },
+    "matrix-tab-w20-ts4-breakindent-showbreak": {
+      "buffer": "\t\tthe tab indented sentence that wraps a number of times in a narrow window and runs past the eightieth column\n\tanother tab indented line that also wraps before it ends\nplain tail\n",
+      "cursor": {
+        "line": 2,
+        "column": 9
+      },
+      "display_position": {
+        "row": 11,
+        "column": 9
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "        the tab inde",
+        "> nted sentence that",
+        ">  wraps a number of",
+        ">  times in a narrow",
+        ">  window and runs p",
+        "> ast the eightieth",
+        "> column",
+        "    another tab inde",
+        "> nted line that als",
+        "> o wraps before it",
+        "> ends",
+        "plain tail",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
+    "matrix-tab-w20-ts4-carried": {
+      "buffer": "\tone\ttwo\tthree\tfour\tfive\tsix\tseven\teight\tnine\tten\televen\ttwelve\nplain tail\n",
+      "cursor": {
+        "line": 0,
+        "column": 62
+      },
+      "display_position": {
+        "row": 4,
+        "column": 1
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "    one two three",
+        "four    five    six",
+        "seven   eight   nine",
+        "    ten eleven  twel",
+        "ve",
+        "plain tail",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
+    "matrix-tab-w20-ts4-plain": {
+      "buffer": "\t\tthe tab indented sentence that wraps a number of times in a narrow window and runs past the eightieth column\n\tanother tab indented line that also wraps before it ends\nplain tail\n",
+      "cursor": {
+        "line": 2,
+        "column": 9
+      },
+      "display_position": {
+        "row": 9,
+        "column": 9
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "        the tab inde",
+        "nted sentence that w",
+        "raps a number of tim",
+        "es in a narrow windo",
+        "w and runs past the",
+        "eightieth column",
+        "    another tab inde",
+        "nted line that also",
+        "wraps before it ends",
+        "plain tail",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
+    "matrix-tab-w20-ts8-breakindent": {
+      "buffer": "\t\tthe tab indented sentence that wraps a number of times in a narrow window and runs past the eightieth column\n\tanother tab indented line that also wraps before it ends\nplain tail\n",
+      "cursor": {
+        "line": 2,
+        "column": 9
+      },
+      "display_position": {
+        "row": 11,
+        "column": 9
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "                the",
+        "tab indented sentenc",
+        "e that wraps a numbe",
+        "r of times in a narr",
+        "ow window and runs p",
+        "ast the eightieth co",
+        "lumn",
+        "        another tab",
+        "indented line that a",
+        "lso wraps before it",
+        "ends",
+        "plain tail",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
+    "matrix-tab-w20-ts8-carried": {
+      "buffer": "\tone\ttwo\tthree\tfour\tfive\tsix\tseven\teight\tnine\tten\televen\ttwelve\nplain tail\n",
+      "cursor": {
+        "line": 0,
+        "column": 62
+      },
+      "display_position": {
+        "row": 5,
+        "column": 1
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "        one     two",
+        "    three   four",
+        "five    six     seve",
+        "n   eight   nine",
+        "ten     eleven  twel",
+        "ve",
+        "plain tail",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
+    "matrix-tab-w20-ts8-nowrap": {
+      "buffer": "\t\tthe tab indented sentence that wraps a number of times in a narrow window and runs past the eightieth column\n\tanother tab indented line that also wraps before it ends\nplain tail\n",
+      "cursor": {
+        "line": 2,
+        "column": 9
+      },
+      "display_position": {
+        "row": 2,
+        "column": 9
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "                the",
+        "        another tab",
+        "plain tail",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
+    "matrix-tab-w20-ts8-plain": {
+      "buffer": "\t\tthe tab indented sentence that wraps a number of times in a narrow window and runs past the eightieth column\n\tanother tab indented line that also wraps before it ends\nplain tail\n",
+      "cursor": {
+        "line": 2,
+        "column": 9
+      },
+      "display_position": {
+        "row": 11,
+        "column": 9
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "                the",
+        "tab indented sentenc",
+        "e that wraps a numbe",
+        "r of times in a narr",
+        "ow window and runs p",
+        "ast the eightieth co",
+        "lumn",
+        "        another tab",
+        "indented line that a",
+        "lso wraps before it",
+        "ends",
+        "plain tail",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
+    "matrix-tab-w20-ts8-showbreak": {
+      "buffer": "\t\tthe tab indented sentence that wraps a number of times in a narrow window and runs past the eightieth column\n\tanother tab indented line that also wraps before it ends\nplain tail\n",
+      "cursor": {
+        "line": 2,
+        "column": 9
+      },
+      "display_position": {
+        "row": 11,
+        "column": 9
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "                the",
+        "> tab indented sente",
+        "> nce that wraps a n",
+        "> umber of times in",
+        "> a narrow window an",
+        "> d runs past the ei",
+        "> ghtieth column",
+        "        another tab",
+        "> indented line that",
+        ">  also wraps before",
+        ">  it ends",
+        "plain tail",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
+    "matrix-tab-w24-ts4-breakindent-showbreak": {
+      "buffer": "\t\tthe tab indented sentence that wraps a number of times in a narrow window and runs past the eightieth column\n\tanother tab indented line that also wraps before it ends\nplain tail\n",
+      "cursor": {
+        "line": 2,
+        "column": 9
+      },
+      "display_position": {
+        "row": 10,
+        "column": 9
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "        the tab indented",
+        "    >  sentence that wra",
+        "    > ps a number of tim",
+        "    > es in a narrow win",
+        "    > dow and runs past",
+        "    > the eightieth colu",
+        "    > mn",
+        "    another tab indented",
+        "    >  line that also wr",
+        "    > aps before it ends",
+        "plain tail",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
+    "matrix-tab-w24-ts4-plain": {
+      "buffer": "\t\tthe tab indented sentence that wraps a number of times in a narrow window and runs past the eightieth column\n\tanother tab indented line that also wraps before it ends\nplain tail\n",
+      "cursor": {
+        "line": 2,
+        "column": 9
+      },
+      "display_position": {
+        "row": 8,
+        "column": 9
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "        the tab indented",
+        " sentence that wraps a n",
+        "umber of times in a narr",
+        "ow window and runs past",
+        "the eightieth column",
+        "    another tab indented",
+        " line that also wraps be",
+        "fore it ends",
+        "plain tail",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
+    "matrix-tab-w24-ts8-breakindent": {
+      "buffer": "\t\tthe tab indented sentence that wraps a number of times in a narrow window and runs past the eightieth column\n\tanother tab indented line that also wraps before it ends\nplain tail\n",
+      "cursor": {
+        "line": 2,
+        "column": 9
+      },
+      "display_position": {
+        "row": 9,
+        "column": 9
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "                the tab",
+        "    indented sentence th",
+        "    at wraps a number of",
+        "     times in a narrow w",
+        "    indow and runs past",
+        "    the eightieth column",
+        "        another tab inde",
+        "    nted line that also",
+        "    wraps before it ends",
+        "plain tail",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
+    "matrix-tab-w24-ts8-carried": {
+      "buffer": "\tone\ttwo\tthree\tfour\tfive\tsix\tseven\teight\tnine\tten\televen\ttwelve\nplain tail\n",
+      "cursor": {
+        "line": 0,
+        "column": 62
+      },
+      "display_position": {
+        "row": 4,
+        "column": 5
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "        one     two",
+        "three   four    five",
+        "six     seven   eight",
+        "nine    ten     eleven",
+        "twelve",
+        "plain tail",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
+    "matrix-tab-w24-ts8-carried-breakindent": {
+      "buffer": "\tone\ttwo\tthree\tfour\tfive\tsix\tseven\teight\tnine\tten\televen\ttwelve\nplain tail\n",
+      "cursor": {
+        "line": 0,
+        "column": 62
+      },
+      "display_position": {
+        "row": 5,
+        "column": 21
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "        one     two",
+        "    three       four",
+        "    five        six",
+        "    seven       eight",
+        "    nine        ten",
+        "    eleven      twelve",
+        "plain tail",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
+    "matrix-tab-w24-ts8-carried-showbreak": {
+      "buffer": "\tone\ttwo\tthree\tfour\tfive\tsix\tseven\teight\tnine\tten\televen\ttwelve\nplain tail\n",
+      "cursor": {
+        "line": 0,
+        "column": 62
+      },
+      "display_position": {
+        "row": 4,
+        "column": 7
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "        one     two",
+        "> three four    five",
+        "> six   seven   eight",
+        "> nine  ten     eleven",
+        "> twelve",
+        "plain tail",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
+    "matrix-tab-w24-ts8-linebreak": {
+      "buffer": "\tone\ttwo\tthree\tfour\tfive\tsix\tseven\teight\tnine\tten\televen\ttwelve\nplain tail\n",
+      "cursor": {
+        "line": 0,
+        "column": 62
+      },
+      "display_position": {
+        "row": 5,
+        "column": 13
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "        one     two",
+        "three   four",
+        "five    six",
+        "seven   eight",
+        "nine    ten",
+        "eleven  twelve",
+        "plain tail",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
+    "matrix-tab-w24-ts8-nowrap": {
+      "buffer": "\t\tthe tab indented sentence that wraps a number of times in a narrow window and runs past the eightieth column\n\tanother tab indented line that also wraps before it ends\nplain tail\n",
+      "cursor": {
+        "line": 2,
+        "column": 9
+      },
+      "display_position": {
+        "row": 2,
+        "column": 9
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "                the tab",
+        "        another tab inde",
+        "plain tail",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
+    "matrix-tab-w24-ts8-plain": {
+      "buffer": "\t\tthe tab indented sentence that wraps a number of times in a narrow window and runs past the eightieth column\n\tanother tab indented line that also wraps before it ends\nplain tail\n",
+      "cursor": {
+        "line": 2,
+        "column": 9
+      },
+      "display_position": {
+        "row": 9,
+        "column": 9
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "                the tab",
+        "indented sentence that w",
+        "raps a number of times i",
+        "n a narrow window and ru",
+        "ns past the eightieth co",
+        "lumn",
+        "        another tab inde",
+        "nted line that also wrap",
+        "s before it ends",
+        "plain tail",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
+    "matrix-tab-w24-ts8-showbreak": {
+      "buffer": "\t\tthe tab indented sentence that wraps a number of times in a narrow window and runs past the eightieth column\n\tanother tab indented line that also wraps before it ends\nplain tail\n",
+      "cursor": {
+        "line": 2,
+        "column": 9
+      },
+      "display_position": {
+        "row": 9,
+        "column": 9
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "                the tab",
+        "> indented sentence that",
+        ">  wraps a number of tim",
+        "> es in a narrow window",
+        "> and runs past the eigh",
+        "> tieth column",
+        "        another tab inde",
+        "> nted line that also wr",
+        "> aps before it ends",
+        "plain tail",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
+    "matrix-tab-w28-ts8-straddle": {
+      "buffer": "    abcdefghijklmnopqrstuv\ttail words that carry on wrapping past the row\nplain tail\n",
+      "cursor": {
+        "line": 0,
+        "column": 72
+      },
+      "display_position": {
+        "row": 2,
+        "column": 21
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "    abcdefghijklmnopqrstuv",
+        "    tail words that carry on",
+        " wrapping past the row",
+        "plain tail",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
+    "matrix-tab-w28-ts8-straddle-breakindent": {
+      "buffer": "    abcdefghijklmnopqrstuv\ttail words that carry on wrapping past the row\nplain tail\n",
+      "cursor": {
+        "line": 0,
+        "column": 72
+      },
+      "display_position": {
+        "row": 3,
+        "column": 5
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "    abcdefghijklmnopqrstuv",
+        "        tail words that carr",
+        "    y on wrapping past the r",
+        "    ow",
+        "plain tail",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
+    "matrix-tab-w40-ts4-breakindent-showbreak": {
+      "buffer": "\t\tthe tab indented sentence that wraps a number of times in a narrow window and runs past the eightieth column\n\tanother tab indented line that also wraps before it ends\nplain tail\n",
+      "cursor": {
+        "line": 2,
+        "column": 9
+      },
+      "display_position": {
+        "row": 6,
+        "column": 9
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "        the tab indented sentence that w",
+        "        > raps a number of times in a na",
+        "        > rrow window and runs past the",
+        "        > eightieth column",
+        "    another tab indented line that also",
+        "    > wraps before it ends",
+        "plain tail",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
+    "matrix-tab-w40-ts4-plain": {
+      "buffer": "\t\tthe tab indented sentence that wraps a number of times in a narrow window and runs past the eightieth column\n\tanother tab indented line that also wraps before it ends\nplain tail\n",
+      "cursor": {
+        "line": 2,
+        "column": 9
+      },
+      "display_position": {
+        "row": 5,
+        "column": 9
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "        the tab indented sentence that w",
+        "raps a number of times in a narrow windo",
+        "w and runs past the eightieth column",
+        "    another tab indented line that also",
+        "wraps before it ends",
+        "plain tail",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
+    "matrix-tab-w40-ts8-breakindent": {
+      "buffer": "\t\tthe tab indented sentence that wraps a number of times in a narrow window and runs past the eightieth column\n\tanother tab indented line that also wraps before it ends\nplain tail\n",
+      "cursor": {
+        "line": 2,
+        "column": 9
+      },
+      "display_position": {
+        "row": 7,
+        "column": 9
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "                the tab indented sentenc",
+        "                e that wraps a number of",
+        "                 times in a narrow windo",
+        "                w and runs past the eigh",
+        "                tieth column",
+        "        another tab indented line that a",
+        "        lso wraps before it ends",
+        "plain tail",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
+    "matrix-tab-w40-ts8-linebreak": {
+      "buffer": "\tone\ttwo\tthree\tfour\tfive\tsix\tseven\teight\tnine\tten\televen\ttwelve\nplain tail\n",
+      "cursor": {
+        "line": 0,
+        "column": 62
+      },
+      "display_position": {
+        "row": 2,
+        "column": 37
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "        one     two     three",
+        "four    five    six     seven",
+        "eight   nine    ten     eleven  twelve",
+        "plain tail",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
+    "matrix-tab-w40-ts8-nowrap": {
+      "buffer": "\t\tthe tab indented sentence that wraps a number of times in a narrow window and runs past the eightieth column\n\tanother tab indented line that also wraps before it ends\nplain tail\n",
+      "cursor": {
+        "line": 2,
+        "column": 9
+      },
+      "display_position": {
+        "row": 2,
+        "column": 9
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "                the tab indented sentenc",
+        "        another tab indented line that a",
+        "plain tail",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
+    "matrix-tab-w40-ts8-plain": {
+      "buffer": "\t\tthe tab indented sentence that wraps a number of times in a narrow window and runs past the eightieth column\n\tanother tab indented line that also wraps before it ends\nplain tail\n",
+      "cursor": {
+        "line": 2,
+        "column": 9
+      },
+      "display_position": {
+        "row": 6,
+        "column": 9
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "                the tab indented sentenc",
+        "e that wraps a number of times in a narr",
+        "ow window and runs past the eightieth co",
+        "lumn",
+        "        another tab indented line that a",
+        "lso wraps before it ends",
+        "plain tail",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
+    "matrix-tab-w40-ts8-showbreak": {
+      "buffer": "\t\tthe tab indented sentence that wraps a number of times in a narrow window and runs past the eightieth column\n\tanother tab indented line that also wraps before it ends\nplain tail\n",
+      "cursor": {
+        "line": 2,
+        "column": 9
+      },
+      "display_position": {
+        "row": 6,
+        "column": 9
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "                the tab indented sentenc",
+        "> e that wraps a number of times in a na",
+        "> rrow window and runs past the eightiet",
+        "> h column",
+        "        another tab indented line that a",
+        "> lso wraps before it ends",
+        "plain tail",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
+    "matrix-w12-breakindent": {
+      "buffer": "    the indented sentence that wraps a good many times in a narrow window and runs on past the eightieth column\nshort tail\n",
+      "cursor": {
+        "line": 0,
+        "column": 110
+      },
+      "display_position": {
+        "row": 9,
+        "column": 2
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "    the inde",
+        "nted sentenc",
+        "e that wraps",
+        " a good many",
+        " times in a",
+        "narrow windo",
+        "w and runs o",
+        "n past the e",
+        "ightieth col",
+        "umn",
+        "short tail",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
+    "matrix-w12-breakindent-showbreak": {
+      "buffer": "    the indented sentence that wraps a good many times in a narrow window and runs on past the eightieth column\nshort tail\n",
+      "cursor": {
+        "line": 0,
+        "column": 110
+      },
+      "display_position": {
+        "row": 10,
+        "column": 10
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "    the inde",
+        "> nted sente",
+        "> nce that w",
+        "> raps a goo",
+        "> d many tim",
+        "> es in a na",
+        "> rrow windo",
+        "> w and runs",
+        ">  on past t",
+        "> he eightie",
+        "> th column",
+        "short tail",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
+    "matrix-w12-linebreak": {
+      "buffer": "    the indented sentence that wraps a good many times in a narrow window and runs on past the eightieth column\nshort tail\n",
+      "cursor": {
+        "line": 0,
+        "column": 110
+      },
+      "display_position": {
+        "row": 11,
+        "column": 5
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "    the",
+        "indented",
+        "sentence",
+        "that wraps",
+        "a good many",
+        "times in a",
+        "narrow",
+        "window and",
+        "runs on",
+        "past the",
+        "eightieth",
+        "column",
+        "short tail",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
+    "matrix-w12-linebreak-long-first-word": {
+      "buffer": "    antidisestablishmentarian words follow it and wrap again\nplain tail\n",
+      "cursor": {
+        "line": 0,
+        "column": 59
+      },
+      "display_position": {
+        "row": 5,
+        "column": 4
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "    antidise",
+        "stablishment",
+        "arian words",
+        "follow it",
+        "and wrap",
+        "again",
+        "plain tail",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
+    "matrix-w12-nowrap": {
+      "buffer": "    the indented sentence that wraps a good many times in a narrow window and runs on past the eightieth column\nshort tail\n",
+      "cursor": {
+        "line": 0,
+        "column": 110
+      },
+      "display_position": {
+        "row": 0,
+        "column": 6
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        " column",
+        "",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
+    "matrix-w12-plain": {
+      "buffer": "    the indented sentence that wraps a good many times in a narrow window and runs on past the eightieth column\nshort tail\n",
+      "cursor": {
+        "line": 0,
+        "column": 110
+      },
+      "display_position": {
+        "row": 9,
+        "column": 2
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "    the inde",
+        "nted sentenc",
+        "e that wraps",
+        " a good many",
+        " times in a",
+        "narrow windo",
+        "w and runs o",
+        "n past the e",
+        "ightieth col",
+        "umn",
+        "short tail",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
+    "matrix-w12-showbreak": {
+      "buffer": "    the indented sentence that wraps a good many times in a narrow window and runs on past the eightieth column\nshort tail\n",
+      "cursor": {
+        "line": 0,
+        "column": 110
+      },
+      "display_position": {
+        "row": 10,
+        "column": 10
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "    the inde",
+        "> nted sente",
+        "> nce that w",
+        "> raps a goo",
+        "> d many tim",
+        "> es in a na",
+        "> rrow windo",
+        "> w and runs",
+        ">  on past t",
+        "> he eightie",
+        "> th column",
+        "short tail",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
+    "matrix-w20-breakindent": {
+      "buffer": "    the indented sentence that wraps a good many times in a narrow window and runs on past the eightieth column\nshort tail\n",
+      "cursor": {
+        "line": 0,
+        "column": 110
+      },
+      "display_position": {
+        "row": 5,
+        "column": 10
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "    the indented sen",
+        "tence that wraps a g",
+        "ood many times in a",
+        "narrow window and ru",
+        "ns on past the eight",
+        "ieth column",
+        "short tail",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
+    "matrix-w20-breakindent-showbreak": {
+      "buffer": "    the indented sentence that wraps a good many times in a narrow window and runs on past the eightieth column\nshort tail\n",
+      "cursor": {
+        "line": 0,
+        "column": 110
+      },
+      "display_position": {
+        "row": 6,
+        "column": 2
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "    the indented sen",
+        "> tence that wraps a",
+        ">  good many times i",
+        "> n a narrow window",
+        "> and runs on past t",
+        "> he eightieth colum",
+        "> n",
+        "short tail",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
+    "matrix-w20-linebreak": {
+      "buffer": "    the indented sentence that wraps a good many times in a narrow window and runs on past the eightieth column\nshort tail\n",
+      "cursor": {
+        "line": 0,
+        "column": 110
+      },
+      "display_position": {
+        "row": 5,
+        "column": 19
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "    the indented",
+        "sentence that wraps",
+        "a good many times",
+        "in a narrow window",
+        "and runs on past",
+        "the eightieth column",
+        "short tail",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
+    "matrix-w20-nowrap": {
+      "buffer": "    the indented sentence that wraps a good many times in a narrow window and runs on past the eightieth column\nshort tail\n",
+      "cursor": {
+        "line": 0,
+        "column": 110
+      },
+      "display_position": {
+        "row": 0,
+        "column": 10
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "ieth column",
+        "",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
+    "matrix-w20-plain": {
+      "buffer": "    the indented sentence that wraps a good many times in a narrow window and runs on past the eightieth column\nshort tail\n",
+      "cursor": {
+        "line": 0,
+        "column": 110
+      },
+      "display_position": {
+        "row": 5,
+        "column": 10
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "    the indented sen",
+        "tence that wraps a g",
+        "ood many times in a",
+        "narrow window and ru",
+        "ns on past the eight",
+        "ieth column",
+        "short tail",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
+    "matrix-w20-showbreak": {
+      "buffer": "    the indented sentence that wraps a good many times in a narrow window and runs on past the eightieth column\nshort tail\n",
+      "cursor": {
+        "line": 0,
+        "column": 110
+      },
+      "display_position": {
+        "row": 6,
+        "column": 2
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "    the indented sen",
+        "> tence that wraps a",
+        ">  good many times i",
+        "> n a narrow window",
+        "> and runs on past t",
+        "> he eightieth colum",
+        "> n",
+        "short tail",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
+    "matrix-w24-breakindent": {
+      "buffer": "    the indented sentence that wraps a good many times in a narrow window and runs on past the eightieth column\nshort tail\n",
+      "cursor": {
+        "line": 0,
+        "column": 110
+      },
+      "display_position": {
+        "row": 5,
+        "column": 10
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "    the indented sentenc",
+        "    e that wraps a good",
+        "    many times in a narr",
+        "    ow window and runs o",
+        "    n past the eightieth",
+        "     column",
+        "short tail",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
+    "matrix-w24-breakindent-showbreak": {
+      "buffer": "    the indented sentence that wraps a good many times in a narrow window and runs on past the eightieth column\nshort tail\n",
+      "cursor": {
+        "line": 0,
+        "column": 110
+      },
+      "display_position": {
+        "row": 5,
+        "column": 20
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "    the indented sentenc",
+        "    > e that wraps a goo",
+        "    > d many times in a",
+        "    > narrow window and",
+        "    > runs on past the e",
+        "    > ightieth column",
+        "short tail",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
+    "matrix-w24-linebreak": {
+      "buffer": "    the indented sentence that wraps a good many times in a narrow window and runs on past the eightieth column\nshort tail\n",
+      "cursor": {
+        "line": 0,
+        "column": 110
+      },
+      "display_position": {
+        "row": 5,
+        "column": 5
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "    the indented",
+        "sentence that wraps a",
+        "good many times in a",
+        "narrow window and runs",
+        "on past the eightieth",
+        "column",
+        "short tail",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
+    "matrix-w24-nowrap": {
+      "buffer": "    the indented sentence that wraps a good many times in a narrow window and runs on past the eightieth column\nshort tail\n",
+      "cursor": {
+        "line": 0,
+        "column": 110
+      },
+      "display_position": {
+        "row": 0,
+        "column": 12
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "htieth column",
+        "",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
+    "matrix-w24-plain": {
+      "buffer": "    the indented sentence that wraps a good many times in a narrow window and runs on past the eightieth column\nshort tail\n",
+      "cursor": {
+        "line": 0,
+        "column": 110
+      },
+      "display_position": {
+        "row": 4,
+        "column": 14
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "    the indented sentenc",
+        "e that wraps a good many",
+        " times in a narrow windo",
+        "w and runs on past the e",
+        "ightieth column",
+        "short tail",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
+    "matrix-w24-showbreak": {
+      "buffer": "    the indented sentence that wraps a good many times in a narrow window and runs on past the eightieth column\nshort tail\n",
+      "cursor": {
+        "line": 0,
+        "column": 110
+      },
+      "display_position": {
+        "row": 4,
+        "column": 22
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "    the indented sentenc",
+        "> e that wraps a good ma",
+        "> ny times in a narrow w",
+        "> indow and runs on past",
+        ">  the eightieth column",
+        "short tail",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
+    "matrix-w40-breakindent": {
+      "buffer": "    the indented sentence that wraps a good many times in a narrow window and runs on past the eightieth column\nshort tail\n",
+      "cursor": {
+        "line": 0,
+        "column": 110
+      },
+      "display_position": {
+        "row": 2,
+        "column": 38
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "    the indented sentence that wraps a g",
+        "    ood many times in a narrow window an",
+        "    d runs on past the eightieth column",
+        "short tail",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
+    "matrix-w40-breakindent-showbreak": {
+      "buffer": "    the indented sentence that wraps a good many times in a narrow window and runs on past the eightieth column\nshort tail\n",
+      "cursor": {
+        "line": 0,
+        "column": 110
+      },
+      "display_position": {
+        "row": 3,
+        "column": 8
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "    the indented sentence that wraps a g",
+        "    > ood many times in a narrow window",
+        "    > and runs on past the eightieth col",
+        "    > umn",
+        "short tail",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
+    "matrix-w40-linebreak": {
+      "buffer": "    the indented sentence that wraps a good many times in a narrow window and runs on past the eightieth column\nshort tail\n",
+      "cursor": {
+        "line": 0,
+        "column": 110
+      },
+      "display_position": {
+        "row": 2,
+        "column": 32
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "    the indented sentence that wraps a",
+        "good many times in a narrow window and",
+        "runs on past the eightieth column",
+        "short tail",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
+    "matrix-w40-nowrap": {
+      "buffer": "    the indented sentence that wraps a good many times in a narrow window and runs on past the eightieth column\nshort tail\n",
+      "cursor": {
+        "line": 0,
+        "column": 110
+      },
+      "display_position": {
+        "row": 0,
+        "column": 20
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        " the eightieth column",
+        "",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
+    "matrix-w40-plain": {
+      "buffer": "    the indented sentence that wraps a good many times in a narrow window and runs on past the eightieth column\nshort tail\n",
+      "cursor": {
+        "line": 0,
+        "column": 110
+      },
+      "display_position": {
+        "row": 2,
+        "column": 30
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "    the indented sentence that wraps a g",
+        "ood many times in a narrow window and ru",
+        "ns on past the eightieth column",
+        "short tail",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
+    "matrix-w40-showbreak": {
+      "buffer": "    the indented sentence that wraps a good many times in a narrow window and runs on past the eightieth column\nshort tail\n",
+      "cursor": {
+        "line": 0,
+        "column": 110
+      },
+      "display_position": {
+        "row": 2,
+        "column": 34
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "    the indented sentence that wraps a g",
+        "> ood many times in a narrow window and",
+        "> runs on past the eightieth column",
+        "short tail",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
+    "matrix-w80-breakindent": {
+      "buffer": "    the indented sentence that wraps a good many times in a narrow window and runs on past the eightieth column\nshort tail\n",
+      "cursor": {
+        "line": 0,
+        "column": 110
+      },
+      "display_position": {
+        "row": 1,
+        "column": 34
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "    the indented sentence that wraps a good many times in a narrow window and ru",
+        "    ns on past the eightieth column",
+        "short tail",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
+    "matrix-w80-breakindent-showbreak": {
+      "buffer": "    the indented sentence that wraps a good many times in a narrow window and runs on past the eightieth column\nshort tail\n",
+      "cursor": {
+        "line": 0,
+        "column": 110
+      },
+      "display_position": {
+        "row": 1,
+        "column": 36
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "    the indented sentence that wraps a good many times in a narrow window and ru",
+        "    > ns on past the eightieth column",
+        "short tail",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
+    "matrix-w80-linebreak": {
+      "buffer": "    the indented sentence that wraps a good many times in a narrow window and runs on past the eightieth column\nshort tail\n",
+      "cursor": {
+        "line": 0,
+        "column": 110
+      },
+      "display_position": {
+        "row": 1,
+        "column": 32
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "    the indented sentence that wraps a good many times in a narrow window and",
+        "runs on past the eightieth column",
+        "short tail",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
+    "matrix-w80-nowrap": {
+      "buffer": "    the indented sentence that wraps a good many times in a narrow window and runs on past the eightieth column\nshort tail\n",
+      "cursor": {
+        "line": 0,
+        "column": 110
+      },
+      "display_position": {
+        "row": 0,
+        "column": 40
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "dow and runs on past the eightieth column",
+        "",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
+    "matrix-w80-plain": {
+      "buffer": "    the indented sentence that wraps a good many times in a narrow window and runs on past the eightieth column\nshort tail\n",
+      "cursor": {
+        "line": 0,
+        "column": 110
+      },
+      "display_position": {
+        "row": 1,
+        "column": 30
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "    the indented sentence that wraps a good many times in a narrow window and ru",
+        "ns on past the eightieth column",
+        "short tail",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
+    "matrix-w80-showbreak": {
+      "buffer": "    the indented sentence that wraps a good many times in a narrow window and runs on past the eightieth column\nshort tail\n",
+      "cursor": {
+        "line": 0,
+        "column": 110
+      },
+      "display_position": {
+        "row": 1,
+        "column": 32
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "    the indented sentence that wraps a good many times in a narrow window and ru",
+        "> ns on past the eightieth column",
+        "short tail",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
     "nowrap-w20-cjk": {
       "buffer": "这是一行很长的中文文本用来测试不换行时的水平滚动\n",
       "cursor": {
@@ -1530,6 +3792,45 @@
         "~"
       ]
     },
+    "word-b-cjk-punctuation": {
+      "buffer": "中文、日本語。 한국어！done 结束\n",
+      "cursor": {
+        "line": 0,
+        "column": 31
+      },
+      "display_position": {
+        "row": 0,
+        "column": 21
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "中文、日本語。 한국어！done 结束",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
     "word-b-combining": {
       "buffer": "café naïve á̂ done\n",
       "cursor": {
@@ -1569,6 +3870,45 @@
         "~"
       ]
     },
+    "word-b-emoji-run": {
+      "buffer": "fruit 🍎🍊 and 🍇 end\n",
+      "cursor": {
+        "line": 0,
+        "column": 15
+      },
+      "display_position": {
+        "row": 0,
+        "column": 11
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "fruit 🍎🍊 and 🍇 end",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
     "word-b-kebab-case": {
       "buffer": "data-source-name and other-value-2 end\n",
       "cursor": {
@@ -1583,6 +3923,123 @@
       "registers": {},
       "screen_text": [
         "data-source-name and other-value-2 end",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
+    "word-b-latin-extended": {
+      "buffer": "mācron ǎnd ōthers here\n",
+      "cursor": {
+        "line": 0,
+        "column": 8
+      },
+      "display_position": {
+        "row": 0,
+        "column": 7
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "mācron ǎnd ōthers here",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
+    "word-b-latin1-keyword": {
+      "buffer": "café naïve über soon\n",
+      "cursor": {
+        "line": 0,
+        "column": 6
+      },
+      "display_position": {
+        "row": 0,
+        "column": 5
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "café naïve über soon",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
+    "word-b-punctuation-run": {
+      "buffer": "start foo.bar->baz::qux end\n",
+      "cursor": {
+        "line": 0,
+        "column": 18
+      },
+      "display_position": {
+        "row": 0,
+        "column": 18
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "start foo.bar->baz::qux end",
         "~",
         "~",
         "~",
@@ -1725,6 +4182,45 @@
         "~"
       ]
     },
+    "word-big-b-cjk-punctuation": {
+      "buffer": "中文、日本語。 한국어！done 结束\n",
+      "cursor": {
+        "line": 0,
+        "column": 22
+      },
+      "display_position": {
+        "row": 0,
+        "column": 15
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "中文、日本語。 한국어！done 结束",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
     "word-big-b-combining": {
       "buffer": "café naïve á̂ done\n",
       "cursor": {
@@ -1764,6 +4260,45 @@
         "~"
       ]
     },
+    "word-big-b-emoji-run": {
+      "buffer": "fruit 🍎🍊 and 🍇 end\n",
+      "cursor": {
+        "line": 0,
+        "column": 19
+      },
+      "display_position": {
+        "row": 0,
+        "column": 15
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "fruit 🍎🍊 and 🍇 end",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
     "word-big-b-kebab-case": {
       "buffer": "data-source-name and other-value-2 end\n",
       "cursor": {
@@ -1778,6 +4313,123 @@
       "registers": {},
       "screen_text": [
         "data-source-name and other-value-2 end",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
+    "word-big-b-latin-extended": {
+      "buffer": "mācron ǎnd ōthers here\n",
+      "cursor": {
+        "line": 0,
+        "column": 13
+      },
+      "display_position": {
+        "row": 0,
+        "column": 11
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "mācron ǎnd ōthers here",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
+    "word-big-b-latin1-keyword": {
+      "buffer": "café naïve über soon\n",
+      "cursor": {
+        "line": 0,
+        "column": 13
+      },
+      "display_position": {
+        "row": 0,
+        "column": 11
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "café naïve über soon",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
+    "word-big-b-punctuation-run": {
+      "buffer": "start foo.bar->baz::qux end\n",
+      "cursor": {
+        "line": 0,
+        "column": 6
+      },
+      "display_position": {
+        "row": 0,
+        "column": 6
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "start foo.bar->baz::qux end",
         "~",
         "~",
         "~",
@@ -1920,6 +4572,45 @@
         "~"
       ]
     },
+    "word-big-e-cjk-punctuation": {
+      "buffer": "中文、日本語。 한국어！done 结束\n",
+      "cursor": {
+        "line": 0,
+        "column": 37
+      },
+      "display_position": {
+        "row": 0,
+        "column": 26
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "中文、日本語。 한국어！done 结束",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
     "word-big-e-combining": {
       "buffer": "café naïve á̂ done\n",
       "cursor": {
@@ -1959,6 +4650,45 @@
         "~"
       ]
     },
+    "word-big-e-emoji-run": {
+      "buffer": "fruit 🍎🍊 and 🍇 end\n",
+      "cursor": {
+        "line": 0,
+        "column": 10
+      },
+      "display_position": {
+        "row": 0,
+        "column": 8
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "fruit 🍎🍊 and 🍇 end",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
     "word-big-e-kebab-case": {
       "buffer": "data-source-name and other-value-2 end\n",
       "cursor": {
@@ -1973,6 +4703,123 @@
       "registers": {},
       "screen_text": [
         "data-source-name and other-value-2 end",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
+    "word-big-e-latin-extended": {
+      "buffer": "mācron ǎnd ōthers here\n",
+      "cursor": {
+        "line": 0,
+        "column": 11
+      },
+      "display_position": {
+        "row": 0,
+        "column": 9
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "mācron ǎnd ōthers here",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
+    "word-big-e-latin1-keyword": {
+      "buffer": "café naïve über soon\n",
+      "cursor": {
+        "line": 0,
+        "column": 11
+      },
+      "display_position": {
+        "row": 0,
+        "column": 9
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "café naïve über soon",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
+    "word-big-e-punctuation-run": {
+      "buffer": "start foo.bar->baz::qux end\n",
+      "cursor": {
+        "line": 0,
+        "column": 22
+      },
+      "display_position": {
+        "row": 0,
+        "column": 22
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "start foo.bar->baz::qux end",
         "~",
         "~",
         "~",
@@ -2115,6 +4962,45 @@
         "~"
       ]
     },
+    "word-big-w-cjk-punctuation": {
+      "buffer": "中文、日本語。 한국어！done 结束\n",
+      "cursor": {
+        "line": 0,
+        "column": 39
+      },
+      "display_position": {
+        "row": 0,
+        "column": 28
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "中文、日本語。 한국어！done 结束",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
     "word-big-w-combining": {
       "buffer": "café naïve á̂ done\n",
       "cursor": {
@@ -2154,6 +5040,45 @@
         "~"
       ]
     },
+    "word-big-w-emoji-run": {
+      "buffer": "fruit 🍎🍊 and 🍇 end\n",
+      "cursor": {
+        "line": 0,
+        "column": 15
+      },
+      "display_position": {
+        "row": 0,
+        "column": 11
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "fruit 🍎🍊 and 🍇 end",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
     "word-big-w-kebab-case": {
       "buffer": "data-source-name and other-value-2 end\n",
       "cursor": {
@@ -2168,6 +5093,123 @@
       "registers": {},
       "screen_text": [
         "data-source-name and other-value-2 end",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
+    "word-big-w-latin-extended": {
+      "buffer": "mācron ǎnd ōthers here\n",
+      "cursor": {
+        "line": 0,
+        "column": 13
+      },
+      "display_position": {
+        "row": 0,
+        "column": 11
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "mācron ǎnd ōthers here",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
+    "word-big-w-latin1-keyword": {
+      "buffer": "café naïve über soon\n",
+      "cursor": {
+        "line": 0,
+        "column": 13
+      },
+      "display_position": {
+        "row": 0,
+        "column": 11
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "café naïve über soon",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
+    "word-big-w-punctuation-run": {
+      "buffer": "start foo.bar->baz::qux end\n",
+      "cursor": {
+        "line": 0,
+        "column": 24
+      },
+      "display_position": {
+        "row": 0,
+        "column": 24
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "start foo.bar->baz::qux end",
         "~",
         "~",
         "~",
@@ -2310,6 +5352,45 @@
         "~"
       ]
     },
+    "word-e-cjk-punctuation": {
+      "buffer": "中文、日本語。 한국어！done 结束\n",
+      "cursor": {
+        "line": 0,
+        "column": 15
+      },
+      "display_position": {
+        "row": 0,
+        "column": 10
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "中文、日本語。 한국어！done 结束",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
     "word-e-combining": {
       "buffer": "café naïve á̂ done\n",
       "cursor": {
@@ -2349,6 +5430,45 @@
         "~"
       ]
     },
+    "word-e-emoji-run": {
+      "buffer": "fruit 🍎🍊 and 🍇 end\n",
+      "cursor": {
+        "line": 0,
+        "column": 17
+      },
+      "display_position": {
+        "row": 0,
+        "column": 13
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "fruit 🍎🍊 and 🍇 end",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
     "word-e-kebab-case": {
       "buffer": "data-source-name and other-value-2 end\n",
       "cursor": {
@@ -2363,6 +5483,123 @@
       "registers": {},
       "screen_text": [
         "data-source-name and other-value-2 end",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
+    "word-e-latin-extended": {
+      "buffer": "mācron ǎnd ōthers here\n",
+      "cursor": {
+        "line": 0,
+        "column": 19
+      },
+      "display_position": {
+        "row": 0,
+        "column": 16
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "mācron ǎnd ōthers here",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
+    "word-e-latin1-keyword": {
+      "buffer": "café naïve über soon\n",
+      "cursor": {
+        "line": 0,
+        "column": 17
+      },
+      "display_position": {
+        "row": 0,
+        "column": 14
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "café naïve über soon",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
+    "word-e-punctuation-run": {
+      "buffer": "start foo.bar->baz::qux end\n",
+      "cursor": {
+        "line": 0,
+        "column": 9
+      },
+      "display_position": {
+        "row": 0,
+        "column": 9
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "start foo.bar->baz::qux end",
         "~",
         "~",
         "~",
@@ -2505,6 +5742,45 @@
         "~"
       ]
     },
+    "word-w-cjk-punctuation": {
+      "buffer": "中文、日本語。 한국어！done 结束\n",
+      "cursor": {
+        "line": 0,
+        "column": 18
+      },
+      "display_position": {
+        "row": 0,
+        "column": 12
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "中文、日本語。 한국어！done 结束",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
     "word-w-combining": {
       "buffer": "café naïve á̂ done\n",
       "cursor": {
@@ -2544,6 +5820,45 @@
         "~"
       ]
     },
+    "word-w-emoji-run": {
+      "buffer": "fruit 🍎🍊 and 🍇 end\n",
+      "cursor": {
+        "line": 0,
+        "column": 19
+      },
+      "display_position": {
+        "row": 0,
+        "column": 15
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "fruit 🍎🍊 and 🍇 end",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
     "word-w-kebab-case": {
       "buffer": "data-source-name and other-value-2 end\n",
       "cursor": {
@@ -2558,6 +5873,123 @@
       "registers": {},
       "screen_text": [
         "data-source-name and other-value-2 end",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
+    "word-w-latin-extended": {
+      "buffer": "mācron ǎnd ōthers here\n",
+      "cursor": {
+        "line": 0,
+        "column": 21
+      },
+      "display_position": {
+        "row": 0,
+        "column": 18
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "mācron ǎnd ōthers here",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
+    "word-w-latin1-keyword": {
+      "buffer": "café naïve über soon\n",
+      "cursor": {
+        "line": 0,
+        "column": 19
+      },
+      "display_position": {
+        "row": 0,
+        "column": 16
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "café naïve über soon",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~",
+        "~"
+      ]
+    },
+    "word-w-punctuation-run": {
+      "buffer": "start foo.bar->baz::qux end\n",
+      "cursor": {
+        "line": 0,
+        "column": 10
+      },
+      "display_position": {
+        "row": 0,
+        "column": 10
+      },
+      "mode": "Normal",
+      "registers": {},
+      "screen_text": [
+        "start foo.bar->baz::qux end",
         "~",
         "~",
         "~",

@@ -5,8 +5,9 @@
 //! passed, and no keystroke could arrive at one of them: `"+` was a name the keybinding table knew
 //! and modalkit threw the writes to it away. A suite can go on being green over that for as long
 //! as nobody types the keys, which is why nothing here constructs a `Bridge`, a `Reader`, a
-//! `Writer` or a `Helper` for the product cases. Every one of them builds an [`App`] the way the
-//! binary builds one, types what a reader types, and asks Windows itself what happened.
+//! `Writer` or a `Helper` for the product cases. Every one of them builds the conversation screen
+//! the binary opens -- the history panel over the prompt -- types what a reader types, and asks
+//! Windows itself what happened.
 //!
 //! Windows itself is the point. The write path's central claim -- that `clip.exe` fed UTF-16LE
 //! puts a yank where another application can paste it -- had never once been executed against a
@@ -16,7 +17,11 @@
 //! loudly; where there is one whose clipboard will not answer they fail, because those two results
 //! are not the same and only one of them is nobody's fault.
 //!
-//! Three of the cases need no Windows at all and are the ones that would still be worth running on
+//! The two panels are asked different things. Nothing is written in the history panel, so every
+//! yank there is asked to reach the desktop whether or not it names `"+`; the prompt keeps vim's
+//! own registers, so a plain yank there is asked to leave what another window copied where it was.
+//!
+//! Most of the cases need no Windows at all and are the ones that would still be worth running on
 //! a machine that has none. A plain `p` reading the desktop is the regression that would make `p`
 //! mean "whatever another window last copied", so it is checked against a source that counts what
 //! it is asked -- an assertion no clipboard can make, since a read that happened and answered with
@@ -65,7 +70,7 @@ use crate::clipboard::{decoded, put_raw, turn, Directory, Oracle, CLIP_STUB, HEL
 const COLUMNS: u16 = 80;
 const ROWS: u16 = 24;
 
-/// The file the reader has open, whose first line is what a `"+yy` sends to the desktop and whose
+/// The draft in the prompt, whose first line is what a `"+yy` sends to the desktop and whose
 /// second is what a put lands between.
 const FIRST: &str = "the line a reader yanks to the desktop";
 const SECOND: &str = "the line under it";
@@ -94,6 +99,12 @@ const ANSWERED: &str = concat!(
 const CODE: &str = "fn main() {\n    todo!();\n}";
 const INSIDE_THE_CODE: usize = 5;
 
+/// The line of the code the cursor is walked onto, the line under it, and the word a yank over a
+/// motion takes out of the first of them.
+const TODO: &str = "    todo!();";
+const CLOSED: &str = "}";
+const WORD: &str = "todo";
+
 /// How long the session-lived helper is given to come up before a case types a put at it.
 const WARM_UP: Duration = Duration::from_secs(4);
 
@@ -120,7 +131,7 @@ const FRAME_BUDGET: Duration = Duration::from_millis(50);
 /// which is past the soft deadline and short of the hard one.
 const WHILE_SLOW: Duration = Duration::from_millis(600);
 
-/// Validation 1: `"+yy` in the editor puts the line on the Windows clipboard.
+/// `"+yy` in the prompt puts the line on the Windows clipboard.
 #[test]
 fn a_yank_to_the_clipboard_register_reaches_windows() -> Result<()> {
     let _turn = turn();
@@ -129,7 +140,7 @@ fn a_yank_to_the_clipboard_register_reaches_windows() -> Result<()> {
     };
 
     put_raw(&[])?;
-    let mut app = editing();
+    let mut app = prompting(Bridge::windows());
     press(&mut app, "\"+yy");
     drop(app);
 
@@ -142,30 +153,29 @@ fn a_yank_to_the_clipboard_register_reaches_windows() -> Result<()> {
     Ok(())
 }
 
-/// Validation 1, again through the other name: `"*` is the same clipboard as `"+`.
-///
-/// This asks nothing of Windows, because the two names being one register is a fact about the
-/// editor rather than about a desktop, and a station whose clipboard is unavailable is no reason
-/// to stop checking it.
+/// A plain `yy` in the prompt leaves on the Windows clipboard what another window put there.
 #[test]
-fn a_yank_to_the_alias_reaches_the_same_clipboard() -> Result<()> {
-    let directory = Directory::create()?;
-    let capture = directory.join("capture.bin");
-    let mut app = editing_through(&capture, "");
+fn a_plain_yank_in_the_prompt_leaves_windows_alone() -> Result<()> {
+    let _turn = turn();
+    let Some(oracle) = Oracle::open()? else {
+        return Ok(());
+    };
 
-    press(&mut app, "j\"*yy");
+    let mut app = prompting(Bridge::windows());
+    put_raw(&utf16le(COPIED))?;
+    press(&mut app, "yy");
     drop(app);
 
     assert_eq!(
-        format!("{SECOND}\n"),
-        decoded(&fs::read(&capture)?)?,
-        "`\"*yy` reached a register of the editor's own rather than the desktop"
+        COPIED,
+        oracle.text()?,
+        "a plain `yy` in the prompt replaced what another window had copied"
     );
 
     Ok(())
 }
 
-/// Validation 2: `"+p` puts what Windows holds into the buffer.
+/// `"+p` in the prompt puts what Windows holds into the draft.
 #[test]
 fn a_put_from_the_clipboard_register_inserts_what_windows_holds() -> Result<()> {
     let _turn = turn();
@@ -173,7 +183,7 @@ fn a_put_from_the_clipboard_register_inserts_what_windows_holds() -> Result<()> 
         return Ok(());
     };
 
-    let mut app = editing();
+    let mut app = prompting(Bridge::windows());
     thread::sleep(WARM_UP);
     put_raw(&utf16le(COPIED))?;
 
@@ -192,31 +202,214 @@ fn a_put_from_the_clipboard_register_inserts_what_windows_holds() -> Result<()> 
     Ok(())
 }
 
-/// Validation 3: a `yac` in the transcript panel reaches the Windows clipboard, so a code block
-/// Claude wrote can be pasted into another Windows application.
+/// A `yac` in the history panel reaches the Windows clipboard, so a code block Claude wrote can be
+/// pasted into another Windows application.
 #[test]
-fn a_code_block_yanked_in_the_panel_reaches_windows() -> Result<()> {
-    let _turn = turn();
-    let Some(oracle) = Oracle::open()? else {
+fn a_code_block_yanked_in_the_history_reaches_windows() -> Result<()> {
+    let Some(held) = yanked_on_windows("yac")? else {
         return Ok(());
     };
 
-    put_raw(&[])?;
-    let mut app = reading();
-    press(&mut app, &"j".repeat(INSIDE_THE_CODE));
-    press(&mut app, "yac");
-    drop(app);
-
     assert_eq!(
         rewritten(CODE),
-        oracle.text()?,
-        "`yac` in the panel left the code block nowhere Windows could see it"
+        held,
+        "`yac` in the history left the code block nowhere Windows could see it"
     );
 
     Ok(())
 }
 
-/// Validation 4: a plain `p` never asks the desktop anything.
+/// A plain `yy` in the history panel reaches the Windows clipboard.
+#[test]
+fn a_line_yanked_in_the_history_reaches_windows() -> Result<()> {
+    let Some(held) = yanked_on_windows("yy")? else {
+        return Ok(());
+    };
+
+    assert_eq!(
+        rewritten(TODO),
+        held,
+        "`yy` in the history left the line nowhere Windows could see it"
+    );
+
+    Ok(())
+}
+
+/// A visual `Vjy` in the history panel reaches the Windows clipboard.
+#[test]
+fn lines_yanked_visually_in_the_history_reach_windows() -> Result<()> {
+    let Some(held) = yanked_on_windows("Vjy")? else {
+        return Ok(());
+    };
+
+    assert_eq!(
+        rewritten(&format!("{TODO}\n{CLOSED}")),
+        held,
+        "`Vjy` in the history left the lines nowhere Windows could see them"
+    );
+
+    Ok(())
+}
+
+/// `"*` is the same clipboard as `"+`.
+///
+/// This asks nothing of Windows, because the two names being one register is a fact about the
+/// editor rather than about a desktop, and a station whose clipboard is unavailable is no reason
+/// to stop checking it.
+#[test]
+fn a_yank_to_the_alias_reaches_the_same_clipboard() -> Result<()> {
+    let directory = Directory::create()?;
+    let capture = directory.join("capture.bin");
+    let mut app = prompting(captured(&capture, ""));
+
+    press(&mut app, "j\"*yy");
+    drop(app);
+
+    assert_eq!(
+        format!("{SECOND}\n"),
+        decoded(&fs::read(&capture)?)?,
+        "`\"*yy` reached a register of the editor's own rather than the desktop"
+    );
+
+    Ok(())
+}
+
+/// A plain `yy` in the prompt hands the desktop's writer nothing at all.
+#[test]
+fn a_plain_yank_in_the_prompt_hands_the_writer_nothing() -> Result<()> {
+    let directory = Directory::create()?;
+    let capture = directory.join("capture.bin");
+    let mut app = prompting(captured(&capture, ""));
+
+    press(&mut app, "yy");
+
+    assert_eq!(
+        Some(0),
+        app.clipboard().map(Bridge::writes_issued),
+        "a plain `yy` in the prompt was handed to the desktop"
+    );
+
+    drop(app);
+
+    assert!(
+        !capture.exists(),
+        "a plain `yy` in the prompt reached the desktop's writer"
+    );
+
+    Ok(())
+}
+
+/// What leaves the editor for the desktop's writer is the line, encoded the way the desktop's
+/// writer has to be fed.
+///
+/// The desktop is the only thing stood in for. The keystrokes, the register, the mirror, the worker
+/// thread, the spawn and the pipe are all the real ones, and what is read back is the bytes a real
+/// program was handed on its real standard input.
+#[test]
+fn a_yank_to_the_clipboard_register_reaches_the_writer_as_utf16le() -> Result<()> {
+    let directory = Directory::create()?;
+    let capture = directory.join("capture.bin");
+    let mut app = prompting(captured(&capture, ""));
+
+    press(&mut app, "\"+yy");
+    drop(app);
+
+    assert_eq!(
+        format!("{FIRST}\n"),
+        decoded(&fs::read(&capture)?)?,
+        "`\"+yy` handed the writer something other than the line it yanked"
+    );
+
+    Ok(())
+}
+
+/// A `yac` in the history panel reaches the desktop's writer without anyone naming a register.
+#[test]
+fn a_code_block_yanked_in_the_history_reaches_the_writer() -> Result<()> {
+    assert_eq!(
+        format!("{CODE}\n"),
+        yanked_through_writer("yac")?,
+        "`yac` in the history handed the writer something other than the code block"
+    );
+
+    Ok(())
+}
+
+/// A plain `yy` in the history panel reaches the desktop's writer.
+#[test]
+fn a_line_yanked_in_the_history_reaches_the_writer() -> Result<()> {
+    assert_eq!(
+        format!("{TODO}\n"),
+        yanked_through_writer("yy")?,
+        "`yy` in the history handed the writer something other than the line"
+    );
+
+    Ok(())
+}
+
+/// A visual `Vjy` in the history panel reaches the desktop's writer.
+#[test]
+fn lines_yanked_visually_in_the_history_reach_the_writer() -> Result<()> {
+    assert_eq!(
+        format!("{TODO}\n{CLOSED}\n"),
+        yanked_through_writer("Vjy")?,
+        "`Vjy` in the history handed the writer something other than the lines"
+    );
+
+    Ok(())
+}
+
+/// A `y` over a motion in the history panel reaches the desktop's writer.
+#[test]
+fn a_word_yanked_over_a_motion_in_the_history_reaches_the_writer() -> Result<()> {
+    assert_eq!(
+        WORD,
+        yanked_through_writer("wye")?,
+        "`ye` in the history handed the writer something other than the word"
+    );
+
+    Ok(())
+}
+
+/// A yank in the history panel that names `"+` reaches the desktop's writer as well.
+#[test]
+fn a_yank_naming_the_clipboard_in_the_history_reaches_the_writer() -> Result<()> {
+    assert_eq!(
+        format!("{TODO}\n"),
+        yanked_through_writer("\"+yy")?,
+        "`\"+yy` in the history handed the writer something other than the line"
+    );
+
+    Ok(())
+}
+
+/// What a helper process answers a read with is what `"+p` inserts.
+///
+/// The helper here is a shell script rather than PowerShell, and everything between it and the
+/// keystroke is the real thing: the framed protocol over its real pipes, the worker thread, the
+/// deadlines, and the register the put reads.
+#[test]
+fn a_put_from_the_clipboard_register_inserts_what_the_helper_answered() -> Result<()> {
+    let directory = Directory::create()?;
+    let capture = directory.join("capture.bin");
+    let mut app = prompting(captured(&capture, COPIED));
+
+    press(&mut app, "\"+p");
+    settle(&mut app)?;
+
+    let (head, rest) = FIRST.split_at(1);
+
+    assert_eq!(
+        format!("{head}{COPIED}{rest}\n{SECOND}"),
+        written(&app),
+        "`\"+p` inserted something other than what the helper answered with: {:?}",
+        app.notice()
+    );
+
+    Ok(())
+}
+
+/// A plain `p` never asks the desktop anything.
 ///
 /// What is asserted is that the desktop was not asked, rather than that what it holds was not
 /// pasted. Those are different claims and only the first one holds whatever the desktop happens to
@@ -225,7 +418,7 @@ fn a_code_block_yanked_in_the_panel_reaches_windows() -> Result<()> {
 #[test]
 fn a_plain_put_never_reads_the_desktop() -> Result<()> {
     let asked = Arc::new(AtomicU64::new(0));
-    let mut app = stood_in(&asked, Duration::ZERO);
+    let mut app = prompting(stood_in(&asked, Duration::ZERO));
 
     press(&mut app, "yyp");
     settle(&mut app)?;
@@ -249,11 +442,11 @@ fn a_plain_put_never_reads_the_desktop() -> Result<()> {
     Ok(())
 }
 
-/// Validation 4, the other half: the read a `"+p` does make is the only one made.
+/// The read a `"+p` does make is the only one made.
 #[test]
 fn only_a_put_from_the_clipboard_register_reads_the_desktop() -> Result<()> {
     let asked = Arc::new(AtomicU64::new(0));
-    let mut app = stood_in(&asked, Duration::ZERO);
+    let mut app = prompting(stood_in(&asked, Duration::ZERO));
 
     press(&mut app, "yyjdd\"+p");
     settle(&mut app)?;
@@ -267,8 +460,8 @@ fn only_a_put_from_the_clipboard_register_reads_the_desktop() -> Result<()> {
     Ok(())
 }
 
-/// Validation 5: a clipboard that takes five seconds to answer leaves the editor drawing, and
-/// leaves the put inserting nothing at all.
+/// A clipboard that takes five seconds to answer leaves the editor drawing, and leaves the put
+/// inserting nothing at all.
 ///
 /// Both halves are asserted because either on its own is passable by a broken editor. One that
 /// blocked the render loop would insert the right text after five seconds; one that pasted the
@@ -282,7 +475,7 @@ fn only_a_put_from_the_clipboard_register_reads_the_desktop() -> Result<()> {
 #[test]
 fn a_clipboard_that_stalls_neither_stops_the_frames_nor_pastes_anything() -> Result<()> {
     let asked = Arc::new(AtomicU64::new(0));
-    let mut app = stood_in(&asked, STALL);
+    let mut app = prompting(stood_in(&asked, STALL));
 
     press(&mut app, "\"+yy");
 
@@ -338,89 +531,16 @@ fn a_clipboard_that_stalls_neither_stops_the_frames_nor_pastes_anything() -> Res
     Ok(())
 }
 
-/// Validation 1, on a machine with no Windows: what leaves the editor for the desktop's writer is
-/// the line, encoded the way the desktop's writer has to be fed.
-///
-/// The desktop is the only thing stood in for. The keystrokes, the register, the mirror, the worker
-/// thread, the spawn and the pipe are all the real ones, and what is read back is the bytes a real
-/// program was handed on its real standard input.
-#[test]
-fn a_yank_to_the_clipboard_register_reaches_the_writer_as_utf16le() -> Result<()> {
-    let directory = Directory::create()?;
-    let capture = directory.join("capture.bin");
-    let mut app = editing_through(&capture, "");
-
-    press(&mut app, "\"+yy");
-    drop(app);
-
-    assert_eq!(
-        format!("{FIRST}\n"),
-        decoded(&fs::read(&capture)?)?,
-        "`\"+yy` handed the writer something other than the line it yanked"
-    );
-
-    Ok(())
-}
-
-/// Validation 3, on a machine with no Windows: a `yac` in the transcript panel reaches that same
-/// writer, so the code block leaves the editor without anyone naming a register.
-#[test]
-fn a_code_block_yanked_in_the_panel_reaches_the_writer() -> Result<()> {
-    let directory = Directory::create()?;
-    let capture = directory.join("capture.bin");
-    let mut app = editing_through(&capture, "").with_transcript(said());
-    app.press(area(), control('t'));
-
-    press(&mut app, &"j".repeat(INSIDE_THE_CODE));
-    press(&mut app, "yac");
-    drop(app);
-
-    assert_eq!(
-        format!("{CODE}\n"),
-        decoded(&fs::read(&capture)?)?,
-        "`yac` in the panel handed the writer something other than the code block"
-    );
-
-    Ok(())
-}
-
-/// Validation 2, on a machine with no Windows: what a helper process answers a read with is what
-/// `"+p` inserts.
-///
-/// The helper here is a shell script rather than PowerShell, and everything between it and the
-/// keystroke is the real thing: the framed protocol over its real pipes, the worker thread, the
-/// deadlines, and the register the put reads.
-#[test]
-fn a_put_from_the_clipboard_register_inserts_what_the_helper_answered() -> Result<()> {
-    let directory = Directory::create()?;
-    let capture = directory.join("capture.bin");
-    let mut app = editing_through(&capture, COPIED);
-
-    press(&mut app, "\"+p");
-    settle(&mut app)?;
-
-    let (head, rest) = FIRST.split_at(1);
-
-    assert_eq!(
-        format!("{head}{COPIED}{rest}\n{SECOND}"),
-        written(&app),
-        "`\"+p` inserted something other than what the helper answered with: {:?}",
-        app.notice()
-    );
-
-    Ok(())
-}
-
 /// A key typed while a put is held runs after the put rather than ahead of it.
 ///
 /// The `j` here is what tells the two orders apart. Run after the put, it leaves the cursor on the
-/// second line of a file whose first line was pasted into; run ahead of it, it would have carried
+/// second line of a draft whose first line was pasted into; run ahead of it, it would have carried
 /// the put down a line and the paste would have landed in the second line instead. Both the text
 /// and the cursor are read back, because either one alone is passable by the wrong order.
 #[test]
 fn a_key_typed_while_a_put_waits_runs_after_it() -> Result<()> {
     let asked = Arc::new(AtomicU64::new(0));
-    let mut app = stood_in(&asked, WAIT);
+    let mut app = prompting(stood_in(&asked, WAIT));
 
     press(&mut app, "\"+p");
 
@@ -441,35 +561,38 @@ fn a_key_typed_while_a_put_waits_runs_after_it() -> Result<()> {
     Ok(())
 }
 
-/// A `q` typed while a put is held ends the session, on the frame the put is over rather than
+/// A `:qa!` typed while a put is held ends the program, on the frame the put is over rather than
 /// ahead of it.
 ///
 /// The clipboard here is the one that never answers, so that the put lays nothing down and the
-/// text is still the text that was opened when the `q` is read. A `q` over a buffer nothing has
-/// written is the one that quits, and what is being asked is whether a held `q` is still read at
-/// all -- an application that dropped what it queued, or that answered for it without running it,
-/// would leave a reader typing `q` at an editor that had stopped listening.
+/// draft is still the draft it was when the `:qa!` is read. What is being asked is whether a held
+/// command line is still read at all -- an application that dropped what it queued, or that
+/// answered for it without running it, would leave a reader typing `:qa!` at an editor that had
+/// stopped listening.
 #[test]
 fn a_quit_typed_while_a_put_waits_still_stops() -> Result<()> {
     let asked = Arc::new(AtomicU64::new(0));
-    let mut app = stood_in(&asked, STALL);
+    let mut app = prompting(stood_in(&asked, STALL));
     let before = written(&app);
 
     press(&mut app, "\"+p");
 
     assert!(app.awaits_clipboard(), "the put was not held at all");
-    assert_eq!(
-        Outcome::Continues,
-        app.press(area(), typed('q')),
-        "the `q` ended the session ahead of the put it was typed after"
-    );
+
+    for key in ":qa!".chars().map(typed).chain([key(KeyCode::Enter)]) {
+        assert_eq!(
+            Outcome::Continues,
+            app.press(area(), key),
+            "the `:qa!` ended the program ahead of the put it was typed after"
+        );
+    }
 
     let deadline = Instant::now() + SETTLE_BUDGET;
     let mut outcome = Outcome::Continues;
     while Outcome::Continues == outcome {
         ensure!(
             Instant::now() < deadline,
-            "a `q` typed behind a held put never ended the session"
+            "a `:qa!` typed behind a held put never ended the program"
         );
         outcome = app.handle(area(), &Event::Redraw);
         thread::sleep(TICK);
@@ -478,7 +601,7 @@ fn a_quit_typed_while_a_put_waits_still_stops() -> Result<()> {
     assert_eq!(
         Outcome::Stops,
         outcome,
-        "the held `q` came back as something other than the end of the session"
+        "the held `:qa!` came back as something other than the end of the program"
     );
     assert_eq!(
         before,
@@ -517,53 +640,111 @@ impl Sink for Discarded {
 
 /// # Returns
 ///
-/// The editor over the two-line file, reaching the real Windows clipboard, as the binary builds it.
-fn editing() -> App {
-    App::new(Buffer::from_text(&format!("{FIRST}\n{SECOND}")))
-        .with_status(true)
-        .with_clipboard(Bridge::windows())
-}
-
-/// # Returns
-///
-/// The same editor with the transcript panel open, which is where a `yac` is typed.
-fn reading() -> App {
-    let mut app = editing().with_transcript(said());
-    app.press(area(), control('t'));
-
-    assert_eq!(Focus::Transcript, app.focus(), "`<C-T>` reached no panel");
+/// The conversation screen the binary opens, with the two-line draft in the prompt and the exchange
+/// in the history panel, reaching the desktop through `clipboard`, and with the keys at the prompt
+/// in normal mode.
+fn prompting(clipboard: Bridge) -> App {
+    let mut app = App::new(Buffer::from_text(&format!("{FIRST}\n{SECOND}")))
+        .composing()
+        .with_transcript(said())
+        .with_clipboard(clipboard);
+    app.press(area(), key(KeyCode::Esc));
 
     app
 }
 
 /// # Returns
 ///
-/// The same editor reaching a desktop of stand-in programs: a helper process that answers every
-/// read with `holding`, and a writer process that keeps what it is handed in `capture`. Everything
-/// between those two programs and the keystroke is what the binary runs.
-fn editing_through(capture: &Path, holding: &str) -> App {
-    let launch = Launch::of(SHELL.into(), vec![HELPER_STUB.into()])
-        .with_environment("VBC_STUB_TEXT".into(), holding.into());
-    let writer = Clip::of(SHELL.into(), vec![CLIP_STUB.into(), capture.into()]);
+/// The same screen with the keys moved up to the history panel by `<C-W>k`, and its cursor walked
+/// down into the code the answer fenced.
+fn reading(clipboard: Bridge) -> App {
+    let mut app = prompting(clipboard);
+    app.press(area(), control('w'));
+    app.press(area(), typed('k'));
 
-    App::new(Buffer::from_text(&format!("{FIRST}\n{SECOND}")))
-        .with_status(true)
-        .with_clipboard(Bridge::served_by(move || Helper::launch(launch), writer))
+    assert_eq!(Focus::History, app.focus(), "`<C-W>k` reached no panel");
+
+    press(&mut app, &"j".repeat(INSIDE_THE_CODE));
+
+    app
 }
 
 /// # Returns
 ///
-/// The same editor reaching a stand-in clipboard rather than the desktop's, which answers a read
-/// after `delay` and adds one to `asked` every time it is asked.
-fn stood_in(asked: &Arc<AtomicU64>, delay: Duration) -> App {
+/// A bridge to a desktop of stand-in programs: a helper process that answers every read with
+/// `holding`, and a writer process that keeps what it is handed in `capture`. Everything between
+/// those two programs and the keystroke is what the binary runs.
+fn captured(capture: &Path, holding: &str) -> Bridge {
+    let launch = Launch::of(SHELL.into(), vec![HELPER_STUB.into()])
+        .with_environment("VBC_STUB_TEXT".into(), holding.into());
+    let writer = Clip::of(SHELL.into(), vec![CLIP_STUB.into(), capture.into()]);
+
+    Bridge::served_by(move || Helper::launch(launch), writer)
+}
+
+/// # Returns
+///
+/// A bridge to a stand-in clipboard rather than the desktop's, which answers a read after `delay`
+/// and adds one to `asked` every time it is asked.
+fn stood_in(asked: &Arc<AtomicU64>, delay: Duration) -> Bridge {
     let source = Stub {
         asked: Arc::clone(asked),
         delay,
     };
 
-    App::new(Buffer::from_text(&format!("{FIRST}\n{SECOND}")))
-        .with_status(true)
-        .with_clipboard(Bridge::served_by(move || Ok(source), Discarded))
+    Bridge::served_by(move || Ok(source), Discarded)
+}
+
+/// Types `keys` in the history panel of a screen reaching the real Windows clipboard, and asks
+/// Windows what they left there.
+///
+/// # Returns
+///
+/// What the Windows clipboard holds afterwards on success, or [`None`] where there is no Windows
+/// to ask.
+///
+/// # Errors
+///
+/// Returns an error if:
+///
+/// * Forwards [`Oracle::open`]'s return values on failure.
+/// * Forwards [`put_raw`]'s return values on failure.
+/// * Forwards [`Oracle::text`]'s return values on failure.
+fn yanked_on_windows(keys: &str) -> Result<Option<String>> {
+    let _turn = turn();
+    let Some(oracle) = Oracle::open()? else {
+        return Ok(None);
+    };
+
+    put_raw(&[])?;
+    let mut app = reading(Bridge::windows());
+    press(&mut app, keys);
+    drop(app);
+
+    Ok(Some(oracle.text()?))
+}
+
+/// Types `keys` in the history panel of a screen reaching a stand-in writer.
+///
+/// # Returns
+///
+/// What the writer was handed, decoded, on success.
+///
+/// # Errors
+///
+/// Returns an error if:
+///
+/// * Forwards [`Directory::create`]'s return values on failure.
+/// * Forwards [`std::fs::read`]'s return values on failure.
+/// * Forwards [`decoded`]'s return values on failure.
+fn yanked_through_writer(keys: &str) -> Result<String> {
+    let directory = Directory::create()?;
+    let capture = directory.join("capture.bin");
+    let mut app = reading(captured(&capture, ""));
+    press(&mut app, keys);
+    drop(app);
+
+    decoded(&fs::read(&capture)?)
 }
 
 /// # Returns
@@ -578,7 +759,7 @@ fn said() -> Transcript {
     .collect()
 }
 
-/// Types `keys` at whichever half of the application has them.
+/// Types `keys` at whichever panel has them.
 fn press(app: &mut App, keys: &str) {
     for key in keys.chars() {
         app.press(area(), typed(key));
@@ -607,7 +788,7 @@ fn settle(app: &mut App) -> Result<()> {
 
 /// # Returns
 ///
-/// The text the editor now holds, with its lines separated by one line feed.
+/// The draft the prompt now holds, with its lines separated by one line feed.
 fn written(app: &App) -> String {
     app.text().text()
 }
@@ -617,6 +798,13 @@ fn written(app: &App) -> String {
 /// The area every case is driven in.
 fn area() -> Rect {
     Rect::new(0, 0, COLUMNS, ROWS)
+}
+
+/// # Returns
+///
+/// The key event a terminal reports when `code` is typed with nothing held.
+fn key(code: KeyCode) -> KeyEvent {
+    KeyEvent::new(code, KeyModifiers::NONE)
 }
 
 /// # Returns

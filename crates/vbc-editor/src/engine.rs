@@ -99,12 +99,13 @@ use modalkit::editing::store::{RegisterCell, RegisterPutFlags, RegisterStore, St
 use modalkit::env::vim::VimMode;
 use modalkit::key::TerminalKey;
 use vbc_layout::position::LogicalPosition;
+use vbc_layout::viewport::Viewport;
 use vbc_layout::width::graphemes;
 
 use crate::clipboard;
 use crate::event::{Event, KeyEvent};
 use crate::indent::{indent_of, resting_column, Shift};
-use crate::keys::{Bindings, Keys};
+use crate::keys::{register_name, Argument, Bindings, Keys};
 use crate::screen::Geometry;
 use crate::shim::{classified, Classification, Landing, Shim, Text};
 
@@ -191,6 +192,16 @@ pub struct Held {
     pub shape: Shape,
 }
 
+/// The last yank an engine ran through a register file.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct Yanked {
+    /// How many yanks engines had run through the file by the time this one had.
+    pub count: u64,
+
+    /// The register the yank named, and [`None`] where it named none.
+    pub register: Option<char>,
+}
+
 /// The registers a yank fills and a put reads back, which is one file however many engines are
 /// typed at.
 ///
@@ -212,6 +223,7 @@ pub struct Held {
 pub struct Registers {
     held: Rc<Cell<RegisterStore>>,
     fills: Rc<Cell<u64>>,
+    yanked: Rc<Cell<Yanked>>,
 }
 
 impl Registers {
@@ -263,6 +275,14 @@ impl Registers {
     #[must_use]
     pub fn fills(&self) -> u64 {
         self.fills.get()
+    }
+
+    /// # Returns
+    ///
+    /// The last yank an engine ran through this file, which is [`Yanked::default`] where none has.
+    #[must_use]
+    pub fn yanked(&self) -> Yanked {
+        self.yanked.get()
     }
 
     /// # Returns
@@ -324,6 +344,12 @@ impl Registers {
         self.held.set(file);
 
         outcome
+    }
+
+    /// Records that an engine ran a yank through this file into the register named `register`.
+    fn yanked_into(&self, register: Option<char>) {
+        let count = self.yanked.get().count + 1;
+        self.yanked.set(Yanked { count, register });
     }
 }
 
@@ -468,8 +494,24 @@ impl Engine {
         }
         self.window.dimensions = (geometry.columns().get(), geometry.window().height().get());
         self.shift = self.shift.with_tab_stop(geometry.metrics().tab_stop());
-        if self.shim.is_some() {
-            self.shim = Some(Shim::new(geometry));
+        if let Some(shim) = self.shim.as_ref() {
+            let mut resized = Shim::new(geometry);
+            resized.scrolled_to(shim.viewport());
+            self.shim = Some(resized);
+        }
+    }
+
+    /// Measures the motions counted against a window in `viewport`, which is where the text is
+    /// scrolled to now.
+    ///
+    /// `H`, `M` and `L` name a line of the window rather than a line of the text, so an engine
+    /// nobody has told where the window is answers them against the top of the text. An
+    /// application that scrolls its own window is the one that knows, and every keystroke it types
+    /// at the engine is typed at the window the reader was looking at when they typed it.
+    pub fn scrolled_to(&mut self, viewport: Viewport) {
+        self.window.corner = Cursor::new(viewport.anchor(), 0);
+        if let Some(shim) = self.shim.as_mut() {
+            shim.scrolled_to(viewport);
         }
     }
 
@@ -672,6 +714,15 @@ impl Engine {
 
     /// # Returns
     ///
+    /// How the table reads the key vim reads after `typed`, in the mode the engine stands in, as
+    /// [`Keys::argument`] answers it.
+    #[must_use]
+    pub fn argument(&self, typed: TerminalKey) -> Option<Argument> {
+        self.keys.argument(typed)
+    }
+
+    /// # Returns
+    ///
     /// What every register holding text holds, keyed by the name it is addressed by. A register
     /// holding nothing is left out, as it is on the side an engine is compared against.
     #[must_use]
@@ -716,7 +767,20 @@ impl Engine {
     fn run(&mut self, action: &Action, context: &EditContext) -> Result<(), Error> {
         match action {
             Action::NoOp => Ok(()),
-            Action::Editor(editor) => self.edit(editor, context),
+            Action::Editor(editor) => {
+                let yanks = matches!(
+                    editor,
+                    EditorAction::Edit(operator, _) if EditAction::Yank == context.resolve(operator)
+                );
+                self.edit(editor, context)?;
+                if yanks {
+                    let register = context.get_register();
+                    self.registers
+                        .yanked_into(register.as_ref().and_then(register_name));
+                }
+
+                Ok(())
+            }
             action => Err(Error::Unsupported {
                 action: format!("{action:?}"),
             }),
@@ -854,7 +918,8 @@ impl Engine {
     /// The first and last logical lines a screen motion's answer crosses. A screen motion stops on
     /// a row rather than on a line, and an exclusive one stopping in the first column of a line
     /// stops short of that line altogether, which is the rule that decides whether `>4gj` out of a
-    /// line taking three rows carries the line below it or leaves it where it was.
+    /// line taking three rows carries the line below it or leaves it where it was. A motion the
+    /// seam answers in whole lines names both of them itself and is not cut back that way.
     fn crossed(&mut self, landing: &Landing) -> (usize, usize) {
         let cursor = self.text.get_leader(self.group);
         let to = self.placed(landing.at);
@@ -863,7 +928,7 @@ impl Engine {
         } else {
             (cursor, to)
         };
-        if !landing.inclusive && 0 == far.x && near.y < far.y {
+        if !landing.linewise && !landing.inclusive && 0 == far.x && near.y < far.y {
             return (near.y, far.y - 1);
         }
 
@@ -1037,11 +1102,12 @@ impl Engine {
     /// at the near end of what an operator applied over it takes.
     ///
     /// The rules deciding what an operator takes between two places are vim's rather than
-    /// modalkit's: `g$`, and any motion behind a `$`, takes the grapheme it stops on where the
-    /// others stop in front of theirs; an exclusive motion ending in the first column of a line
-    /// takes to the end of the line above instead; and a delete reaching from an indent to the end
-    /// of a later line takes whole lines. A motion that ran out of text leaves the operator undone
-    /// and carries the cursor alone, as vim does.
+    /// modalkit's: a motion the seam answers in whole lines carries every line between the two,
+    /// whatever column either of them stands in; `g$`, and any motion behind a `$`, takes the
+    /// grapheme it stops on where the others stop in front of theirs; an exclusive motion ending
+    /// in the first column of a line takes to the end of the line above instead; and a delete
+    /// reaching from an indent to the end of a later line takes whole lines. A motion that ran out
+    /// of text leaves the operator undone and carries the cursor alone, as vim does.
     ///
     /// # Returns
     ///
@@ -1059,6 +1125,11 @@ impl Engine {
         } else {
             (cursor, to)
         };
+        if landing.linewise {
+            self.text.set_leader(self.group, near);
+
+            return self.against(operator, far, true);
+        }
         if landing.inclusive {
             far = self.past(far);
         } else if 0 == far.x && near.y < far.y {
@@ -1189,7 +1260,7 @@ impl Engine {
             line: cursor.y,
             grapheme: grapheme_offset(&text.line(cursor.y).unwrap_or_default(), cursor.x),
         };
-        let landing = shim.intercept(motion, context.resolve(&count), at, text);
+        let landing = shim.intercept(motion, context.resolve(&count), at, text, bare);
         if !bare {
             shim.note(editor, false);
         }
