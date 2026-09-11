@@ -1,5 +1,5 @@
 //! Detection of the credit a commit message, or the title or body of a pull request, gives an AI
-//! for the work.
+//! for the work, and of the link it gives to the session the work was done in.
 //!
 //! This repository is written with an assistant and talks about one constantly, so naming a model
 //! is not the offence and cannot be made into one: a scan that fired on the word `Claude` would
@@ -24,6 +24,11 @@
 //! one rather than one, which is how a commit explaining this check names the credit it catches,
 //! and a check that failed the commits written about it is a check somebody switches off. A line
 //! is read past the span it quotes all the same, so a credit given after one is caught.
+//!
+//! A session is refused beside a credit. Tooling that writes a commit or a request from a session
+//! says which one in a trailer, or links it on a line of its own, and either is provenance rather
+//! than prose: the trailer is caught whatever its value holds, and the link wherever it is written,
+//! quoted or not, because quoting a link does not stop it being followed.
 
 use std::fmt::{Display, Formatter, Result as FmtResult};
 
@@ -76,6 +81,12 @@ pub const CREDIT_PHRASES: [&str; 8] = [
 /// The mail domains an AI vendor's own identity is written at.
 pub const VENDOR_DOMAINS: [&str; 2] = ["anthropic.com", "openai.com"];
 
+/// The trailer keys whose value says which session a text was written in, whatever it holds.
+pub const SESSION_KEYS: [&str; 1] = ["claude-session"];
+
+/// What a link to the session a text was written in is written at.
+pub const SESSION_LINK: &str = "claude.ai/code/session_";
+
 /// The marks a markdown list writes an item under, which a trailer is read past rather than
 /// hidden behind. A quote's mark is not among them: a line somebody quoted is a line somebody is
 /// writing about, which is how the offence is discussed rather than given.
@@ -102,6 +113,12 @@ pub enum Reason {
 
     /// An address at a vendor's own domain, holding the domain.
     Address(String),
+
+    /// A trailer saying which session the text was written in, holding the trailer's key.
+    SessionTrailer(String),
+
+    /// A link to the session the text was written in, holding what the link is written at.
+    SessionLink(String),
 }
 
 impl Display for Reason {
@@ -110,6 +127,8 @@ impl Display for Reason {
             Self::Trailer(key) => write!(formatter, "`{key}:` names a model as an author"),
             Self::Phrase(phrase) => write!(formatter, "`{phrase}` is followed by a model"),
             Self::Address(domain) => write!(formatter, "`{domain}` is an AI vendor's own domain"),
+            Self::SessionTrailer(key) => write!(formatter, "`{key}:` names a session"),
+            Self::SessionLink(link) => write!(formatter, "`{link}` links a session"),
         }
     }
 }
@@ -158,12 +177,13 @@ impl Display for Credit {
     }
 }
 
-/// Scans a commit message or a pull request body for credit given to an AI.
+/// Scans a commit message or a pull request body for credit given to an AI, and for a link to the
+/// session it was written in.
 ///
 /// # Returns
 ///
-/// Every line of the text that credits an AI as an author or as a generator, in the order they are
-/// written, empty where none does.
+/// Every line of the text that credits an AI as an author or as a generator, or that links the
+/// session the text was written in, in the order they are written, empty where none does.
 #[must_use]
 pub fn scan(text: &str) -> Vec<Credit> {
     text.lines()
@@ -195,23 +215,35 @@ fn credited(line: &str) -> Option<Reason> {
             return Some(Reason::Address(domain.to_owned()));
         }
     }
+    if let Some(key) = session_trailer(&line) {
+        return Some(Reason::SessionTrailer(key));
+    }
+    if line.contains(SESSION_LINK) {
+        return Some(Reason::SessionLink(SESSION_LINK.to_owned()));
+    }
 
     None
 }
 
 /// # Returns
 ///
-/// The key of the trailer a line gives a model in the value of, or [`None`] where the line is no
-/// such trailer. The whole value is read, because a trailer's value is an identity rather than a
-/// sentence a name can appear in for another reason. A key is read past the mark a list writes it
-/// as an item under, because a body is prose in markdown and a credit written as an item of a list
-/// is the same credit.
-fn credit_trailer(line: &str) -> Option<String> {
+/// The key and the value of the trailer a line is, or [`None`] where the line is no trailer. A key
+/// is read past the mark a list writes it as an item under, because a body is prose in markdown and
+/// a trailer written as an item of a list is the same trailer.
+fn trailer(line: &str) -> Option<(&str, &str)> {
     let (key, value) = line.split_once(':')?;
     let key = key.trim_start_matches(LIST_MARKS).trim_start();
-    if key.is_empty() || key.split_whitespace().count() != 1 {
-        return None;
-    }
+
+    (1 == key.split_whitespace().count()).then_some((key, value))
+}
+
+/// # Returns
+///
+/// The key of the trailer a line gives a model in the value of, or [`None`] where the line is no
+/// such trailer. The whole value is read, because a trailer's value is an identity rather than a
+/// sentence a name can appear in for another reason.
+fn credit_trailer(line: &str) -> Option<String> {
+    let (key, value) = trailer(line)?;
     if !CREDIT_KEYS.contains(&key) {
         return None;
     }
@@ -219,6 +251,16 @@ fn credit_trailer(line: &str) -> Option<String> {
         .iter()
         .any(|token| names_ai(token) || names_model(token))
         .then(|| key.to_owned())
+}
+
+/// # Returns
+///
+/// The key of the trailer a line names the session it was written in by, or [`None`] where the line
+/// is no such trailer.
+fn session_trailer(line: &str) -> Option<String> {
+    let (key, _) = trailer(line)?;
+
+    SESSION_KEYS.contains(&key).then(|| key.to_owned())
 }
 
 /// # Returns
@@ -335,6 +377,16 @@ mod tests {
     /// Whether a text credits an AI anywhere.
     fn credits(text: &str) -> bool {
         !scan(text).is_empty()
+    }
+
+    /// # Returns
+    ///
+    /// What made each line of a text a credit, in the order they are written.
+    fn reasons(text: &str) -> Vec<Reason> {
+        scan(text)
+            .iter()
+            .map(|credit| credit.reason().clone())
+            .collect()
     }
 
     #[test]
@@ -457,7 +509,6 @@ mod tests {
             "This corrects a layout Claude Code got wrong.",
             "Add a guard so that a commit crediting Claude Code fails the build.",
             "Refer to the assistant only where the licence asks for it.",
-            "The reader at claude.ai/code/session_0 is not an author.",
         ] {
             assert!(!credits(written), "`{written}` was failed");
         }
@@ -483,6 +534,67 @@ mod tests {
             "Co-authored-by: Pleiades <pleiades@example.com>",
             "Signed-off-by: A Person <person@example.org>",
             "Reviewed-by: Claude Code",
+        ] {
+            assert!(!credits(written), "`{written}` was failed");
+        }
+    }
+
+    #[test]
+    fn a_session_trailer_is_caught_whatever_it_holds() {
+        for written in [
+            "Claude-Session: https://claude.ai/code/session_01EXAMPLEEXAMPLE",
+            "Claude-Session: 01EXAMPLEEXAMPLE",
+            "claude-session: 01EXAMPLEEXAMPLE",
+            "CLAUDE-SESSION: 01EXAMPLEEXAMPLE",
+            "- Claude-Session: 01EXAMPLEEXAMPLE",
+            "Claude-Session:",
+        ] {
+            assert_eq!(
+                vec![Reason::SessionTrailer("claude-session".to_owned())],
+                reasons(written),
+                "`{written}`"
+            );
+        }
+    }
+
+    #[test]
+    fn a_session_link_is_caught_wherever_it_is_written() {
+        for written in [
+            "https://claude.ai/code/session_01EXAMPLEEXAMPLE",
+            "HTTPS://CLAUDE.AI/CODE/SESSION_01EXAMPLEEXAMPLE",
+            "Https://Claude.ai/Code/Session_01EXAMPLEEXAMPLE",
+            "claude.ai/code/session_01EXAMPLEEXAMPLE",
+            "See [the session](https://claude.ai/code/session_01EXAMPLEEXAMPLE).",
+            "The session is `https://claude.ai/code/session_01EXAMPLEEXAMPLE`.",
+            "The reader at claude.ai/code/session_0 is not an author.",
+        ] {
+            assert_eq!(
+                vec![Reason::SessionLink("claude.ai/code/session_".to_owned())],
+                reasons(written),
+                "`{written}`"
+            );
+        }
+    }
+
+    #[test]
+    fn a_body_whose_only_offence_is_a_bare_session_link_is_caught() {
+        let body = "## Summary\n\nA change.\n\nhttps://claude.ai/code/session_01EXAMPLEEXAMPLE\n";
+        let credits = scan(body);
+
+        assert_eq!(1, credits.len(), "{credits:?}");
+        assert_eq!(5, credits[0].line());
+    }
+
+    #[test]
+    fn a_link_to_anything_but_a_session_passes() {
+        for written in [
+            "https://claude.ai",
+            "The harness runs at https://claude.ai/code for a reader.",
+            "https://claude.ai/chat/01EXAMPLEEXAMPLE",
+            "https://claude.com/claude-code",
+            "A Claude Code session wrote the draft this was rewritten from.",
+            "Session: 01EXAMPLEEXAMPLE",
+            "Claude: a session opened the change.",
         ] {
             assert!(!credits(written), "`{written}` was failed");
         }
