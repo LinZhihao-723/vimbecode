@@ -102,9 +102,10 @@ use vbc_layout::position::LogicalPosition;
 use vbc_layout::viewport::Viewport;
 use vbc_layout::width::graphemes;
 
+use crate::clipboard;
 use crate::event::{Event, KeyEvent};
 use crate::indent::{indent_of, resting_column, Shift};
-use crate::keys::{Argument, Bindings, Keys};
+use crate::keys::{register_name, Argument, Bindings, Keys};
 use crate::screen::Geometry;
 use crate::shim::{classified, Classification, Landing, Shim, Text};
 
@@ -119,7 +120,7 @@ const READ_BACK: [char; 38] = [
 /// The registers standing for the desktop's clipboards, which a plain put never reads. Writing one
 /// of them leaves the unnamed register as it stood, so that what another window copied is never
 /// what `p` comes back with.
-const CLIPBOARDS: [char; 2] = ['*', '+'];
+const CLIPBOARDS: [char; 2] = [clipboard::ALIAS, clipboard::REGISTER];
 
 /// The identifier modalkit files the one text an engine edits under.
 const ONLY_TEXT: &str = "vimbecode";
@@ -191,6 +192,16 @@ pub struct Held {
     pub shape: Shape,
 }
 
+/// The last yank an engine ran through a register file.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct Yanked {
+    /// How many yanks engines had run through the file by the time this one had.
+    pub count: u64,
+
+    /// The register the yank named, and [`None`] where it named none.
+    pub register: Option<char>,
+}
+
 /// The registers a yank fills and a put reads back, which is one file however many engines are
 /// typed at.
 ///
@@ -211,6 +222,8 @@ pub struct Held {
 #[derive(Clone, Default)]
 pub struct Registers {
     held: Rc<Cell<RegisterStore>>,
+    clipboard_fills: Rc<Cell<u64>>,
+    yanked: Rc<Cell<Yanked>>,
 }
 
 impl Registers {
@@ -247,6 +260,32 @@ impl Registers {
         let mut file = self.held.take();
         let _ = file.put(&slot(name), cell, flags);
         self.held.set(file);
+        if clipboard::REGISTER == name {
+            self.clipboard_fills.set(self.clipboard_fills.get() + 1);
+        }
+    }
+
+    /// # Returns
+    ///
+    /// The number of times the editor has itself filled the clipboard's register of this file,
+    /// which moves whenever [`Registers::fill`] fills that register and stays as it was over an
+    /// edit modalkit ran.
+    ///
+    /// What it is for is telling a keystroke that filled the clipboard's register from one that
+    /// left it alone without reading it. A register holds as much as was yanked into it, so a
+    /// caller that compared what it holds after every keystroke would make a keystroke cost the
+    /// yank; this costs nothing.
+    #[must_use]
+    pub fn clipboard_fills(&self) -> u64 {
+        self.clipboard_fills.get()
+    }
+
+    /// # Returns
+    ///
+    /// The last yank an engine ran through this file, which is [`Yanked::default`] where none has.
+    #[must_use]
+    pub fn yanked(&self) -> Yanked {
+        self.yanked.get()
     }
 
     /// # Returns
@@ -308,6 +347,12 @@ impl Registers {
         self.held.set(file);
 
         outcome
+    }
+
+    /// Records that an engine ran a yank through this file into the register named `register`.
+    fn yanked_into(&self, register: Option<char>) {
+        let count = self.yanked.get().count + 1;
+        self.yanked.set(Yanked { count, register });
     }
 }
 
@@ -651,6 +696,27 @@ impl Engine {
 
     /// # Returns
     ///
+    /// The name of the register the keys typed so far address, and [`None`] where they address the
+    /// unnamed one.
+    ///
+    /// A register named but not yet used is what a caller reads this for: it is the last moment at
+    /// which the keystroke that will use it can be told from every other keystroke.
+    #[must_use]
+    pub fn named_register(&self) -> Option<char> {
+        self.keys.named_register()
+    }
+
+    /// # Returns
+    ///
+    /// The register a put would read out of, were `key` the next key typed, and [`None`] where it
+    /// would complete no put or would put from the unnamed register.
+    #[must_use]
+    pub fn pasted_register(&self, key: KeyEvent) -> Option<char> {
+        self.keys.pasted_register(key.into())
+    }
+
+    /// # Returns
+    ///
     /// How the table reads the key vim reads after `typed`, in the mode the engine stands in, as
     /// [`Keys::argument`] answers it.
     #[must_use]
@@ -704,7 +770,20 @@ impl Engine {
     fn run(&mut self, action: &Action, context: &EditContext) -> Result<(), Error> {
         match action {
             Action::NoOp => Ok(()),
-            Action::Editor(editor) => self.edit(editor, context),
+            Action::Editor(editor) => {
+                let yanks = matches!(
+                    editor,
+                    EditorAction::Edit(operator, _) if EditAction::Yank == context.resolve(operator)
+                );
+                self.edit(editor, context)?;
+                if yanks {
+                    let register = context.get_register();
+                    self.registers
+                        .yanked_into(register.as_ref().and_then(register_name));
+                }
+
+                Ok(())
+            }
             action => Err(Error::Unsupported {
                 action: format!("{action:?}"),
             }),
