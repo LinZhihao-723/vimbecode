@@ -380,7 +380,7 @@ impl App {
     ///
     /// This application showing `session` in the panel `<C-T>` reaches, live: what the session
     /// says is drawn as it arrives, and what it stops to ask is drawn under that until somebody
-    /// answers it. The panel's cursor starts on its last line, so it follows what arrives.
+    /// answers it.
     ///
     /// The session is read from the events an application loop hands over rather than from a
     /// thread of its own, so an application that never calls [`App::handle`] never reads it.
@@ -1035,7 +1035,7 @@ impl App {
     }
 
     /// Sends one message from the reader to the session, which is a turn of it, saying at the
-    /// status line why it did not where it could not. The history follows the turn it starts.
+    /// status line why it did not where it could not.
     fn ask(&mut self, text: &str) {
         if text.is_empty() {
             self.notice = Some(UNSAID.to_owned());
@@ -1081,8 +1081,7 @@ impl App {
     }
 
     /// Sends the draft to the session as the reader's next message and leaves an empty draft in
-    /// insert mode, saying at the status line why it did not where it could not. The history
-    /// follows the turn it starts.
+    /// insert mode, saying at the status line why it did not where it could not.
     fn send(&mut self) {
         if !self.drafted() {
             self.notice = Some(UNDRAFTED.to_owned());
@@ -1474,8 +1473,7 @@ impl App {
     }
 
     /// Lays the history panel out in the area a frame is drawn into, where it was last laid out
-    /// in another or has not been laid out at all, drawing a panel that follows what arrives
-    /// along the bottom of it.
+    /// in another or has not been laid out at all.
     fn fit(&mut self, area: Rect) {
         if Some(area) == self.fitted {
             return;
@@ -1746,6 +1744,7 @@ impl App {
                 Drawn::Body { row, .. } => {
                     return cursor_cell(area, narrowed(index), row.styled().row(), grapheme);
                 }
+                // A row of chrome holds no byte, so `holds` never lets the cursor reach one.
                 Drawn::Chrome(_) => {}
             }
         }

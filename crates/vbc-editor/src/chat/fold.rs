@@ -10,9 +10,7 @@
 //! so the folds nest. The call that started a subagent folds away the whole of what that subagent
 //! did, and every call the subagent made folds away inside it. That nesting is read off the tags
 //! rather than off the order the blocks arrived in, so a fold covers what was said beneath it
-//! whatever else was said in between, and a fold at any depth opens and closes on its own. What a
-//! call was answered with is the one thing beneath it its fold does not cover: it is drawn below
-//! the call's row folded on its own, so a closed call still says what came of it.
+//! whatever else was said in between, and a fold at any depth opens and closes on its own.
 //!
 //! What folds is what is shown and never what is held. A fold names the blocks it covers, a
 //! summary is computed from the source of those blocks, and nothing here writes to a transcript at

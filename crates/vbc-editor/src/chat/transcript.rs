@@ -5,9 +5,6 @@
 //! they were said, and a block is named by its index in that order, which is the coordinate a
 //! motion over blocks will move in and the half of a selection's position that says which block it
 //! fell in.
-//!
-//! A transcript also knows the directory the session it records works in, where it was told one,
-//! which is what a path a tool was called with is written relative to when it is drawn.
 
 use crate::chat::block::Block;
 

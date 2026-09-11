@@ -34,15 +34,15 @@ const HEADING_MARK: u8 = b'#';
 const HEADING_DEPTH: usize = 6;
 
 /// The characters a list item is bulleted with, and the ones a numbered item's number ends in.
-const BULLETS: [u8; 3] = [b'-', b'*', b'+'];
-const NUMBERED: [u8; 2] = [b'.', b')'];
+const BULLETS: [u8; 3] = *b"-*+";
+const NUMBERED: [u8; 2] = *b".)";
 
 /// The character a quoted line is marked with.
 const QUOTE_MARK: u8 = b'>';
 
 /// The character inline code is fenced by, and the ones emphasis is written with.
 const TICK: u8 = b'`';
-const EMPHASES: [u8; 2] = [b'*', b'_'];
+const EMPHASES: [u8; 2] = *b"*_";
 
 /// The character that takes the one after it as the character it is.
 const ESCAPE: u8 = b'\\';
