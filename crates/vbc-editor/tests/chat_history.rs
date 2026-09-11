@@ -147,8 +147,8 @@ fn a_prompt_is_drawn_on_a_band_behind_its_mark_and_a_reply_behind_its_own() -> R
     };
     let band = cells[(0, first)].bg;
     assert!(
-        matches!(band, Color::Indexed(16..)),
-        "the prompt's band is {band:?}, which is not one of the 240 colours no theme redefines"
+        matches!(band, Color::Indexed(16..) | Color::Rgb(..)),
+        "the prompt's band is {band:?}, which is a colour a terminal theme redefines"
     );
     for y in [first, first + 1] {
         for x in 0..area.width {
@@ -170,7 +170,7 @@ fn a_prompt_is_drawn_on_a_band_behind_its_mark_and_a_reply_behind_its_own() -> R
     assert_eq!(SAID_MARK, cells[(0, reply)].symbol());
     let mark = cells[(0, reply)].fg;
     assert!(
-        matches!(mark, Color::Indexed(16..)),
+        matches!(mark, Color::Indexed(16..) | Color::Rgb(..)),
         "the reply's mark is drawn in {mark:?}"
     );
     for x in 0..area.width {
@@ -201,7 +201,8 @@ fn a_prompt_is_drawn_on_a_band_behind_its_mark_and_a_reply_behind_its_own() -> R
     }
 
     assert_eq!(
-        "", frame[usize::from(second - 1)],
+        "",
+        frame[usize::from(second - 1)],
         "no blank row sets the second turn apart from the first: {frame:#?}"
     );
     for x in 0..area.width {
@@ -321,7 +322,10 @@ fn a_reader_who_moved_up_from_the_bottom_is_not_carried_off_by_what_arrives() ->
     let kept = standing(&mut app, area);
     assert_ne!(
         Some(&"watch this".to_owned()),
-        kept.0.first().map(|row| row.chars().skip(GUTTER).collect::<String>()).as_ref(),
+        kept.0
+            .first()
+            .map(|row| row.chars().skip(GUTTER).collect::<String>())
+            .as_ref(),
         "the history is not taller than the window, so a throw to its top could not be seen"
     );
     let watched = watching(&mut app, area, |app| {
@@ -335,6 +339,52 @@ fn a_reader_who_moved_up_from_the_bottom_is_not_carried_off_by_what_arrives() ->
     assert!(
         WATCHED <= watched,
         "only {watched} arrivals were seen one at a time"
+    );
+
+    Ok(())
+}
+
+/// `gg` and `G` carry the cursor further through a long history than a follow walks, and the
+/// history is drawn from where they carried it all the same.
+#[test]
+fn gg_and_g_in_a_long_history_draw_the_row_they_carried_the_cursor_to() -> Result<()> {
+    let area = wide();
+    let directory = TempDir::new()?;
+    fs::write(directory.path().join(SAID), same(LONG))?;
+    let mut app = chatting(directory.path(), STUB)?;
+    typing(&mut app, area, "fill it\u{1b}:wq\r");
+    if !settled(&mut app, area, |app| LONG < app.panel().transcript().len()) {
+        return Err(anyhow!(
+            "the stand-in said no {LONG} blocks in {PATIENCE:?}"
+        ));
+    }
+    reading(&mut app, area)?;
+
+    typing(&mut app, area, "gg");
+    let (rows, _, cell) = standing(&mut app, area);
+    assert_eq!(
+        Some("fill it".to_owned()),
+        rows.first().map(|row| row.chars().skip(GUTTER).collect()),
+        "`gg` did not draw the history's first row at its top"
+    );
+    assert_eq!(
+        Some(Position::new(u16::try_from(GUTTER)?, 0)),
+        cell,
+        "the cursor `gg` carried to the first row is not drawn there"
+    );
+
+    typing(&mut app, area, "G");
+    let (rows, _, cell) = standing(&mut app, area);
+    assert!(
+        rows.iter()
+            .rev()
+            .find(|row| !row.is_empty())
+            .is_some_and(|row| row.ends_with(SAME)),
+        "`G` did not draw the history's last row: {rows:#?}"
+    );
+    assert!(
+        cell.is_some(),
+        "the cursor `G` carried to the last row is not drawn"
     );
 
     Ok(())
@@ -378,8 +428,12 @@ fn answered(directory: &Path, area: Rect) -> Result<App> {
         return Err(anyhow!("the stand-in answered nothing in {PATIENCE:?}"));
     }
     typing(&mut app, area, &format!("{AGAIN}\u{1b}:wq\r"));
-    if !settled(&mut app, area, |app| app.panel().text().contains(SECOND_TURN)) {
-        return Err(anyhow!("the stand-in answered no second turn in {PATIENCE:?}"));
+    if !settled(&mut app, area, |app| {
+        app.panel().text().contains(SECOND_TURN)
+    }) {
+        return Err(anyhow!(
+            "the stand-in answered no second turn in {PATIENCE:?}"
+        ));
     }
 
     Ok(app)
@@ -424,13 +478,17 @@ fn arrived(blocks: usize) -> Result<(usize, usize)> {
     if !settled(&mut app, area, |app| {
         blocks < app.panel().transcript().len() && app.turn().as_deref() == Some("idle")
     }) {
-        return Err(anyhow!("the stand-in said no {blocks} blocks in {PATIENCE:?}"));
+        return Err(anyhow!(
+            "the stand-in said no {blocks} blocks in {PATIENCE:?}"
+        ));
     }
     typing(&mut app, area, &format!("{AGAIN}\u{1b}:wq\r"));
     if !settled(&mut app, area, |app| {
         app.panel().text().contains(SECOND_TURN) && app.turn().as_deref() == Some("idle")
     }) {
-        return Err(anyhow!("the stand-in answered no second turn in {PATIENCE:?}"));
+        return Err(anyhow!(
+            "the stand-in answered no second turn in {PATIENCE:?}"
+        ));
     }
 
     let mut cells = Cells::empty(area);
@@ -587,7 +645,10 @@ fn answer(directory: &Path) -> String {
 fn same(blocks: usize) -> String {
     let mut frames = String::new();
     for _ in 0..blocks {
-        frames.push_str(&framed("assistant", json!([{"type": "text", "text": SAME}])));
+        frames.push_str(&framed(
+            "assistant",
+            json!([{"type": "text", "text": SAME}]),
+        ));
         frames.push('\n');
     }
     frames.push_str(&ended());

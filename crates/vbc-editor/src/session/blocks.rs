@@ -375,6 +375,7 @@ impl Conversation {
         for (kind, source) in written(said) {
             let block = match kind {
                 BlockKind::Message(Role::Assistant) => Block::reply(source),
+                BlockKind::Code { language } => Block::code(language, source),
                 kind => Block::new(kind, source),
             };
             self.push(block, Tag::new(None, beneath.map(str::to_owned)));

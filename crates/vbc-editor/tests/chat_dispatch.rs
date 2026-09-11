@@ -226,7 +226,10 @@ fn the_panel_draws_the_cursor_on_the_row_a_closed_fold_is_drawn_in() {
     assert_eq!(on_the_fold.y, opened.y);
     assert_eq!(
         "   Compiling vimbecode",
-        drawn_row(&cells, opened.y),
+        drawn_row(&cells, opened.y)
+            .chars()
+            .skip(GUTTER)
+            .collect::<String>(),
         "the row the cursor is on is not the first of what the fold hid"
     );
 }

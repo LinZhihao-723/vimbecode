@@ -11,13 +11,13 @@
 //! entry it belongs to, so a reader scrolls onto it and past it like any other row, and the cursor
 //! never rests on it because it draws nothing the cursor could rest on.
 //!
-//! Every colour is one of the 240 of the 256-colour palette a terminal theme does not redefine, so
-//! a terminal that draws no more than 256 colours draws all of them.
+//! Every colour is one of [`crate::chat::palette`]'s, at the depth the terminal says it draws.
 
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::style::{Modifier, Style};
 
 use crate::chat::block::{Block, Kind, Role};
 use crate::chat::fold::Entry;
+use crate::chat::palette::{Palette, Rgb, COMMENT, CYAN, FOREGROUND, GREEN, YELLOW};
 use crate::chat::transcript::Transcript;
 
 /// The columns the history keeps to the left of every row's text for the row's mark.
@@ -39,36 +39,11 @@ const WAITING_ON: &str = "is waiting on you --";
 const ALLOWED: &str = "`:allow` or `:deny`";
 const ANSWERED: &str = "`:answer <text>`";
 
-/// The colours the history is drawn in.
-const BAND: Color = Color::Indexed(237);
-const PALE: Color = Color::Indexed(252);
-const TEAL: Color = Color::Indexed(37);
-const GREEN: Color = Color::Indexed(114);
-const GREY: Color = Color::Indexed(245);
-const ORANGE: Color = Color::Indexed(214);
-
-/// How a prompt's rows are drawn, and the mark in front of it.
-const PROMPTED: Style = Style::new().bg(BAND);
-const PROMPT_MARK: Style = Style::new()
-    .fg(PALE)
-    .bg(BAND)
-    .add_modifier(Modifier::BOLD);
-
-/// How the mark in front of a reply is drawn.
-const REPLY_MARK: Style = Style::new().fg(TEAL).add_modifier(Modifier::BOLD);
-
-/// How the mark in front of a call is drawn.
-const CALL_MARK: Style = Style::new().fg(GREEN).add_modifier(Modifier::BOLD);
-
-/// How what a tool answered is drawn where it is folded away.
-const ANSWERED_STYLE: Style = Style::new().fg(GREY);
+/// base16 Ocean's lighter background, which a prompt's band is drawn in.
+const BAND: Rgb = Rgb::new(0x34, 0x3d, 0x46);
 
 /// How thinking is drawn.
 const THINKING: Style = Style::new().add_modifier(Modifier::DIM.union(Modifier::ITALIC));
-
-/// How a call the session is waiting on is drawn, and its header.
-const WAITING: Style = Style::new().fg(ORANGE);
-const WAITING_HEADER: Style = WAITING.add_modifier(Modifier::BOLD);
 
 /// A row of the history that holds no byte of any block.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -97,13 +72,17 @@ impl Chrome {
 
     /// # Returns
     ///
-    /// How the row is drawn.
+    /// How the row is drawn in `palette`.
     #[must_use]
-    pub fn label(&self) -> Label {
+    pub fn label(&self, palette: Palette) -> Label {
         match self {
             Self::Gap => Label::default(),
-            Self::Call(_) => Label::named(SAID, CALL_MARK, Style::new()),
-            Self::Waiting(_) => Label::new(SAID, WAITING_HEADER, WAITING_HEADER),
+            Self::Call(_) => Label::named(SAID, marked(palette, GREEN), Style::new()),
+            Self::Waiting(_) => {
+                let waiting = marked(palette, YELLOW);
+
+                Label::new(SAID, waiting, waiting)
+            }
         }
     }
 }
@@ -172,31 +151,45 @@ impl Label {
 
 /// # Returns
 ///
-/// How a row of a block of `kind` is drawn, where `first` says whether it is the block's first.
+/// How a row of a block of `kind` is drawn in `palette`, where `first` says whether it is the
+/// block's first.
 #[must_use]
-pub fn body(kind: &Kind, first: bool) -> Label {
-    let marked = |mark: &'static str, marked: Style, style: Style| {
-        Label::new(if first { mark } else { "" }, marked, style)
-    };
+pub fn body(kind: &Kind, first: bool, palette: Palette) -> Label {
+    let mark = |mark: &'static str| if first { mark } else { "" };
 
     match kind {
-        Kind::Message(Role::User) => marked(PROMPT, PROMPT_MARK, PROMPTED),
-        Kind::Message(Role::Assistant) => marked(SAID, REPLY_MARK, Style::new()),
-        Kind::ToolResult => marked(ANSWER, ANSWERED_STYLE, Style::new()),
-        Kind::Thinking => marked(THOUGHT, THINKING, THINKING),
-        Kind::Waiting { .. } => Label::new("", WAITING, WAITING),
+        Kind::Message(Role::User) => {
+            let band = Style::new().bg(palette.color(BAND));
+            let marked = band.patch(self::marked(palette, FOREGROUND));
+
+            Label::new(mark(PROMPT), marked, band)
+        }
+        Kind::Message(Role::Assistant) => {
+            Label::new(mark(SAID), marked(palette, CYAN), Style::new())
+        }
+        Kind::ToolResult => Label::new(mark(ANSWER), tinted(palette, COMMENT), Style::new()),
+        Kind::Thinking => Label::new(mark(THOUGHT), THINKING, THINKING),
+        Kind::Waiting { .. } => {
+            let waiting = tinted(palette, YELLOW);
+
+            Label::new("", waiting, waiting)
+        }
         Kind::Code { .. } | Kind::Diff { .. } | Kind::ToolCall { .. } => Label::default(),
     }
 }
 
 /// # Returns
 ///
-/// How the one row a closed fold headed by a block of `kind` is drawn.
+/// How the one row a closed fold headed by a block of `kind` is drawn in `palette`.
 #[must_use]
-pub fn folded(kind: &Kind) -> Label {
+pub fn folded(kind: &Kind, palette: Palette) -> Label {
     match kind {
-        Kind::ToolCall { .. } => Label::named(SAID, CALL_MARK, Style::new()),
-        Kind::ToolResult => Label::new(ANSWER, ANSWERED_STYLE, ANSWERED_STYLE),
+        Kind::ToolCall { .. } => Label::named(SAID, marked(palette, GREEN), Style::new()),
+        Kind::ToolResult => {
+            let answered = tinted(palette, COMMENT);
+
+            Label::new(ANSWER, answered, answered)
+        }
         Kind::Thinking => Label::new(THOUGHT, THINKING, THINKING),
         _ => Label::default(),
     }
@@ -283,13 +276,30 @@ fn drawn<'transcript>(
     }
 }
 
+/// # Returns
+///
+/// A style drawing its text in `rgb`, at `palette`'s depth.
+fn tinted(palette: Palette, rgb: Rgb) -> Style {
+    Style::new().fg(palette.color(rgb))
+}
+
+/// # Returns
+///
+/// The style a mark drawn in `rgb` is drawn in, at `palette`'s depth.
+fn marked(palette: Palette, rgb: Rgb) -> Style {
+    tinted(palette, rgb).add_modifier(Modifier::BOLD)
+}
+
 #[cfg(test)]
 mod tests {
+    use ratatui::style::Color;
+
     use crate::chat::block::{Block, Kind, Role};
     use crate::chat::fold::Entry;
+    use crate::chat::palette::Palette;
     use crate::chat::transcript::Transcript;
 
-    use super::{above, heads, Chrome};
+    use super::{above, body, heads, Chrome, PROMPT, SAID};
 
     #[test]
     fn every_prompt_but_the_first_is_set_apart_by_a_gap() {
@@ -380,5 +390,21 @@ mod tests {
             Some("AskUserQuestion is waiting on you -- `:answer <text>`"),
             above(&transcript, &entries, 1).as_ref().map(Chrome::text)
         );
+    }
+
+    #[test]
+    fn a_prompt_and_a_reply_are_marked_on_their_first_row_in_the_256_colours() {
+        let prompt = body(&Kind::Message(Role::User), true, Palette::Indexed);
+        let continued = body(&Kind::Message(Role::User), false, Palette::Indexed);
+        let reply = body(&Kind::Message(Role::Assistant), true, Palette::Indexed);
+
+        assert_eq!(
+            (PROMPT, "", SAID),
+            (prompt.mark(), continued.mark(), reply.mark())
+        );
+        assert!(matches!(prompt.style().bg, Some(Color::Indexed(16..))));
+        assert_eq!(prompt.style(), continued.style());
+        assert!(matches!(reply.marked().fg, Some(Color::Indexed(16..))));
+        assert_eq!(None, reply.style().bg);
     }
 }

@@ -76,6 +76,8 @@ use vbc_layout::anchor::Wrapping;
 use vbc_layout::buffer::LINE_SEPARATOR;
 use vbc_layout::line::{self, DisplayRow, Options};
 
+use crate::chat::highlight::Language;
+use crate::chat::palette::Palette;
 use crate::chat::{ansi, diff, markdown};
 use crate::style::{self, Span, StyledRow};
 
@@ -369,13 +371,33 @@ impl Block {
 
     /// Factory function.
     ///
+    /// Colours `source` as written in the language `language` names, in the palette the terminal
+    /// the program runs in draws.
+    ///
+    /// # Returns
+    ///
+    /// A [`Kind::Code`] block of `source` fenced as `language`, which is plain where `language`
+    /// names no language the highlighter knows or is `None`.
+    #[must_use]
+    pub fn code(language: Option<String>, source: String) -> Self {
+        let spans = language
+            .as_deref()
+            .and_then(Language::of_tag)
+            .map(|written| written.spans(&source, Palette::detected()))
+            .unwrap_or_default();
+
+        Self::with_spans(Kind::Code { language }, source, spans)
+    }
+
+    /// Factory function.
+    ///
     /// # Returns
     ///
     /// A message Claude said, holding `source` as it was written and styled by the markdown it is
     /// written in.
     #[must_use]
     pub fn reply(source: String) -> Self {
-        let spans = markdown::spans(&source);
+        let spans = markdown::spans(&source, Palette::detected());
 
         Self::with_spans(Kind::Message(Role::Assistant), source, spans)
     }
@@ -557,6 +579,33 @@ impl Block {
         let (_, counted) = self.counted_line(start, line, wrapping);
 
         RowAnchor::new(start, line, counted - 1)
+    }
+
+    /// Finds the row drawing the byte `offset` of the block's source, laying out the one logical
+    /// line holding it and nothing else.
+    ///
+    /// # Returns
+    ///
+    /// Where that row begins, which is the last row of that line where `offset` ends it.
+    #[must_use]
+    pub fn row_of(&self, offset: usize, wrapping: &Wrapping) -> RowAnchor {
+        let source = self.body.source();
+        let offset = boundary(source, offset);
+        let start = source[..offset]
+            .rfind(LINE_SEPARATOR)
+            .map_or(0, |at| at + LINE_SEPARATOR.len_utf8());
+        let line = source[..start].matches(LINE_SEPARATOR).count();
+        let rows = laid_out(line_at(source, start), line, wrapping);
+
+        let mut reached = start;
+        for (row, drawn) in rows.iter().enumerate() {
+            reached += drawn.text().len();
+            if offset < reached {
+                return RowAnchor::new(start, line, row);
+            }
+        }
+
+        RowAnchor::new(start, line, rows.len().saturating_sub(1))
     }
 
     /// Draws the rows `window` asks for from `anchor` downward.

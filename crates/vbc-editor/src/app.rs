@@ -90,10 +90,11 @@ use vbc_layout::position::LogicalPosition;
 use vbc_layout::viewport::{Command, Viewport};
 use vbc_layout::width::{grapheme_indices, graphemes, Metrics};
 
-use crate::chat::block::{Block, RenderedRow};
+use crate::chat::block::RenderedRow;
 use crate::chat::chrome::{self, Label, GUTTER};
 use crate::chat::fold::{Position as Placed, Tag};
 use crate::chat::object::Position as Resting;
+use crate::chat::palette::Palette;
 use crate::chat::policy::{Drawn, Panel, Selected, REFUSAL};
 use crate::chat::selection::Source as Selectable;
 use crate::chat::transcript::Transcript;
@@ -241,6 +242,7 @@ pub struct App {
     viewport: Viewport,
     cursor: LogicalPosition,
     metrics: Metrics,
+    palette: Palette,
     options: Options,
     gutter: GutterOptions,
     scrolloff: usize,
@@ -295,6 +297,7 @@ impl App {
                 grapheme: 0,
             },
             metrics: Metrics::default(),
+            palette: Palette::detected(),
             options: Options::new(),
             gutter: GutterOptions::new().with_number(true),
             scrolloff: 0,
@@ -1507,8 +1510,8 @@ impl App {
     /// The panel follows its cursor the way the file's window does, and for the same reason: a `j`
     /// past the bottom row moves a cursor nobody can see. What it costs is the rows it walks over
     /// rather than the transcript it walks through, so a step over a closed fold costs one row
-    /// however many lines that fold hides -- and a cursor carried further than a follow walks
-    /// leaves the panel where it stands rather than walking the whole of what was said.
+    /// however many lines that fold hides -- and a cursor carried further than a follow walks, as
+    /// `gg` and `G` carry it, is leapt to rather than walked to, which costs the line it rests on.
     ///
     /// A scroll is not a follow. `CTRL-E` and `CTRL-Y` move the panel away from its cursor on
     /// purpose, which is why they are answered before this is ever reached.
@@ -1544,7 +1547,7 @@ impl App {
         let mut top = self.top;
         for _ in 0..FOLLOWED {
             let Some(next) = self.panel.above(top) else {
-                return;
+                break;
             };
             top = next;
             if self
@@ -1557,6 +1560,32 @@ impl App {
 
                 return;
             }
+        }
+        self.leap_panel(area);
+    }
+
+    /// Scrolls the transcript panel straight to the row its cursor rests on, drawing that row along
+    /// the top of the panel where the cursor went up past it and along its bottom where the cursor
+    /// went down.
+    fn leap_panel(&mut self, area: Rect) {
+        let Some(row) = self.panel.cursor_row() else {
+            return;
+        };
+        let upward = (row.entry(), row.at().offset(), row.at().row())
+            < (
+                self.top.entry(),
+                self.top.at().offset(),
+                self.top.at().row(),
+            );
+        self.top = row;
+        if upward {
+            return;
+        }
+        for _ in 1..self.layout(area).history.height {
+            let Some(above) = self.panel.above(self.top) else {
+                break;
+            };
+            self.top = above;
         }
     }
 
@@ -1576,15 +1605,17 @@ impl App {
             };
             match row {
                 Drawn::Chrome(chrome) => {
-                    self.draw_said(cells, (gutter, text), at, chrome.label(), chrome.text());
+                    let label = chrome.label(self.palette);
+                    self.draw_said(cells, (gutter, text), at, label, chrome.text());
                 }
                 Drawn::Summary(summary) => {
                     let label = self
                         .panel
                         .transcript()
                         .block(summary.head())
-                        .map(Block::kind)
-                        .map_or_else(Label::default, chrome::folded);
+                        .map_or_else(Label::default, |head| {
+                            chrome::folded(head.kind(), self.palette)
+                        });
                     self.draw_said(cells, (gutter, text), at, label, summary.text());
                 }
                 Drawn::Body { block, row } => {
@@ -1593,7 +1624,7 @@ impl App {
                         .transcript()
                         .block(*block)
                         .map_or_else(Label::default, |said| {
-                            chrome::body(said.kind(), 0 == row.start())
+                            chrome::body(said.kind(), 0 == row.start(), self.palette)
                         });
                     Renderer::new(self.metrics)
                         .with_style(label.style())

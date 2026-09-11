@@ -514,6 +514,28 @@ impl Panel {
 
     /// # Returns
     ///
+    /// The row the cursor rests on, found by laying out the one logical line it rests in rather
+    /// than by walking the rows between it and anywhere else, or [`None`] where no entry draws it.
+    #[must_use]
+    pub fn cursor_row(&self) -> Option<Placed> {
+        let at = self.resting;
+        let entry = self
+            .entries
+            .iter()
+            .position(|entry| at.block() == entry.block())?;
+        let Some(Entry::Body(block)) = self.entries.get(entry) else {
+            return Some(Placed::top(entry));
+        };
+        let row = self
+            .transcript
+            .block(*block)?
+            .row_of(at.offset(), &self.wrapping());
+
+        Some(Placed::new(entry, row))
+    }
+
+    /// # Returns
+    ///
     /// Whether the cursor rests on the last line of the folded transcript, which is where it rests
     /// while the panel follows what arrives.
     pub fn at_end(&mut self) -> bool {
