@@ -117,6 +117,7 @@ use std::time::{Duration, Instant};
 use vbc_editor::chat::block::{Block, Kind, Rendered, Role, RowAnchor, RowWindow};
 use vbc_editor::chat::diff;
 use vbc_editor::chat::fold::{Folds, View};
+use vbc_editor::chat::highlight::{highlighted, MAX_SOURCE};
 use vbc_editor::chat::transcript::Transcript;
 use vbc_layout::anchor::Wrapping;
 use vbc_layout::line::Options;
@@ -258,6 +259,10 @@ const EDITED: usize = 20_000;
 /// The memory a diff of a file that long may take. A table of `(20000 + 1) * (20000 + 1)` `usize`
 /// is 3.2 GB, which is the out-of-memory crash this bound exists against.
 const BOUNDED_MEMORY: usize = 32 << 20;
+
+/// The file a drawn diff is an edit to, whose extension names a language the highlighter colours,
+/// so that what drawing one costs includes colouring it where the texts are short enough.
+const DRAWN_PATH: &str = "src/main.rs";
 
 /// The time that diff may take, which is generous enough for an unoptimized build on a shared
 /// machine and still far under what a text large enough to be bounded instead would cost.
@@ -881,6 +886,101 @@ fn an_edit_of_one_line_into_a_long_file_is_aligned_all_the_same() {
     assert!(
         elapsed < DIFF_TIME,
         "diffing {EDITED} lines against {EDITED} took {elapsed:?} and {memory} bytes"
+    );
+}
+
+#[test]
+fn drawing_four_thousand_lines_against_four_thousand_takes_bounded_memory() {
+    let old = lines(0..DIFFED);
+    let new = lines(DIFFED..2 * DIFFED);
+    assert!(
+        MAX_SOURCE < old.len() + new.len(),
+        "the texts are short enough to be coloured, so colouring was not left out"
+    );
+
+    let coloured = highlighted();
+    let started = Instant::now();
+    let (block, memory) = measured(|| Block::diff(DRAWN_PATH.to_owned(), &old, &new));
+    let elapsed = started.elapsed();
+
+    assert_eq!(
+        coloured,
+        highlighted(),
+        "an edit longer than the highlighter colours was coloured"
+    );
+    assert_eq!(
+        1 + 2 * DIFFED,
+        block.source().lines().count(),
+        "the drawn diff did not hold a header and every line of both texts"
+    );
+    assert!(
+        memory < DIFF_MEMORY,
+        "drawing {DIFFED} lines against {DIFFED} took {memory} bytes and {elapsed:?}"
+    );
+    assert!(
+        elapsed < DIFF_TIME,
+        "drawing {DIFFED} lines against {DIFFED} took {elapsed:?} and {memory} bytes"
+    );
+}
+
+#[test]
+fn drawing_an_edit_as_long_as_the_highlighter_colours_takes_bounded_memory() {
+    // The number of lines each side of a drawn diff whose two texts together are as long as the
+    // highlighter colours, and the most drawing it may ask the allocator for, which is about twice
+    // the 8.3 MB it was measured asking for in release.
+    const COLOURED: usize = 2_800;
+    const COLOURED_MEMORY: usize = 16 << 20;
+
+    let old = lines(0..COLOURED);
+    let new = lines(COLOURED..2 * COLOURED);
+    assert!(
+        old.len() + new.len() <= MAX_SOURCE,
+        "the texts are too long to be coloured, so colouring was not measured"
+    );
+
+    let coloured = highlighted();
+    let started = Instant::now();
+    let (block, memory) = measured(|| Block::diff(DRAWN_PATH.to_owned(), &old, &new));
+    let elapsed = started.elapsed();
+
+    assert_eq!(
+        coloured + 2,
+        highlighted(),
+        "the two texts of an edit the highlighter colours were not each coloured once"
+    );
+    assert_eq!(1 + 2 * COLOURED, block.source().lines().count());
+    assert!(
+        memory < COLOURED_MEMORY,
+        "drawing {COLOURED} lines against {COLOURED} took {memory} bytes and {elapsed:?}"
+    );
+    assert!(
+        elapsed < DIFF_TIME,
+        "drawing {COLOURED} lines against {COLOURED} took {elapsed:?} and {memory} bytes"
+    );
+}
+
+#[test]
+fn drawing_an_edit_to_a_long_file_past_the_bound_takes_bounded_memory() {
+    let old = lines(0..EDITED);
+    let new = lines(EDITED..2 * EDITED);
+
+    let started = Instant::now();
+    let (block, memory) = measured(|| Block::diff(DRAWN_PATH.to_owned(), &old, &new));
+    let elapsed = started.elapsed();
+
+    assert_eq!(
+        2 + 2 * EDITED,
+        block.source().lines().count(),
+        "the drawn diff did not hold a header, the line saying it was not aligned and every line \
+         of both texts"
+    );
+    assert!(
+        memory < BOUNDED_MEMORY,
+        "drawing {EDITED} lines against {EDITED} took {memory} bytes and {elapsed:?}"
+    );
+    assert!(
+        elapsed < DIFF_TIME,
+        "drawing {EDITED} lines against {EDITED} took {elapsed:?} and {memory} bytes"
     );
 }
 

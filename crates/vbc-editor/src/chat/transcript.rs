@@ -30,6 +30,15 @@ impl Transcript {
         self.blocks.push(block);
     }
 
+    /// Puts `block` in the place of the block at `index`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the transcript holds no block at `index`.
+    pub fn replace(&mut self, index: usize, block: Block) {
+        self.blocks[index] = block;
+    }
+
     /// # Returns
     ///
     /// The blocks of the transcript, in the order they were said.

@@ -18,7 +18,8 @@
 //! * Where spans overlap, the later span of the block's list wins over the earlier one, so a block
 //!   is painted in the order its spans were given.
 //!
-//! The decoration a continuation row carries is not text of the block, so it is drawn unstyled.
+//! The decoration a row carries is not text of the block, so no span styles it: it is drawn in the
+//! style the row gives its chrome, which is none unless the caller names one.
 
 use std::collections::BTreeSet;
 use std::ops::Range;
@@ -205,8 +206,9 @@ impl StyledSegment {
     }
 }
 
-/// One display row with its styles applied: the row the layout produced, the decoration it
-/// carries drawn unstyled, and the styled segments its text is drawn as.
+/// One display row with its styles applied: the row the layout produced, the styled segments its
+/// text is drawn as, and the chrome around them -- the style its decoration is drawn in and the
+/// style every cell of the row is filled with before anything is drawn over it.
 ///
 /// The display row is kept rather than copied out of, so a styled row can be drawn without the
 /// caller carrying the row it was built from alongside it.
@@ -214,9 +216,38 @@ impl StyledSegment {
 pub struct StyledRow {
     row: DisplayRow,
     segments: Vec<StyledSegment>,
+    decoration: Style,
+    fill: Style,
 }
 
 impl StyledRow {
+    /// # Returns
+    ///
+    /// This row with its decoration drawn in `decoration` and the whole width of the row it is
+    /// drawn into filled with `fill`, beneath the decoration and the segments alike.
+    #[must_use]
+    pub fn with_chrome(mut self, decoration: Style, fill: Style) -> Self {
+        self.decoration = decoration;
+        self.fill = fill;
+        self
+    }
+
+    /// # Returns
+    ///
+    /// The style the row's decoration is drawn in.
+    #[must_use]
+    pub fn decoration(&self) -> Style {
+        self.decoration
+    }
+
+    /// # Returns
+    ///
+    /// The style the whole width of the row is filled with.
+    #[must_use]
+    pub fn fill(&self) -> Style {
+        self.fill
+    }
+
     /// # Returns
     ///
     /// The display row the layout produced, which is the row these styles were applied to.
@@ -402,6 +433,8 @@ fn style_row(row: &DisplayRow, row_start: usize, runs: &[Run]) -> StyledRow {
     StyledRow {
         row: row.clone(),
         segments,
+        decoration: Style::default(),
+        fill: Style::default(),
     }
 }
 

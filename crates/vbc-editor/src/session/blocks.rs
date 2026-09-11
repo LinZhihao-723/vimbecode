@@ -23,7 +23,9 @@
 //! An edit arrives as `old_string` and `new_string`, which is the edit itself rather than an
 //! account of one. The diff is computed from those two, so what a reader sees is the lines that
 //! changed and what `yad` writes out is the patch that was applied. Reading a diff out of the
-//! prose around the call would be reading a model's description of its own edit.
+//! prose around the call would be reading a model's description of its own edit. Once the edit is
+//! made, the tool reports the patch it applied, numbered as the file numbers its lines and with the
+//! file's own lines around it, and the diff is drawn from that instead.
 //!
 //! And a subagent's work arrives tagged with `parent_tool_use_id`, at every depth. That tag is
 //! what the panel's nested folds are keyed on, so the nesting is carried across rather than
@@ -51,9 +53,12 @@
 //! attributed to the reader. The prose a user frame does carry is what a subagent was told to do,
 //! and that arrives beneath the call that started the subagent.
 
+use std::collections::HashMap;
+
 use serde_json::Value;
 
 use crate::chat::block::{Block, Kind as BlockKind, Role};
+use crate::chat::diff::Hunk;
 use crate::chat::fold::Tag;
 use crate::chat::transcript::Transcript;
 
@@ -105,6 +110,16 @@ const PATH_FIELD: &str = "file_path";
 const OLD_FIELD: &str = "old_string";
 const NEW_FIELD: &str = "new_string";
 const EDITS_FIELD: &str = "edits";
+
+/// The field of a user frame a tool's own account of its result is carried in, and the fields of
+/// an edit's account: the file it edited and the hunks of the patch it applied there, each hunk
+/// naming the line of each text it starts at and holding its lines.
+const RESULT_FIELD: &str = "tool_use_result";
+const PATCHED_PATH_FIELD: &str = "filePath";
+const PATCH_FIELD: &str = "structuredPatch";
+const OLD_START_FIELD: &str = "oldStart";
+const NEW_START_FIELD: &str = "newStart";
+const LINES_FIELD: &str = "lines";
 
 /// The argument that says what a call to a tool does, tool by tool. A call is worth reading as the
 /// one thing it asked for rather than as the whole of its input, and for every tool below that is
@@ -195,6 +210,7 @@ pub struct Conversation {
     model: Option<String>,
     commands: Vec<String>,
     ended: Option<Turn>,
+    edits: HashMap<String, usize>,
 }
 
 impl Conversation {
@@ -358,6 +374,9 @@ impl Conversation {
                         .get(TOOL_USE_ID_FIELD)
                         .and_then(Value::as_str)
                         .map(str::to_owned);
+                    if let Some(edit) = answers.as_deref().and_then(|id| self.edits.remove(id)) {
+                        self.repatched(edit, raw);
+                    }
                     let under = answers.clone().or_else(|| beneath.clone());
                     let block = Block::from_ansi(BlockKind::ToolResult, &reported(item));
                     self.push(block, Tag::new(answers, under));
@@ -418,9 +437,26 @@ impl Conversation {
             return;
         }
 
+        if let (EDIT_TOOL, Some(id)) = (name, tag.id()) {
+            self.edits.insert(id.to_owned(), self.transcript.len());
+        }
         for edit in edits {
             self.push(edit, tag.clone());
         }
+    }
+
+    /// Draws the diff at `edit` again from the patch the user frame `raw` reports the edit
+    /// applied, where it reports one for the file the diff is of.
+    fn repatched(&mut self, edit: usize, raw: &Value) {
+        let Some(BlockKind::Diff { path }) = self.transcript.block(edit).map(Block::kind) else {
+            return;
+        };
+        let path = path.clone();
+        let Some(hunks) = patch_of(raw, &path) else {
+            return;
+        };
+
+        self.transcript.replace(edit, Block::patched(path, &hunks));
     }
 
     /// Records that the history stopped where the transcript now ends, for the reason `reason`.
@@ -574,6 +610,52 @@ fn edited(name: &str, input: &Value) -> Vec<Block> {
     }
 
     diffs
+}
+
+/// # Returns
+///
+/// The hunks of the patch a user frame reports a tool applied to the file at `path`, or `None`
+/// where the frame reports no patch, reports one for another file, reports one holding no hunk, or
+/// holds a hunk it does not say where to start.
+fn patch_of(raw: &Value, path: &str) -> Option<Vec<Hunk>> {
+    let result = raw.get(RESULT_FIELD)?;
+    if path != named(result, PATCHED_PATH_FIELD) {
+        return None;
+    }
+
+    let hunks = result
+        .get(PATCH_FIELD)?
+        .as_array()?
+        .iter()
+        .map(hunk_of)
+        .collect::<Option<Vec<Hunk>>>()?;
+
+    (!hunks.is_empty()).then_some(hunks)
+}
+
+/// # Returns
+///
+/// The hunk a reported patch writes as `value`, or `None` where it does not say which line of
+/// either text it starts at or holds no lines.
+fn hunk_of(value: &Value) -> Option<Hunk> {
+    let start = |field: &str| {
+        value
+            .get(field)
+            .and_then(Value::as_u64)
+            .and_then(|start| usize::try_from(start).ok())
+    };
+    let lines = value
+        .get(LINES_FIELD)?
+        .as_array()?
+        .iter()
+        .map(|line| textual(line).to_owned())
+        .collect();
+
+    Some(Hunk::new(
+        start(OLD_START_FIELD)?,
+        start(NEW_START_FIELD)?,
+        lines,
+    ))
 }
 
 /// # Returns

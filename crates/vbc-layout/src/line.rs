@@ -167,9 +167,10 @@ impl Default for Options {
 /// it the row shows, together with the decoration drawn in front of that slice.
 ///
 /// The decoration is the repeated indent and the continuation marker, in that order, and is empty
-/// on the row that starts a line. A row carries the line's own bytes as well as the cells they are
-/// drawn in, which differ wherever a tab stands for the blanks it advances by: only the layout
-/// knows the column a tab was measured against, so only the layout can spell one out.
+/// on the row that starts a line unless the row was put behind a gutter, which comes before both.
+/// A row carries the line's own bytes as well as the cells they are drawn in, which differ
+/// wherever a tab stands for the blanks it advances by: only the layout knows the column a tab was
+/// measured against, so only the layout can spell one out.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DisplayRow {
     line: usize,
@@ -208,7 +209,8 @@ impl DisplayRow {
 
     /// # Returns
     ///
-    /// The decoration drawn in front of the row's text, empty on the row that starts a line.
+    /// The decoration drawn in front of the row's text, empty on the row that starts a line unless
+    /// the row was put behind a gutter.
     #[must_use]
     pub fn prefix(&self) -> &str {
         &self.prefix
@@ -253,6 +255,26 @@ impl DisplayRow {
             .columns
             .last()
             .expect("a row's columns end with the column past its text")
+    }
+
+    /// Puts `gutter`, which is drawn in `columns` columns, in front of the row's decoration.
+    ///
+    /// A gutter is drawn beside the text rather than written in it, the way vim draws `'number'`:
+    /// the row still shows the same slice of its line, and every column it measured moves right by
+    /// the columns the gutter takes.
+    ///
+    /// # Returns
+    ///
+    /// The row drawn behind `gutter`.
+    #[must_use]
+    pub fn behind(mut self, gutter: &str, columns: usize) -> Self {
+        self.prefix.insert_str(0, gutter);
+        self.cells.insert_str(0, gutter);
+        for column in &mut self.columns {
+            *column += columns;
+        }
+
+        self
     }
 }
 

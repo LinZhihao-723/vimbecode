@@ -70,15 +70,17 @@
 //! text holds -- and is what a selection over rendered rows will be turned into a range of the
 //! source with.
 
+use std::num::NonZeroUsize;
 use std::ops::{Range, RangeInclusive};
 
 use vbc_layout::anchor::Wrapping;
 use vbc_layout::buffer::LINE_SEPARATOR;
 use vbc_layout::line::{self, DisplayRow, Options};
 
+use crate::chat::ansi;
+use crate::chat::diff::{self, Gutter, Hunk};
 use crate::chat::highlight::Language;
 use crate::chat::palette::Palette;
-use crate::chat::{ansi, diff};
 use crate::style::{self, Span, StyledRow};
 
 /// The bytes a line whose rows are its length over the width may be written from: the printable
@@ -296,8 +298,8 @@ impl RowWindow {
     }
 }
 
-/// One block of a transcript: what it is, the source it was built from, and the spans styling that
-/// source.
+/// One block of a transcript: what it is, the source it was built from, the spans styling that
+/// source, and, for a diff, the gutter its lines are numbered in beside it.
 ///
 /// Whether the source is written from plain bytes alone is read off it when the block is built,
 /// beside the runs its spans are resolved into, because that is the last moment either can change:
@@ -307,6 +309,7 @@ pub struct Block {
     kind: Kind,
     body: style::Block,
     plain: bool,
+    gutter: Option<Gutter>,
 }
 
 impl Block {
@@ -348,10 +351,27 @@ impl Block {
     /// # Returns
     ///
     /// A [`Kind::Diff`] block of the lines between the text `old` an edit to `path` replaced and
-    /// the text `new` it wrote.
+    /// the text `new` it wrote, drawn in the palette the terminal the program runs in draws and
+    /// numbered from the edit's own first line.
     #[must_use]
     pub fn diff(path: String, old: &str, new: &str) -> Self {
-        Self::of(Kind::Diff { path }, diff::compute(old, new))
+        let drawn = diff::Drawn::of_texts(&path, old, new, Palette::detected());
+
+        Self::numbered(path, drawn)
+    }
+
+    /// Factory function.
+    ///
+    /// # Returns
+    ///
+    /// A [`Kind::Diff`] block of the patch `hunks` a tool reported applying to `path`, drawn in
+    /// the palette the terminal the program runs in draws and numbered as the file numbers its
+    /// lines.
+    #[must_use]
+    pub fn patched(path: String, hunks: &[Hunk]) -> Self {
+        let drawn = diff::Drawn::of_hunks(&path, hunks, Palette::detected());
+
+        Self::numbered(path, drawn)
     }
 
     /// Factory function.
@@ -382,12 +402,40 @@ impl Block {
     fn of(kind: Kind, body: style::Block) -> Self {
         let plain = is_plain(body.source());
 
-        Self { kind, body, plain }
+        Self {
+            kind,
+            body,
+            plain,
+            gutter: None,
+        }
+    }
+
+    /// Factory function.
+    ///
+    /// # Returns
+    ///
+    /// A [`Kind::Diff`] block of an edit to `path`, written and numbered as `drawn` draws it.
+    fn numbered(path: String, drawn: diff::Drawn) -> Self {
+        let (body, gutter) = drawn.into_parts();
+
+        Self {
+            gutter: Some(gutter),
+            ..Self::of(Kind::Diff { path }, body)
+        }
     }
 
     #[must_use]
     pub fn kind(&self) -> &Kind {
         &self.kind
+    }
+
+    /// # Returns
+    ///
+    /// The gutter the lines of a diff are numbered in, or `None` where the block was drawn with
+    /// none.
+    #[must_use]
+    pub fn gutter(&self) -> Option<&Gutter> {
+        self.gutter.as_ref()
     }
 
     #[must_use]
@@ -425,12 +473,13 @@ impl Block {
     /// ends inside the window and none at all where it ends above it.
     #[must_use]
     pub fn render(&self, window: RowWindow, wrapping: &Wrapping) -> Rendered {
+        let laying = self.laying(wrapping);
         let anchor = match window.start {
-            Start::Row(row) => self.anchor(row, wrapping),
+            Start::Row(row) => self.anchored(row, &laying),
             Start::At(anchor) => anchor,
         };
 
-        self.drawn(window, anchor, wrapping)
+        self.drawn(window, anchor, &laying)
     }
 
     /// Walks down to the block's row `row`, counting the rows above it rather than drawing them.
@@ -445,12 +494,21 @@ impl Block {
     /// drawn in fewer rows than that.
     #[must_use]
     pub fn anchor(&self, row: usize, wrapping: &Wrapping) -> RowAnchor {
+        self.anchored(row, &self.laying(wrapping))
+    }
+
+    /// Walks down to the block's row `row` as its lines are laid out by `laying`.
+    ///
+    /// # Returns
+    ///
+    /// Where the block's row `row` begins, as [`Block::anchor`] says.
+    fn anchored(&self, row: usize, laying: &Laying<'_>) -> RowAnchor {
         let end = self.body.source().len();
         let mut above = row;
         let mut at = RowAnchor::top();
 
         while at.offset <= end {
-            let (text, counted) = self.counted_line(at.offset, at.line, wrapping);
+            let (text, counted) = self.counted_line(at.offset, at.line, laying);
             if above < counted {
                 return RowAnchor::new(at.offset, at.line, above);
             }
@@ -482,7 +540,8 @@ impl Block {
             return None;
         }
 
-        let (text, counted) = self.counted_line(anchor.offset, anchor.line, wrapping);
+        let laying = self.laying(wrapping);
+        let (text, counted) = self.counted_line(anchor.offset, anchor.line, &laying);
         if anchor.row + 1 < counted {
             return Some(RowAnchor::new(anchor.offset, anchor.line, anchor.row + 1));
         }
@@ -511,7 +570,7 @@ impl Block {
         let start = self.body.source()[..ended]
             .rfind(LINE_SEPARATOR)
             .map_or(0, |at| at + LINE_SEPARATOR.len_utf8());
-        let (_, counted) = self.counted_line(start, line, wrapping);
+        let (_, counted) = self.counted_line(start, line, &self.laying(wrapping));
 
         Some(RowAnchor::new(start, line, counted - 1))
     }
@@ -532,17 +591,18 @@ impl Block {
             .rfind(LINE_SEPARATOR)
             .map_or(0, |at| at + LINE_SEPARATOR.len_utf8());
         let line = source[..start].matches(LINE_SEPARATOR).count();
-        let (_, counted) = self.counted_line(start, line, wrapping);
+        let (_, counted) = self.counted_line(start, line, &self.laying(wrapping));
 
         RowAnchor::new(start, line, counted - 1)
     }
 
-    /// Draws the rows `window` asks for from `anchor` downward.
+    /// Draws the rows `window` asks for from `anchor` downward, laying the lines out as `laying`
+    /// says.
     ///
     /// # Returns
     ///
     /// The window as it is drawn.
-    fn drawn(&self, window: RowWindow, anchor: RowAnchor, wrapping: &Wrapping) -> Rendered {
+    fn drawn(&self, window: RowWindow, anchor: RowAnchor, laying: &Laying<'_>) -> Rendered {
         let end = self.body.source().len();
         let wanted = window.rows;
         let mut rows: Vec<RenderedRow> = Vec::new();
@@ -553,7 +613,9 @@ impl Block {
             let below = wanted - rows.len();
             let rest = &self.body.source()[at.offset..];
             let reached = at.row.saturating_add(below);
-            let (laid_out, length) = laid_out_to(rest, at.line, wrapping, reached);
+            let (laid_out, length) =
+                laid_out_to(rest, at.line, laying.wrapping(at.line, rest), reached);
+            let laid_out = laying.decorated(at.line, rest, laid_out);
             let following = length.map(|length| {
                 RowAnchor::new(
                     at.offset + length + LINE_SEPARATOR.len_utf8(),
@@ -575,6 +637,7 @@ impl Block {
                 .style_rows(start, &laid_out[at.row..at.row + taken])
             {
                 let length = styled.row().text().len();
+                let styled = laying.chromed(rest, styled);
                 rows.push(RenderedRow { start, styled });
                 start += length;
             }
@@ -617,12 +680,13 @@ impl Block {
     #[must_use]
     pub fn row_count(&self, wrapping: &Wrapping) -> usize {
         let end = self.body.source().len();
+        let laying = self.laying(wrapping);
         let mut counted = 0;
         let mut offset = 0;
         let mut index = 0;
 
         while offset <= end {
-            let (text, rows) = self.counted_line(offset, index, wrapping);
+            let (text, rows) = self.counted_line(offset, index, &laying);
             counted += rows;
             offset += text.len() + LINE_SEPARATOR.len_utf8();
             index += 1;
@@ -642,7 +706,8 @@ impl Block {
     /// the ninety-nine thousand plain ones rather than laying them out. Every line that is not
     /// plain -- one carrying a tab, a control character or a cluster of more than one byte -- and
     /// every line at all under `'linebreak'`, `'showbreak'` or `'breakindent'` is laid out and the
-    /// layout thrown away again.
+    /// layout thrown away again. A line a gutter numbers is counted in the columns the gutter
+    /// leaves it.
     ///
     /// # Returns
     ///
@@ -653,13 +718,41 @@ impl Block {
     ///
     /// Panics if `offset` is not a byte offset of the block's source, or falls inside one of its
     /// characters.
-    fn counted_line(&self, offset: usize, index: usize, wrapping: &Wrapping) -> (&str, usize) {
+    fn counted_line(&self, offset: usize, index: usize, laying: &Laying<'_>) -> (&str, usize) {
         let text = line_at(self.body.source(), offset);
+        let wrapping = laying.wrapping(index, text);
         if breaks_at_the_column(wrapping.options()) && (self.plain || is_plain(text)) {
             return (text, text.len().div_ceil(wrapping.width().get()).max(1));
         }
 
         (text, laid_out(text, index, wrapping).len())
+    }
+
+    /// # Returns
+    ///
+    /// How the block's lines are laid out under `wrapping`: under it as it is, and, for the lines
+    /// the block's gutter numbers, in the columns the gutter leaves them wherever it leaves any.
+    fn laying<'laying>(&'laying self, wrapping: &'laying Wrapping) -> Laying<'laying> {
+        let gutter = self.gutter.as_ref();
+        let narrowed = gutter.and_then(|gutter| {
+            let width = wrapping
+                .width()
+                .get()
+                .checked_sub(gutter.width())
+                .and_then(NonZeroUsize::new)?;
+
+            Some(Wrapping::new(
+                width,
+                wrapping.metrics(),
+                wrapping.options().clone(),
+            ))
+        });
+
+        Laying {
+            wrapping,
+            gutter,
+            narrowed,
+        }
     }
 }
 
@@ -754,6 +847,72 @@ impl Rendered {
         let last = self.rows.last()?;
 
         Some(first.start..last.source().end)
+    }
+}
+
+/// How the logical lines of a block are laid out: under the wrapping a caller asked for, and, for
+/// the lines of a diff its gutter numbers, under that wrapping narrowed by the gutter's columns and
+/// behind the gutter. A gutter that would leave no column for the text is not drawn at all.
+struct Laying<'laying> {
+    wrapping: &'laying Wrapping,
+    gutter: Option<&'laying Gutter>,
+    narrowed: Option<Wrapping>,
+}
+
+impl Laying<'_> {
+    /// # Returns
+    ///
+    /// The wrapping the logical line numbered `index`, whose text starts `text`, is laid out
+    /// under.
+    fn wrapping(&self, index: usize, text: &str) -> &Wrapping {
+        let numbered = self
+            .gutter
+            .zip(text.chars().next())
+            .and_then(|(gutter, mark)| gutter.numbered(index, mark))
+            .is_some();
+        match &self.narrowed {
+            Some(narrowed) if numbered => narrowed,
+            _ => self.wrapping,
+        }
+    }
+
+    /// # Returns
+    ///
+    /// `rows`, the rows of the logical line numbered `index` whose text starts `text`, each put
+    /// behind the gutter where the gutter numbers the line: the line's numbers in front of its
+    /// first row, and blanks as wide in front of every row it continues on.
+    fn decorated(&self, index: usize, text: &str, rows: Vec<DisplayRow>) -> Vec<DisplayRow> {
+        let (Some(gutter), Some(_)) = (self.gutter, &self.narrowed) else {
+            return rows;
+        };
+        let Some(label) = text
+            .chars()
+            .next()
+            .and_then(|mark| gutter.label(index, mark))
+        else {
+            return rows;
+        };
+
+        let width = gutter.width();
+        let blank = " ".repeat(width);
+        rows.into_iter()
+            .map(|row| {
+                let shown = if 0 == row.start() { &label } else { &blank };
+                row.behind(shown, width)
+            })
+            .collect()
+    }
+
+    /// # Returns
+    ///
+    /// `row`, a row of the logical line whose text starts `text`, with the chrome the gutter draws
+    /// a row of that line with.
+    fn chromed(&self, text: &str, row: StyledRow) -> StyledRow {
+        let (Some(gutter), Some(mark)) = (self.gutter, text.chars().next()) else {
+            return row;
+        };
+
+        row.with_chrome(gutter.decoration(mark), gutter.fill(mark))
     }
 }
 
@@ -881,6 +1040,7 @@ mod tests {
     use vbc_layout::line::Options;
     use vbc_layout::width::{grapheme_indices, Metrics};
 
+    use crate::chat::diff::{ADDED, HEADER, REMOVED, SNIPPET_NOTE};
     use crate::style::{Span, StyledSegment};
 
     use super::{Block, Kind, Rendered, RenderedRow, Role, RowAnchor, RowWindow};
@@ -1195,30 +1355,50 @@ mod tests {
             "fn main() {\n    todo!();\n}\n",
         );
         let rendered = block.render(whole(&block), &wrapping(UNWRAPPED));
+        let header = format!("{HEADER} src/main.rs  +3 \u{2212}1  {SNIPPET_NOTE}");
 
         assert_eq!(
-            "-fn main() {}\n+fn main() {\n+    todo!();\n+}",
+            format!("{header}\n-fn main() {{}}\n+fn main() {{\n+    todo!();\n+}}"),
             block.source()
         );
         assert_eq!(
             Some(block.source()),
             rendered.source().and_then(|range| block.slice(range))
         );
-        assert_eq!(4, rendered.rows().len());
 
-        let marked: Vec<&str> = block
-            .spans()
+        let drawn: Vec<(&str, &str)> = rendered
+            .rows()
             .iter()
-            .map(|span| {
-                block
-                    .slice(span.range().clone())
-                    .expect("a span names a range of the source")
-            })
+            .map(|row| (row.styled().prefix(), row.styled().row().text()))
             .collect();
         assert_eq!(
-            vec!["-fn main() {}", "+fn main() {", "+    todo!();", "+}"],
-            marked
+            vec![
+                ("", header.as_str()),
+                ("1   ", "-fn main() {}"),
+                ("  1 ", "+fn main() {"),
+                ("  2 ", "+    todo!();"),
+                ("  3 ", "+}"),
+            ],
+            drawn
         );
+
+        let gutter = block.gutter().expect("a diff is drawn with a gutter");
+        let fills: Vec<Style> = rendered
+            .rows()
+            .iter()
+            .map(|row| row.styled().fill())
+            .collect();
+        assert_eq!(
+            vec![
+                Style::default(),
+                gutter.fill(REMOVED),
+                gutter.fill(ADDED),
+                gutter.fill(ADDED),
+                gutter.fill(ADDED),
+            ],
+            fills
+        );
+        assert_ne!(Style::default(), gutter.fill(REMOVED));
     }
 
     #[test]
