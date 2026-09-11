@@ -37,6 +37,9 @@ const STUB: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/session/stub.sh")
 /// The file the reader has open behind the transcript, which is where a put lands.
 const FILE: &str = "a file the reader left open";
 
+/// The register a plain yank fills.
+const UNNAMED: char = '"';
+
 /// The code the answer fences, byte for byte as it is sent, and the tokens of it that are drawn in
 /// three colours: a keyword, a string literal and a macro.
 const CODE: &str = "fn main() {\n    println!(\"Hello, world!\");\n}";
@@ -105,21 +108,35 @@ fn yac_over_a_highlighted_block_takes_the_code_as_it_was_fenced() -> Result<()> 
         settled(&mut app, |app| line_of(app, CODE).is_some()),
         "the session sent no code the panel drew in {PATIENCE:?}"
     );
-    let spans = app
+    let block = app
         .panel()
         .transcript()
         .blocks()
         .iter()
         .find(|block| matches!(block.kind(), Kind::Code { .. }))
-        .map(|block| block.spans().len())
+        .cloned()
         .ok_or(anyhow!("the transcript holds no code block"))?;
-    assert!(1 < spans, "the code block was not highlighted");
+    assert!(
+        1 < block.spans().len(),
+        "the code block was not highlighted"
+    );
+    assert_eq!(
+        CODE,
+        block.source(),
+        "highlighting changed the code the block holds"
+    );
 
     let line = line_of(&mut app, CODE).ok_or(anyhow!("the panel lost the code"))?;
     cross(&mut app);
     assert_eq!(Focus::Transcript, app.focus(), "`<C-T>` reached no panel");
     typing(&mut app, &"j".repeat(line));
     typing(&mut app, "yac");
+    // A linewise register holds each of its lines ended by a newline, as vim's does.
+    assert_eq!(
+        Some(format!("{CODE}\n")),
+        app.panel().register(UNNAMED).map(|held| held.text),
+        "`yac` took something other than the lines of the code as it was fenced"
+    );
     cross(&mut app);
     typing(&mut app, "p");
 
