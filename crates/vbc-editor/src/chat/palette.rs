@@ -51,6 +51,17 @@ pub const MAGENTA: Rgb = Rgb::new(0xb4, 0x8e, 0xad);
 /// base16 Ocean's brown accent.
 pub const BROWN: Rgb = Rgb::new(0xab, 0x79, 0x67);
 
+/// The band a line an edit took away is drawn on, and the brighter band the words it changed in
+/// that line are drawn on. Each is near enough a colour of the 256-colour palette's cube that it
+/// is drawn as a red there rather than as the grey nearest its brightness.
+pub const REMOVED_BAND: Rgb = Rgb::new(0x40, 0x00, 0x00);
+pub const REMOVED_EMPHASIS: Rgb = Rgb::new(0x90, 0x10, 0x10);
+
+/// The band a line an edit put in is drawn on, and the brighter band the words it changed in that
+/// line are drawn on, which are drawn as greens in 256 colours for the same reason.
+pub const ADDED_BAND: Rgb = Rgb::new(0x00, 0x40, 0x00);
+pub const ADDED_EMPHASIS: Rgb = Rgb::new(0x00, 0x80, 0x00);
+
 /// A colour, named as the red, green and blue it is meant to be.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Rgb {
@@ -215,9 +226,17 @@ mod tests {
     use ratatui::style::Color;
 
     use super::{
-        Palette, Rgb, BLUE, BROWN, COMMENT, CUBE, CUBE_SIDE, CUBE_START, CYAN, GREEN, GREY_FIRST,
-        GREY_START, GREY_STEP, MAGENTA, ORANGE, RED, YELLOW,
+        Palette, Rgb, ADDED_BAND, ADDED_EMPHASIS, BLUE, BROWN, COMMENT, CUBE, CUBE_SIDE,
+        CUBE_START, CYAN, GREEN, GREY_FIRST, GREY_START, GREY_STEP, MAGENTA, ORANGE, RED,
+        REMOVED_BAND, REMOVED_EMPHASIS, YELLOW,
     };
+
+    /// The hue a band of a diff is drawn in.
+    #[derive(Clone, Copy, Debug)]
+    enum Hue {
+        Red,
+        Green,
+    }
 
     #[test]
     fn a_terminal_that_says_it_draws_24_bit_colour_is_drawn_in_it_and_any_other_in_256() {
@@ -285,6 +304,41 @@ mod tests {
         assert_eq!(GREY_START + 12, Rgb::new(0x80, 0x80, 0x80).indexed());
         assert_eq!(CUBE_START, Rgb::new(0x02, 0x03, 0x04).indexed());
         assert_eq!(GREY_START, Rgb::new(0x0a, 0x0b, 0x0c).indexed());
+    }
+
+    #[test]
+    fn each_band_of_a_diff_is_a_red_or_a_green_of_the_cube_and_its_emphasis_another() {
+        for (band, emphasis, hue) in [
+            (REMOVED_BAND, REMOVED_EMPHASIS, Hue::Red),
+            (ADDED_BAND, ADDED_EMPHASIS, Hue::Green),
+        ] {
+            let drawn = [band.indexed(), emphasis.indexed()];
+            for index in drawn {
+                assert!(
+                    (CUBE_START..GREY_START).contains(&index),
+                    "{band:?} or {emphasis:?} was drawn as the grey {index}"
+                );
+                let cubed = index - CUBE_START;
+                let levels = [
+                    cubed / (CUBE_SIDE * CUBE_SIDE),
+                    cubed / CUBE_SIDE % CUBE_SIDE,
+                    cubed % CUBE_SIDE,
+                ];
+                let [red, green, blue] = levels;
+                let (lit, unlit) = match hue {
+                    Hue::Red => (red, [green, blue]),
+                    Hue::Green => (green, [red, blue]),
+                };
+                assert!(
+                    0 < lit && unlit.iter().all(|level| 0 == *level),
+                    "index {index} is not a {hue:?} of the cube"
+                );
+            }
+            assert_ne!(
+                drawn[0], drawn[1],
+                "{hue:?}'s emphasis is drawn as its band"
+            );
+        }
     }
 
     #[test]

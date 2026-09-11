@@ -20,8 +20,10 @@
 //!
 //! A diff is the one block whose source is not what an edit wrote. Its lines are marked, and the
 //! mark is the diff's own gutter, so whole lines taken out of a diff come back as the text those
-//! lines hold. `yad` is the exception and takes the diff as a unified patch, headers, hunks and
-//! line numbers, because a diff worth taking out of a transcript is one a reader means to apply.
+//! lines hold; the lines it draws that belong to neither text -- the header naming the file, and
+//! the line standing for unchanged lines it left out -- come back as nothing at all. `yad` is the
+//! exception and takes the diff as a unified patch, headers, hunks and line numbers, because a
+//! diff worth taking out of a transcript is one a reader means to apply.
 //!
 //! A yank of more than one block writes their sources one after another, separated by the one line
 //! break that separates them on the screen, and that is what a closed fold yanks as well: the
@@ -254,11 +256,12 @@ pub fn file(registers: &Registers, yank: &Yank) {
 
 /// Writes the diff `block` holds as a unified patch.
 ///
-/// The marked lines hold everything a patch needs but the numbers: a line the two texts share
-/// advances both, a line taken away advances the replaced text alone and a line put in advances
-/// the written text alone, so the hunks and their line numbers are counted off the marks. What is
-/// written is the runs that changed under [`HUNK_CONTEXT`] unchanged lines either side, the way a
-/// unified diff writes them.
+/// The marked lines hold everything a patch needs but the numbers, which are the ones the diff's
+/// gutter numbers its lines with. A diff drawn without one is counted off its marks instead: a
+/// line the two texts share advances both, a line taken away advances the replaced text alone and
+/// a line put in advances the written text alone. What is written is the runs that changed under
+/// [`HUNK_CONTEXT`] unchanged lines either side, the way a unified diff writes them, and no hunk
+/// reaches across a line standing for unchanged lines the diff left out.
 ///
 /// # Returns
 ///
@@ -273,23 +276,22 @@ pub fn patch(block: &Block) -> Option<String> {
         return None;
     }
 
-    let lines = numbered(block.source())?;
-    let covered = hunks(&lines);
-    if covered.is_empty() {
-        return None;
-    }
-
+    let runs = numbered(block)?;
     let mut unified = format!("--- {OLD_PREFIX}{path}\n+++ {NEW_PREFIX}{path}\n");
-    for hunk in covered {
-        unified.push_str(&header(&lines[hunk.clone()]));
-        for line in &lines[hunk] {
-            unified.push(line.mark);
-            unified.push_str(line.text);
-            unified.push(LINE_SEPARATOR);
+    let mut written = false;
+    for lines in &runs {
+        for hunk in hunks(lines) {
+            written = true;
+            unified.push_str(&header(&lines[hunk.clone()]));
+            for line in &lines[hunk] {
+                unified.push(line.mark);
+                unified.push_str(line.text);
+                unified.push(LINE_SEPARATOR);
+            }
         }
     }
 
-    Some(unified)
+    written.then_some(unified)
 }
 
 /// One line of a diff, read back out of the marked source the diff was written as.
@@ -303,47 +305,74 @@ struct Line<'block> {
 /// # Returns
 ///
 /// The text a yank of whole lines of a block of `kind` hands back, which for a diff is those lines
-/// without the mark the diff wrote each of them under and for every other kind is `text` itself.
+/// without the mark the diff wrote each of them under, and without its header and the lines
+/// standing for unchanged lines it left out; and for every other kind is `text` itself.
 fn written(kind: &block::Kind, text: &str) -> String {
     if !matches!(kind, block::Kind::Diff { .. }) {
         return text.to_owned();
     }
 
     let mut written = String::with_capacity(text.len());
-    for (index, line) in text.split(LINE_SEPARATOR).enumerate() {
-        if 0 < index {
+    let mut first = true;
+    for line in text.split(LINE_SEPARATOR) {
+        let mut characters = line.chars();
+        if matches!(characters.next(), Some(diff::HEADER | diff::ELIDED)) {
+            continue;
+        }
+        if !first {
             written.push(LINE_SEPARATOR);
         }
-        let mark = line.chars().next().map_or(0, char::len_utf8);
-        written.push_str(&line[mark..]);
+        first = false;
+        written.push_str(characters.as_str());
     }
 
     written
 }
 
-/// Reads the marked lines of a diff back, counting how many lines of each text stand above every
-/// one of them.
+/// Reads the marked lines of a diff back, numbering each by how many lines of each text stand
+/// above it: as the diff's gutter numbers it, or as the marks above it count where the diff was
+/// drawn without one.
 ///
 /// # Returns
 ///
-/// The lines of the diff, or `None` where `source` holds a line under no mark of a diff or under
-/// the mark saying the two texts were shown rather than aligned.
-fn numbered(source: &str) -> Option<Vec<Line<'_>>> {
+/// The lines of the diff, in the runs the lines standing for unchanged lines it left out separate
+/// them into; or `None` where the block's source holds a line under no mark of a diff or under the
+/// mark saying the two texts were shown rather than aligned.
+fn numbered(block: &Block) -> Option<Vec<Vec<Line<'_>>>> {
+    let source = block.source();
     if source.is_empty() {
         return None;
     }
 
-    let mut lines = Vec::new();
+    let mut runs = vec![Vec::new()];
     let (mut old, mut new) = (0, 0);
-    for line in source.split(LINE_SEPARATOR) {
+    for (index, line) in source.split(LINE_SEPARATOR).enumerate() {
         let mark = line.chars().next()?;
         let text = line.get(mark.len_utf8()..)?;
-        lines.push(Line {
-            mark,
-            text,
-            old,
-            new,
-        });
+        match mark {
+            diff::HEADER => continue,
+            diff::ELIDED => {
+                runs.push(Vec::new());
+                continue;
+            }
+            _ => {}
+        }
+        if let Some(numbers) = block
+            .gutter()
+            .and_then(|gutter| gutter.numbered(index, mark))
+        {
+            old = numbers.replaced();
+            new = numbers.written();
+        }
+
+        runs.last_mut()
+            .expect("a diff is read into at least one run")
+            .push(Line {
+                mark,
+                text,
+                old,
+                new,
+            });
         match mark {
             diff::CONTEXT => {
                 old += 1;
@@ -355,7 +384,7 @@ fn numbered(source: &str) -> Option<Vec<Line<'_>>> {
         }
     }
 
-    Some(lines)
+    Some(runs)
 }
 
 /// # Returns
@@ -411,6 +440,7 @@ mod tests {
     use vbc_layout::width::Metrics;
 
     use crate::chat::block::{Block, Kind, Role};
+    use crate::chat::diff::{self, Hunk};
     use crate::chat::fold::{Folds, Tag};
     use crate::chat::object::Position;
     use crate::chat::selection::{Mode, Motion, Selection, Source};
@@ -480,17 +510,100 @@ mod tests {
     fn a_yank_of_whole_lines_of_a_diff_leaves_the_mark_the_diff_wrote_them_under_behind() {
         let block = Block::diff(PATH.to_owned(), BEFORE, AFTER);
         let source = Source::new(block.source(), Metrics::default());
-        let mut selection = Selection::new(Mode::Linewise, source, 0);
+        let taken = 1 + block
+            .source()
+            .find("\n-")
+            .expect("the fixture's diff takes a line away");
+        let mut selection = Selection::new(Mode::Linewise, source, taken);
         selection.extend(source, Motion::Down(3));
 
-        assert_eq!(
-            "-fn main() {}\n+fn main() {\n+    todo!();\n+}",
-            block.source(),
-            "the fixture's diff is not the one the marks are being taken off"
+        assert!(
+            block
+                .source()
+                .ends_with("\n-fn main() {}\n+fn main() {\n+    todo!();\n+}"),
+            "the fixture's diff is not the one the marks are being taken off: {:?}",
+            block.source()
         );
         assert_eq!(
             "fn main() {}\nfn main() {\n    todo!();\n}",
             Yank::selected(&block, &selection, Metrics::default()).text()
+        );
+    }
+
+    #[test]
+    fn a_yank_of_whole_lines_of_a_diff_leaves_its_header_and_what_it_left_out_behind() {
+        let old: String = (1..=20).map(|number| format!("line {number}\n")).collect();
+        let new = old
+            .replace("line 2\n", "second\n")
+            .replace("line 19\n", "nineteenth\n");
+        let block = Block::diff(PATH.to_owned(), &old, &new);
+        let source = Source::new(block.source(), Metrics::default());
+        let mut selection = Selection::new(Mode::Linewise, source, 0);
+        selection.extend(source, Motion::Down(block.source().lines().count() - 1));
+
+        assert!(
+            block.source().starts_with(diff::HEADER)
+                && block
+                    .source()
+                    .lines()
+                    .any(|line| diff::ELIDED.to_string() == line),
+            "the fixture's diff holds no header or no elision: {:?}",
+            block.source()
+        );
+        assert_eq!(
+            concat!(
+                "line 1\nline 2\nsecond\nline 3\nline 4\nline 5\n",
+                "line 16\nline 17\nline 18\nline 19\nnineteenth\nline 20",
+            ),
+            Yank::selected(&block, &selection, Metrics::default()).text()
+        );
+        assert_eq!(
+            Some(concat!(
+                "--- a/src/main.rs\n",
+                "+++ b/src/main.rs\n",
+                "@@ -1,5 +1,5 @@\n",
+                " line 1\n",
+                "-line 2\n",
+                "+second\n",
+                " line 3\n",
+                " line 4\n",
+                " line 5\n",
+                "@@ -16,5 +16,5 @@\n",
+                " line 16\n",
+                " line 17\n",
+                " line 18\n",
+                "-line 19\n",
+                "+nineteenth\n",
+                " line 20\n",
+            )),
+            patch(&block).as_deref()
+        );
+    }
+
+    #[test]
+    fn a_patch_of_what_a_tool_reported_is_numbered_as_the_file_numbers_its_lines() {
+        let hunks = [
+            Hunk::new(
+                40,
+                41,
+                vec![" kept".to_owned(), "-taken".to_owned(), "+put".to_owned()],
+            ),
+            Hunk::new(90, 91, vec!["-gone".to_owned(), " after".to_owned()]),
+        ];
+
+        assert_eq!(
+            Some(concat!(
+                "--- a/src/main.rs\n",
+                "+++ b/src/main.rs\n",
+                "@@ -40,2 +41,2 @@\n",
+                " kept\n",
+                "-taken\n",
+                "+put\n",
+                "@@ -90,2 +91,1 @@\n",
+                "-gone\n",
+                " after\n",
+            )),
+            patch(&Block::patched(PATH.to_owned(), &hunks)).as_deref()
         );
     }
 

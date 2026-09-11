@@ -530,7 +530,7 @@ fn the_panel_draws_the_blocks_that_were_said_and_the_row_a_closed_fold_is() {
         "the closed fold drew what it hid"
     );
     assert!(
-        rows.iter().any(|row| row.starts_with('+')),
+        rows.iter().any(|row| row.contains("+fn main() {")),
         "the diff was not drawn"
     );
 }

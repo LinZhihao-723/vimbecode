@@ -139,9 +139,9 @@ impl Renderer {
         }
 
         let y = area.y + screen_row;
-        self.blank(buffer, area, y);
+        blank(buffer, area, y, self.style);
 
-        self.draw_prefix(buffer, area, y, row.prefix());
+        self.draw_prefix(buffer, area, y, row.prefix(), self.style);
 
         let columns = row.columns();
         for (index, grapheme) in graphemes(row.text()).enumerate() {
@@ -195,7 +195,8 @@ impl Renderer {
     }
 
     /// Draws one styled row into the cells of `screen_row`, each of its segments in the style the
-    /// spans painting it asked for, laid over the style the renderer draws in.
+    /// spans painting it asked for, laid over the style the row fills its whole width with, which
+    /// is laid over the style the renderer draws in.
     ///
     /// `next` is the row that follows this one within the same logical line, and is what says
     /// whether the cells this row has left over are the ones vim marks with
@@ -217,11 +218,12 @@ impl Renderer {
         }
 
         let y = area.y + screen_row;
-        self.blank(buffer, area, y);
-        self.draw_prefix(buffer, area, y, row.prefix());
+        let fill = self.style.patch(row.fill());
+        blank(buffer, area, y, fill);
+        self.draw_prefix(buffer, area, y, row.prefix(), fill.patch(row.decoration()));
 
         for segment in row.segments() {
-            let style = self.style.patch(segment.style());
+            let style = fill.patch(segment.style());
             let mut column = segment.column();
             for grapheme in graphemes(segment.cells()) {
                 let width = self.metrics.grapheme_width(grapheme, column);
@@ -243,13 +245,12 @@ impl Renderer {
         self.mark_wide_gap(buffer, area, y, row.row(), next.map(StyledRow::row));
     }
 
-    /// Draws the decoration a continuation row carries, which is drawn in the renderer's own style
-    /// however the row's text is styled.
+    /// Draws the decoration a row carries in `style`, however the row's text is styled.
     ///
     /// # Panics
     ///
     /// Panics if `area` is not inside `buffer`.
-    fn draw_prefix(&self, buffer: &mut Buffer, area: Rect, y: u16, prefix: &str) {
+    fn draw_prefix(&self, buffer: &mut Buffer, area: Rect, y: u16, prefix: &str, style: Style) {
         let mut column = 0;
         for grapheme in graphemes(prefix) {
             let width = self.metrics.grapheme_width(grapheme, column);
@@ -262,7 +263,7 @@ impl Renderer {
                         column,
                         grapheme,
                         width,
-                        style: self.style,
+                        style,
                     },
                 );
             }
@@ -337,19 +338,6 @@ impl Renderer {
             buffer[(x, y)]
                 .set_char(WIDE_CHARACTER_MARKER)
                 .set_style(self.style);
-        }
-    }
-
-    /// Resets a row's cells to blanks drawn in this renderer's style, so that neither a symbol nor
-    /// a claim left there by an earlier frame survives.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `area` is not inside `buffer`.
-    fn blank(&self, buffer: &mut Buffer, area: Rect, y: u16) {
-        for x in area.x..area.right() {
-            buffer[(x, y)].reset();
-            buffer[(x, y)].set_style(self.style);
         }
     }
 }
@@ -441,6 +429,19 @@ pub fn painted_columns(row: &DisplayRow, graphemes: &Range<usize>) -> Option<Ran
     let end = columns[last - row.start()].max(start + 1);
 
     Some(start..end)
+}
+
+/// Resets a row's cells to blanks drawn in `style`, so that neither a symbol nor a claim left there
+/// by an earlier frame survives.
+///
+/// # Panics
+///
+/// Panics if `area` is not inside `buffer`.
+fn blank(buffer: &mut Buffer, area: Rect, y: u16, style: Style) {
+    for x in area.x..area.right() {
+        buffer[(x, y)].reset();
+        buffer[(x, y)].set_style(style);
+    }
 }
 
 /// One grapheme as a renderer places it: the cells of a screen line it claims, and the style it is
