@@ -1,10 +1,10 @@
 //! vimbecode: a Claude Code session held in a terminal, whose next message is written in vim.
 //!
-//! The program starts a session in the directory it is run in, or resumes the one it is named,
-//! and draws the conversation over it: what was said in the history panel, the draft of the next
-//! message in the prompt panel below it, and the status bar along the bottom. Everything it draws
-//! and edits with is the library's: the binary contributes the terminal it draws into, the keys it
-//! reads, and the command line it is started from.
+//! The program starts a session in the directory it is run in, or resumes the one it is named in
+//! the directory that one was started in, and draws the conversation over it: what was said in the
+//! history panel, the draft of the next message in the prompt panel below it, and the status bar
+//! along the bottom. Everything it draws and edits with is the library's: the binary contributes
+//! the terminal it draws into, the keys it reads, and the command line it is started from.
 //!
 //! A session is started only after the directory it would run in has been through the trust gate,
 //! and the question is put here rather than inside the editor because it has to be answered before
@@ -18,7 +18,7 @@
 
 use std::error::Error;
 use std::io::{self, Stdout};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use crossterm::execute;
@@ -33,14 +33,17 @@ use vbc_editor::event::reader::TerminalReader;
 use vbc_editor::event::{Config, Event, Source};
 use vbc_editor::session::identity::{Identity, SessionId};
 use vbc_editor::session::live::{Plan, Session};
+use vbc_editor::session::stored::{Store, Stored};
 use vbc_editor::session::trust::{Admission, Answer, Gate, Standing};
 
 /// What the program says about how it is started.
 const USAGE: &str = "\
 usage: vimbecode [options]
 
-    -r, --resume <id>        resume the session named <id> rather than start a new one
-    -C, --directory <path>   run the session in <path> rather than in this directory
+    -r, --resume <id>        resume the session named <id>, with what it already said, in the
+                             directory it was started in, rather than start a new one
+    -C, --directory <path>   run the session in <path> rather than in this directory, or in
+                             the one a resumed session was started in
     -m, --model <name>       run the session on <name> rather than on its own choice
     -h, --help               say this and stop
 
@@ -158,24 +161,36 @@ impl Arguments {
 
 /// # Returns
 ///
-/// The conversation screen over the session the command line asked for, started or resumed in the
-/// directory it named or in this one, on success.
+/// The conversation screen over the session the command line asked for, on success: a new one
+/// started in the directory it named or in this one, or a resumed one started in the directory it
+/// named or in the one it was first started in, with what it already said read in ahead of it.
 ///
 /// # Errors
 ///
 /// Returns an error if:
 ///
 /// * Forwards [`std::env::current_dir`]'s return values on failure.
+/// * Forwards [`Store::of_reader`]'s return values on failure.
+/// * Forwards [`Store::find`]'s return values on failure.
+/// * Forwards [`placed`]'s return values on failure.
 /// * Forwards [`Gate::of_reader`]'s return values on failure.
 /// * Forwards [`Session::opened`]'s return values on failure.
 fn open(arguments: &Arguments) -> Result<App, Box<dyn Error>> {
-    let directory = match &arguments.directory {
-        Some(directory) => directory.clone(),
-        None => std::env::current_dir()?,
+    let here = std::env::current_dir()?;
+    let named = arguments.directory.as_deref();
+    let (directory, history) = match &arguments.identity {
+        Identity::Resumed(id) => {
+            let stored = Store::of_reader()?.find(id, named.unwrap_or(&here))?;
+            (placed(id, &stored, named)?, Some(stored))
+        }
+        Identity::Fresh(_) | Identity::Forked(_) => (named.map_or(here, Path::to_owned), None),
     };
     let mut plan = Plan::new(arguments.identity.clone(), directory, Gate::of_reader()?);
     if let Some(model) = &arguments.model {
         plan = plan.with_model(model.clone());
+    }
+    if let Some(stored) = history {
+        plan = plan.with_history(stored);
     }
 
     let session = Session::opened(&plan, trusted)?;
@@ -187,6 +202,70 @@ fn open(arguments: &Arguments) -> Result<App, Box<dyn Error>> {
     }
 
     Ok(App::chat().with_session(session))
+}
+
+/// Decides the directory a resumed session runs in, and says which: the one `named` on the command
+/// line, or else the one the session was started in, which is where Claude Code finds it again.
+///
+/// # Returns
+///
+/// The directory on success.
+///
+/// # Errors
+///
+/// Returns an error if:
+///
+/// * [`String`] if no directory was named and the transcript names none, or the directory decided
+///   on is not a directory.
+/// * Forwards [`Stored::directory`]'s return values on failure.
+fn placed(
+    id: &SessionId,
+    stored: &Stored,
+    named: Option<&Path>,
+) -> Result<PathBuf, Box<dyn Error>> {
+    let started = stored.directory()?;
+    let directory = match (named, started) {
+        (None, None) => {
+            return Err(format!(
+                "`{}` names no directory session `{id}` was started in; name one with \
+                 -C",
+                stored.path().display()
+            )
+            .into())
+        }
+        (None, Some(started)) => {
+            eprintln!(
+                "vimbecode: resuming {id} in {}, where it was started.",
+                started.display()
+            );
+            started
+        }
+        (Some(named), started) => {
+            let elsewhere = started.filter(|started| {
+                std::fs::canonicalize(named).ok() != std::fs::canonicalize(started).ok()
+            });
+            match elsewhere {
+                Some(started) => eprintln!(
+                    "vimbecode: resuming {id} in {}, as -C asked, rather than in {}, where it was \
+                     started.",
+                    named.display(),
+                    started.display()
+                ),
+                None => eprintln!("vimbecode: resuming {id} in {}.", named.display()),
+            }
+            named.to_owned()
+        }
+    };
+    if !directory.is_dir() {
+        return Err(format!(
+            "session `{id}` was started in `{}`, which is not a directory any more; name one \
+             with -C",
+            directory.display()
+        )
+        .into());
+    }
+
+    Ok(directory)
 }
 
 /// Puts to the reader the question of whether a directory may run its own code, on the terminal
