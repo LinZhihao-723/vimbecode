@@ -31,22 +31,39 @@ const BODY_FLAG: &str = "--body-file";
 const OFFENCE: &str = "Co-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>";
 
 /// The variants of that credit which have to be caught beside it.
-const VARIANTS: [&str; 6] = [
+const VARIANTS: [&str; 7] = [
     "Generated with [Claude Code](https://claude.com/claude-code)",
     "- Co-authored-by: Claude",
+    "Co-authored-by : Claude",
     "noreply@anthropic.com",
     "CO-AUTHORED-BY: CLAUDE OPUS 5",
     "co-authored-by: claude",
     "Assisted-by: ChatGPT",
 ];
 
+/// The link to a session tooling appends on a line of its own, at an id made up for the check.
+const SESSION_LINK: &str = "https://claude.ai/code/session_01EXAMPLEEXAMPLE";
+
+/// The trailer tooling appends to a commit to say which session wrote it, and the variants of it
+/// which have to be caught beside it.
+const SESSIONS: [&str; 7] = [
+    "Claude-Session: https://claude.ai/code/session_01EXAMPLEEXAMPLE",
+    "claude-session: 01EXAMPLEEXAMPLE",
+    "CLAUDE-SESSION: 01EXAMPLEEXAMPLE",
+    "- Claude-Session: 01EXAMPLEEXAMPLE",
+    "Claude-Session : 01EXAMPLEEXAMPLE",
+    SESSION_LINK,
+    "HTTPS://CLAUDE.AI/CODE/SESSION_01EXAMPLEEXAMPLE",
+];
+
 /// Messages that name a model without signing anything over to one, which this repository writes
 /// constantly and which the check must leave alone.
-const INNOCENT: [&str; 4] = [
+const INNOCENT: [&str; 5] = [
     "ci: Add the guard.\n\nThe guard was worked out beside Claude Code at a terminal.",
     "docs: Explain the harness.\n\nAnthropic's harness is what the sessions run in.",
     "fix: Correct the gutter.\n\nThis corrects a width Claude Code got wrong.",
     "test: Cover the range.\n\nGenerated with a script, which Claude Code did not write.",
+    "docs: Point at the harness.\n\nA Claude Code session runs at https://claude.ai/code.",
 ];
 
 /// How many repositories this run has built, so that two of them never share a directory.
@@ -226,6 +243,44 @@ fn a_commit_that_only_names_a_model_is_accepted() {
     for message in INNOCENT {
         assert!(accepts(message), "`{message}` was rejected");
     }
+}
+
+#[test]
+fn a_commit_that_names_its_session_is_rejected() {
+    for session in SESSIONS {
+        let message = format!("ci: Do a thing.\n\nA body that explains it.\n\n{session}");
+        assert!(!accepts(&message), "`{session}` was accepted");
+    }
+}
+
+#[test]
+fn a_body_that_links_a_session_is_rejected_though_every_commit_is_clean() -> anyhow::Result<()> {
+    let repository = Repository::new();
+    repository.commit("ci: Do a thing.\n\nA body that explains it.");
+    let body = repository.path.join("body.txt");
+
+    fs::write(
+        &body,
+        format!("## Summary\n\nA change.\n\n{SESSION_LINK}\n"),
+    )?;
+    let linked = lint(&repository, &repository.range(), &[(BODY_FLAG, &body)]);
+
+    fs::write(
+        &body,
+        "## Summary\n\nA change worked out in a Claude Code session, which https://claude.ai \
+         hosts.\n",
+    )?;
+    let innocent = lint(&repository, &repository.range(), &[(BODY_FLAG, &body)]);
+
+    assert!(!linked.accepted, "{}", linked.said);
+    assert!(
+        linked.said.contains("the pull request body: line 5:"),
+        "the link went unnamed:\n{}",
+        linked.said
+    );
+    assert!(innocent.accepted, "{}", innocent.said);
+
+    Ok(())
 }
 
 #[test]
