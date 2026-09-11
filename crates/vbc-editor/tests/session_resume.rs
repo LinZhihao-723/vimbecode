@@ -34,7 +34,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::backend::CrosstermBackend;
 use ratatui::layout::Rect;
 use ratatui::{Terminal, TerminalOptions, Viewport};
-use serde_json::Value;
+use serde_json::{json, Value};
 use tempfile::TempDir;
 use vbc_editor::app::App;
 use vbc_editor::event::Event as Delivered;
@@ -176,6 +176,62 @@ fn a_stored_transcript_replays_into_the_blocks_its_live_frames_built() -> Result
     let compacted = position(&before, COMPACT)? + 1;
     assert_eq!(vec![(compacted, Reason::Compacted)], breaks(&before));
     assert_eq!(vec![(1, Reason::Cleared)], breaks(&after));
+
+    Ok(())
+}
+
+/// What the reader was never shown live stays out of a replay -- a subagent's own work, a
+/// background task reporting back and what the client writes to its own history -- and the
+/// directory a session was started in is the first one its transcript names, not one it moved to.
+#[test]
+fn a_stored_transcript_leaves_out_what_the_reader_was_never_shown() -> Result<()> {
+    const STARTED_IN: &str = "/tmp/started";
+    const MOVED_TO: &str = "/tmp/moved";
+
+    let directory = TempDir::new()?;
+    let path = directory.path().join(format!("{RECORDED_ID}.{EXTENSION}"));
+    let entries = [
+        json!({
+            "type": "user",
+            "promptSource": "sdk",
+            "cwd": STARTED_IN,
+            "message": {"role": "user", "content": FIRST_ASKED},
+        }),
+        json!({
+            "type": "assistant",
+            "isSidechain": true,
+            "cwd": MOVED_TO,
+            "message": {"role": "assistant", "content": [{"type": "text", "text": "sidechain"}]},
+        }),
+        json!({
+            "type": "user",
+            "promptSource": "system",
+            "message": {"role": "user", "content": "<task-notification>done</task-notification>"},
+        }),
+        json!({
+            "type": "user",
+            "isMeta": true,
+            "message": {"role": "user", "content": [{"type": "text", "text": "caveat"}]},
+        }),
+        json!({
+            "type": "assistant",
+            "cwd": MOVED_TO,
+            "message": {"role": "assistant", "content": [{"type": "text", "text": FIRST_ANSWER}]},
+        }),
+    ];
+    let transcript: String = entries.iter().map(|entry| format!("{entry}\n")).collect();
+    fs::write(&path, transcript)?;
+    let stored = Stored::at(&path);
+
+    let replayed = stored.read()?;
+    let said: Vec<&str> = replayed
+        .transcript()
+        .blocks()
+        .iter()
+        .map(|block| block.source())
+        .collect();
+    assert_eq!(vec![FIRST_ASKED, FIRST_ANSWER], said);
+    assert_eq!(Some(PathBuf::from(STARTED_IN)), stored.directory()?);
 
     Ok(())
 }
