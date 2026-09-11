@@ -31,9 +31,10 @@ const BODY_FLAG: &str = "--body-file";
 const OFFENCE: &str = "Co-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>";
 
 /// The variants of that credit which have to be caught beside it.
-const VARIANTS: [&str; 6] = [
+const VARIANTS: [&str; 7] = [
     "Generated with [Claude Code](https://claude.com/claude-code)",
     "- Co-authored-by: Claude",
+    "Co-authored-by : Claude",
     "noreply@anthropic.com",
     "CO-AUTHORED-BY: CLAUDE OPUS 5",
     "co-authored-by: claude",
@@ -45,11 +46,12 @@ const SESSION_LINK: &str = "https://claude.ai/code/session_01EXAMPLEEXAMPLE";
 
 /// The trailer tooling appends to a commit to say which session wrote it, and the variants of it
 /// which have to be caught beside it.
-const SESSIONS: [&str; 6] = [
+const SESSIONS: [&str; 7] = [
     "Claude-Session: https://claude.ai/code/session_01EXAMPLEEXAMPLE",
     "claude-session: 01EXAMPLEEXAMPLE",
     "CLAUDE-SESSION: 01EXAMPLEEXAMPLE",
     "- Claude-Session: 01EXAMPLEEXAMPLE",
+    "Claude-Session : 01EXAMPLEEXAMPLE",
     SESSION_LINK,
     "HTTPS://CLAUDE.AI/CODE/SESSION_01EXAMPLEEXAMPLE",
 ];

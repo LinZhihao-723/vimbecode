@@ -232,7 +232,7 @@ fn credited(line: &str) -> Option<Reason> {
 /// a trailer written as an item of a list is the same trailer.
 fn trailer(line: &str) -> Option<(&str, &str)> {
     let (key, value) = line.split_once(':')?;
-    let key = key.trim_start_matches(LIST_MARKS).trim_start();
+    let key = key.trim_start_matches(LIST_MARKS).trim();
 
     (1 == key.split_whitespace().count()).then_some((key, value))
 }
@@ -554,6 +554,22 @@ mod tests {
                 reasons(written),
                 "`{written}`"
             );
+        }
+    }
+
+    #[test]
+    fn a_trailer_spaced_before_its_colon_is_caught() {
+        for (written, reason) in [
+            (
+                "Claude-Session : 01EXAMPLEEXAMPLE",
+                Reason::SessionTrailer("claude-session".to_owned()),
+            ),
+            (
+                "Co-authored-by : Claude",
+                Reason::Trailer("co-authored-by".to_owned()),
+            ),
+        ] {
+            assert_eq!(vec![reason], reasons(written), "`{written}`");
         }
     }
 
