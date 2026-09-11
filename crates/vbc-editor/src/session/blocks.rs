@@ -247,6 +247,14 @@ impl Conversation {
         }
     }
 
+    /// Records that the history stopped where the transcript now ends, for the reason `reason`.
+    pub fn broke(&mut self, reason: Reason) {
+        self.breaks.push(Break {
+            after: self.transcript.len(),
+            reason,
+        });
+    }
+
     #[must_use]
     pub fn transcript(&self) -> &Transcript {
         &self.transcript
@@ -421,14 +429,6 @@ impl Conversation {
         for edit in edits {
             self.push(edit, tag.clone());
         }
-    }
-
-    /// Records that the history stopped where the transcript now ends, for the reason `reason`.
-    fn broke(&mut self, reason: Reason) {
-        self.breaks.push(Break {
-            after: self.transcript.len(),
-            reason,
-        });
     }
 
     /// Appends `block` to the transcript, said under `tag`.
