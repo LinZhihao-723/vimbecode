@@ -69,7 +69,7 @@ fn a_rust_block_is_drawn_with_its_keyword_its_string_and_its_macro_in_three_colo
         app.panel().text()
     );
     cross(&mut app);
-    assert_eq!(Focus::Transcript, app.focus(), "`<C-T>` reached no panel");
+    assert_eq!(Focus::History, app.focus(), "`<C-T>` reached no panel");
 
     let mut cells = Cells::empty(area());
     app.draw(&mut cells, area());
@@ -128,7 +128,7 @@ fn yac_over_a_highlighted_block_takes_the_code_as_it_was_fenced() -> Result<()> 
 
     let line = line_of(&mut app, CODE).ok_or(anyhow!("the panel lost the code"))?;
     cross(&mut app);
-    assert_eq!(Focus::Transcript, app.focus(), "`<C-T>` reached no panel");
+    assert_eq!(Focus::History, app.focus(), "`<C-T>` reached no panel");
     typing(&mut app, &"j".repeat(line));
     typing(&mut app, "yac");
     // A linewise register holds each of its lines ended by a newline, as vim's does.

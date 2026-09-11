@@ -98,7 +98,7 @@ fn drawn() -> Result<Vec<Color>> {
         area,
         KeyEvent::new(KeyCode::Char('t'), KeyModifiers::CONTROL),
     );
-    if Focus::Transcript != app.focus() {
+    if Focus::History != app.focus() {
         return Err(anyhow!("`<C-T>` reached no panel"));
     }
     let mut cells = Cells::empty(area);
