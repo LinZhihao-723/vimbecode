@@ -25,7 +25,6 @@ ratatui = { version = "0.30.2", default-features = false, features = [
 serde_json = "1.0.151"
 syntect = { version = "5.3.0", default-features = false, features = [
     "default-syntaxes",
-    "default-themes",
     "regex-fancy",
 ] }
 vbc-layout = { path = "../vbc-layout" }

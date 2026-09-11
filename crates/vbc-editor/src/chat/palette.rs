@@ -27,14 +27,28 @@ pub const FOREGROUND: Rgb = Rgb::new(0xc0, 0xc5, 0xce);
 /// base16 Ocean's comment colour.
 pub const COMMENT: Rgb = Rgb::new(0x65, 0x73, 0x7e);
 
-/// base16 Ocean's eight accents.
+/// base16 Ocean's red accent.
 pub const RED: Rgb = Rgb::new(0xbf, 0x61, 0x6a);
+
+/// base16 Ocean's orange accent.
 pub const ORANGE: Rgb = Rgb::new(0xd0, 0x87, 0x70);
+
+/// base16 Ocean's yellow accent.
 pub const YELLOW: Rgb = Rgb::new(0xeb, 0xcb, 0x8b);
+
+/// base16 Ocean's green accent.
 pub const GREEN: Rgb = Rgb::new(0xa3, 0xbe, 0x8c);
+
+/// base16 Ocean's cyan accent.
 pub const CYAN: Rgb = Rgb::new(0x96, 0xb5, 0xb4);
+
+/// base16 Ocean's blue accent.
 pub const BLUE: Rgb = Rgb::new(0x8f, 0xa1, 0xb3);
+
+/// base16 Ocean's magenta accent.
 pub const MAGENTA: Rgb = Rgb::new(0xb4, 0x8e, 0xad);
+
+/// base16 Ocean's brown accent.
 pub const BROWN: Rgb = Rgb::new(0xab, 0x79, 0x67);
 
 /// A colour, named as the red, green and blue it is meant to be.
