@@ -98,10 +98,6 @@ pub const MAX_CELLS: usize = 16_000_000;
 /// with in common that is aligned word by word rather than emphasised whole.
 pub const MAX_WORD_CELLS: usize = 4_096;
 
-/// The sign a header writes before the number of lines taken away, which is a minus rather than a
-/// hyphen so that it reads as one.
-const MINUS: char = '\u{2212}';
-
 /// A diff drawn the way a reviewer reads one: its marked lines as the source of a block, the styles
 /// drawing them as its spans, and the gutter numbering them beside it.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -389,6 +385,10 @@ impl Hunk {
 pub fn compute(old: &str, new: &str) -> Block {
     write(&marked(&lines(old), &lines(new)))
 }
+
+/// The sign a header writes before the number of lines taken away, which is a minus rather than a
+/// hyphen so that it reads as one.
+const MINUS: char = '\u{2212}';
 
 /// One line of a diff being drawn: the mark it is written under, its text, how many lines of each
 /// text are numbered above it, and where it stands among the lines of each side it was drawn

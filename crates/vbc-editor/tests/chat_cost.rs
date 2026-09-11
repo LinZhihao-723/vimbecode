@@ -264,12 +264,6 @@ const BOUNDED_MEMORY: usize = 32 << 20;
 /// so that what drawing one costs includes colouring it where the texts are short enough.
 const DRAWN_PATH: &str = "src/main.rs";
 
-/// The number of lines each side of a drawn diff whose two texts together are as long as the
-/// highlighter colours, and the most drawing it may ask the allocator for, which is about twice
-/// the 8.3 MB it was measured asking for in release.
-const COLOURED: usize = 2_800;
-const COLOURED_MEMORY: usize = 16 << 20;
-
 /// The time that diff may take, which is generous enough for an unoptimized build on a shared
 /// machine and still far under what a text large enough to be bounded instead would cost.
 const DIFF_TIME: Duration = Duration::from_secs(20);
@@ -931,6 +925,12 @@ fn drawing_four_thousand_lines_against_four_thousand_takes_bounded_memory() {
 
 #[test]
 fn drawing_an_edit_as_long_as_the_highlighter_colours_takes_bounded_memory() {
+    // The number of lines each side of a drawn diff whose two texts together are as long as the
+    // highlighter colours, and the most drawing it may ask the allocator for, which is about twice
+    // the 8.3 MB it was measured asking for in release.
+    const COLOURED: usize = 2_800;
+    const COLOURED_MEMORY: usize = 16 << 20;
+
     let old = lines(0..COLOURED);
     let new = lines(COLOURED..2 * COLOURED);
     assert!(

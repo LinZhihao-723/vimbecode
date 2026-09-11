@@ -33,12 +33,8 @@ use vbc_editor::session::blocks::Conversation;
 use vbc_editor::session::event::Event;
 use vbc_layout::buffer::Buffer;
 
-/// The rows every case is drawn in, and the widths the panel is drawn at.
-const ROWS: u16 = 24;
+/// The widths the panel is drawn at.
 const WIDTHS: [u16; 3] = [41, 80, 120];
-
-/// What the file editor holds, which no case reads.
-const FILE: &str = "a file the reader left open";
 
 /// What the reader asked for, which holds neither word the edit changes so that the row a word is
 /// found in is a row of the diff.
@@ -88,24 +84,16 @@ const PATCH: &str = concat!(
     "     let other = 2;\n",
 );
 
-/// The row of the panel the added line is drawn in, below the question, the diff's header, the
-/// line above the change, and the line taken away.
-const ADDED_ROW: usize = 4;
-
-/// The id the edit is called under, and what the tool answered it with.
+/// The id the edit is called under.
 const EDIT_ID: &str = "toolu_01UtAH3RCrfU4Fo9iG9jNZ6d";
-const UPDATED: &str = "The file src/main.rs has been updated successfully.";
-
-/// The file `git apply` is handed the patch in.
-const PATCH_FILE: &str = "yanked.patch";
 
 #[test]
 fn a_changed_row_is_drawn_on_its_band_across_the_whole_panel_and_numbered_beside_it() {
     let palette = Palette::detected();
     for width in WIDTHS {
-        for (app, focused) in [(composing(), false), (reading(), true)] {
+        for (mut app, focused) in [(composing(), false), (reading(), true)] {
             let area = area(width);
-            let cells = drawn(&app, area);
+            let cells = drawn(&mut app, area);
             let taken = row_holding(&cells, area, TAKEN_WORD);
             let put = row_holding(&cells, area, PUT_WORD);
             let kept = row_holding(&cells, area, "fn main() {");
@@ -159,7 +147,7 @@ fn a_changed_row_is_drawn_on_its_band_across_the_whole_panel_and_numbered_beside
 fn a_one_word_change_is_emphasised_in_that_word_and_nowhere_else_on_the_line() {
     let palette = Palette::detected();
     let area = area(WIDTHS[1]);
-    let cells = drawn(&composing(), area);
+    let cells = drawn(&mut composing(), area);
 
     for (word, emphasis) in [(TAKEN_WORD, REMOVED_EMPHASIS), (PUT_WORD, ADDED_EMPHASIS)] {
         let row = row_holding(&cells, area, word);
@@ -172,7 +160,82 @@ fn a_one_word_change_is_emphasised_in_that_word_and_nowhere_else_on_the_line() {
 }
 
 #[test]
+fn a_changed_line_that_wraps_is_drawn_whole_and_on_its_band_in_every_row_it_takes() {
+    // The columns the gutter of a diff numbering lines below ten takes in front of each row.
+    const GUTTER: u16 = 4;
+    const WRAPPED: &str = concat!(
+        "    let message = format!(\"the quick brown fox jumps over the lazy dog and keeps ",
+        "running through the forest until night falls\");",
+    );
+    let rewrapped = WRAPPED.replace("forest", "meadow");
+    let transcript: Transcript = [
+        Block::new(Kind::Message(Role::User), ASKED.to_owned()),
+        Block::diff(
+            PATH.to_owned(),
+            &format!("{WRAPPED}\n"),
+            &format!("{rewrapped}\n"),
+        ),
+    ]
+    .into_iter()
+    .collect();
+    let palette = Palette::detected();
+
+    for width in WIDTHS {
+        let mut app = App::chat().with_transcript(transcript.clone());
+        let area = area(width);
+        let cells = drawn(&mut app, area);
+        let taken = row_holding(&cells, area, "1   -");
+        let put = row_holding(&cells, area, "  1 +");
+        let ended = (put..area.bottom())
+            .find(|row| text_of(&cells, area, *row).is_empty())
+            .expect("the panel drew blank rows below the diff");
+
+        for (rows, line, band, emphasis) in [
+            (
+                taken..put,
+                format!("-{WRAPPED}"),
+                REMOVED_BAND,
+                REMOVED_EMPHASIS,
+            ),
+            (
+                put..ended,
+                format!("+{rewrapped}"),
+                ADDED_BAND,
+                ADDED_EMPHASIS,
+            ),
+        ] {
+            assert!(
+                1 < rows.len(),
+                "the fixture's line was not wrapped at {width} columns"
+            );
+            let (band, emphasis) = (palette.color(band), palette.color(emphasis));
+            let mut joined = String::new();
+            for row in rows {
+                let backgrounds: Vec<Color> = (0..width).map(|x| cells[(x, row)].bg).collect();
+                assert!(
+                    backgrounds
+                        .iter()
+                        .all(|background| [band, emphasis].contains(background)),
+                    "row {row} of a wrapped changed line at {width} columns was drawn on \
+                     {backgrounds:?} rather than on its band"
+                );
+                joined.extend((GUTTER..width).map(|x| cells[(x, row)].symbol().to_owned()));
+            }
+            assert_eq!(
+                line,
+                joined.trim_end(),
+                "a wrapped changed line was not drawn whole behind its gutter at {width} columns"
+            );
+        }
+    }
+}
+
+#[test]
 fn yy_on_an_added_row_and_yad_over_the_edit_take_what_they_took_before() -> Result<()> {
+    // The row of the panel the added line is drawn in, below the question, the diff's header, the
+    // line above the change, and the line taken away.
+    const ADDED_ROW: usize = 4;
+
     let mut app = reading();
     for _ in 0..ADDED_ROW {
         app.press(area(WIDTHS[1]), typed('j'));
@@ -236,9 +299,9 @@ fn an_edit_is_drawn_again_from_the_patch_the_tool_reports_numbered_as_the_file_n
     );
 
     let (transcript, tags) = conversation.into_panel();
-    let app = App::chat().with_conversation(transcript, tags);
+    let mut app = App::chat().with_conversation(transcript, tags);
     let area = area(WIDTHS[1]);
-    let cells = drawn(&app, area);
+    let cells = drawn(&mut app, area);
     let later = row_holding(&cells, area, "let other = 2;");
     assert!(
         text_of(&cells, area, later).starts_with("5 5  "),
@@ -273,6 +336,9 @@ fn composing() -> App {
 ///
 /// The application with the keys in the history showing the edit, reached by `<C-T>`.
 fn reading() -> App {
+    // What the file editor holds, which no case reads.
+    const FILE: &str = "a file the reader left open";
+
     let mut app = App::new(Buffer::from_text(FILE))
         .with_status(true)
         .with_transcript(said());
@@ -321,6 +387,8 @@ fn called() -> Result<Event> {
 ///
 /// The user frame answering the edit, reporting the patch it applied to the file at `path`.
 fn answered(path: &str) -> Result<Event> {
+    const UPDATED: &str = "The file src/main.rs has been updated successfully.";
+
     let frame = json!({
         "type": "user",
         "message": {"content": [{
@@ -355,10 +423,13 @@ fn answered(path: &str) -> Result<Event> {
     Ok(Event::decoded(&frame.to_string())?)
 }
 
+/// Lays `app` out in `area` the way the program does before it draws a frame there.
+///
 /// # Returns
 ///
 /// The cells `app` draws into `area`.
-fn drawn(app: &App, area: Rect) -> Cells {
+fn drawn(app: &mut App, area: Rect) -> Cells {
+    app.handle(area, &vbc_editor::event::Event::Redraw);
     let mut cells = Cells::empty(area);
     app.draw(&mut cells, area);
 
@@ -430,6 +501,9 @@ fn unnamed(app: &mut App) -> String {
 /// * Forwards [`Command::output`]'s return values on failure.
 /// * Forwards [`fs::read_to_string`]'s return values on failure.
 fn applied(old: &str, written: &str) -> Result<Option<String>> {
+    // The file `git apply` is handed the patch in.
+    const PATCH_FILE: &str = "yanked.patch";
+
     let directory = tempfile::tempdir()?;
     let file = directory.path().join(PATH);
     fs::create_dir_all(file.parent().expect("a file in a directory has a parent"))?;
@@ -459,6 +533,8 @@ fn first_line(source: &str) -> &str {
 ///
 /// The area every case is drawn in, `width` columns wide.
 fn area(width: u16) -> Rect {
+    const ROWS: u16 = 24;
+
     Rect::new(0, 0, width, ROWS)
 }
 

@@ -865,8 +865,13 @@ impl Laying<'_> {
     /// The wrapping the logical line numbered `index`, whose text starts `text`, is laid out
     /// under.
     fn wrapping(&self, index: usize, text: &str) -> &Wrapping {
-        match (self.gutter, &self.narrowed) {
-            (Some(gutter), Some(narrowed)) if numbers(gutter, index, text) => narrowed,
+        let numbered = self
+            .gutter
+            .zip(text.chars().next())
+            .and_then(|(gutter, mark)| gutter.numbered(index, mark))
+            .is_some();
+        match &self.narrowed {
+            Some(narrowed) if numbered => narrowed,
             _ => self.wrapping,
         }
     }
@@ -909,16 +914,6 @@ impl Laying<'_> {
 
         row.with_chrome(gutter.decoration(mark), gutter.fill(mark))
     }
-}
-
-/// # Returns
-///
-/// Whether `gutter` numbers the logical line numbered `index`, whose text starts `text`.
-fn numbers(gutter: &Gutter, index: usize, text: &str) -> bool {
-    text.chars()
-        .next()
-        .and_then(|mark| gutter.numbered(index, mark))
-        .is_some()
 }
 
 /// # Returns

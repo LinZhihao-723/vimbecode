@@ -5,10 +5,6 @@
 //! they were said, and a block is named by its index in that order, which is the coordinate a
 //! motion over blocks will move in and the half of a selection's position that says which block it
 //! fell in.
-//!
-//! A block may be put back in its own place by one that says the same thing better, which is what
-//! an edit's diff is once the tool reports the patch it applied: the same edit, numbered where the
-//! file numbers it.
 
 use crate::chat::block::Block;
 
