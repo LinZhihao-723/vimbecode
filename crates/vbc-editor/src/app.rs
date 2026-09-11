@@ -31,39 +31,40 @@
 //! built for, so a keystroke that moves the cursor costs the same over a hundred lines and over a
 //! hundred thousand, which `keystroke_cost.rs` measures rather than argues.
 //!
-//! The application is a program a reader can leave, so it can be written to and searched. `:`
-//! opens the ex command line and `/` a search, and while either of them is open every key typed
-//! belongs to that line rather than to the engine, because the `w` of `:wq` is not a word motion.
-//! `:w` writes the file the text was read from, byte for byte and the missing last line ending
-//! included, `:q` refuses to leave a text nothing has written, `:q!` leaves it anyway and `:wq`
-//! writes and leaves. The interrupt is refused over an unwritten text on the same terms as `:q`,
-//! so the only key that throws a reader's work away is the one that says it will. A search is over
-//! the literal bytes typed at it -- this editor has no regular expressions and does not pretend to
-//! -- and `n` and `N` repeat it the way it ran and the other way.
+//! The text is the draft of the reader's next message, so it can be sent and searched. `:` opens
+//! the ex command line and `/` a search, and while either of them is open every key typed belongs
+//! to that line rather than to the engine, because the `w` of `:wq` is not a word motion. `:wq`
+//! sends the draft and leaves an empty one, `:q!` discards it, and `:qa` refuses to leave a draft
+//! nothing has sent unless it is told `:qa!`, so the only command that throws a reader's words
+//! away is one that says it will. The interrupt stops the session's turn and never the program. A
+//! search is over the literal bytes typed at it -- this editor has no regular expressions and does
+//! not pretend to -- and `n` and `N` repeat it the way it ran and the other way.
 //!
-//! What is selected is drawn, in either of the two views: the range `v`, `V` and `CTRL-V` are
-//! moving over the file, and the range `viac` took out of a block of the transcript. The painting
+//! What is selected is drawn, in either of the two panels: the range `v`, `V` and `CTRL-V` are
+//! moving over the draft, and the range `viac` took out of a block of the transcript. The painting
 //! is laid over the cells the rows were already drawn in rather than folded into the styles they
 //! were drawn with, which is what lets a selection cross a wrap boundary without the layout being
 //! told anything about it. A panel nothing can be written to is a panel whose whole point is what
 //! it selects, so a selection nobody can see there is a feature nobody can use.
 //!
-//! The application draws two things and gives the keys to one of them at a time. `<C-T>` moves
-//! between the file being edited and the transcript of what was said, and it is read ahead of
-//! everything else because a panel reachable only from normal mode is a panel insert mode hides.
-//! While the transcript has the keys they go to its own panel, which reads them through the same
-//! table with the transcript's own sequences bound in it and refuses every one that would write.
-//! Both of them follow their cursor, and for the same reason: a `j` past the bottom row moves a
-//! cursor nobody can see. What the panel's own following costs is the rows it walks over rather
-//! than the transcript it walks through, so a step over a closed fold costs one row however many
-//! lines that fold hides.
+//! The application draws two panels and gives the keys to one of them at a time: the history of
+//! what was said, and the prompt the draft is written in. Laid out as the conversation screen, it
+//! draws both in every frame, the history over the prompt. `<C-W>` moves the keys between them
+//! from normal and visual mode, and `<C-T>` from any mode, because a panel reachable only from
+//! normal mode is a panel insert mode hides. While the history has the keys they go to its own
+//! panel, which reads them through the same table with the transcript's own sequences bound in it
+//! and refuses every one that would write. Both of them follow their cursor, and for the same
+//! reason: a `j` past the bottom row moves a cursor nobody can see. What the panel's own following
+//! costs is the rows it walks over rather than the transcript it walks through, so a step over a
+//! closed fold costs one row however many lines that fold hides.
 //!
 //! Those two are two engines and one register file. Each of them has a text, a cursor and a mode
 //! of its own, and neither has registers of its own, because what a reader takes out of the
-//! transcript they mean to put into the file: an application that let each engine keep a file of
-//! its own would answer `yac` in the panel and `p` in the file with a yank into a drawer nothing
-//! opens, which is the gesture this editor exists for going nowhere. So the file is built once,
-//! where the engine is, and every panel the application builds afterwards is handed it.
+//! history they mean to put into the draft: an application that let each engine keep a file of
+//! its own would answer `yac` in the history and `p` in the prompt with a yank into a drawer
+//! nothing opens, which is the gesture this editor exists for going nowhere. So the register file
+//! is built once, where the engine is, and every panel the application builds afterwards is handed
+//! it.
 //!
 //! The window is measured from the area a frame is drawn into rather than stored, so a terminal
 //! that was resized between two frames draws the second one at its new size without being told,
@@ -74,14 +75,13 @@
 
 use std::num::NonZeroUsize;
 use std::ops::Range;
-use std::path::{Path, PathBuf};
 
 use crossterm::event::{KeyCode, KeyModifiers};
 use modalkit::env::vim::VimMode;
 use modalkit::key::TerminalKey;
 use ratatui::buffer::Buffer as Cells;
 use ratatui::layout::{Position, Rect};
-use ratatui::style::{Modifier, Style};
+use ratatui::style::{Color, Modifier, Style};
 use ratatui::widgets::Widget;
 use ratatui::Frame;
 use vbc_layout::buffer::Buffer;
@@ -96,7 +96,7 @@ use crate::chat::object::Position as Resting;
 use crate::chat::policy::{Drawn, Panel, Selected, REFUSAL};
 use crate::chat::selection::Source as Selectable;
 use crate::chat::transcript::Transcript;
-use crate::engine::{self, Engine, Position as Caret, Shape};
+use crate::engine::{self, typed, Engine, Position as Caret, Shape};
 use crate::event::{Event, KeyEvent};
 use crate::gutter::{Gutter, Options as GutterOptions};
 use crate::keys::Argument;
@@ -112,8 +112,8 @@ const INSERTING: &str = "-- INSERT --";
 const SELECTING: &str = "-- SELECT --";
 const VISUAL: &str = "-- VISUAL --";
 
-/// What the status line says while the transcript panel has the keys.
-const READING: &str = "-- TRANSCRIPT --";
+/// What the status line says while the history panel has the keys.
+const READING: &str = "-- HISTORY --";
 
 /// How the cells a selection covers are drawn, which is what vim's `Visual` highlight is by
 /// default: the colours the text was already drawn in, swapped.
@@ -125,9 +125,11 @@ const COMMAND: char = ':';
 const FORWARD: char = '/';
 const BACKWARD: char = '?';
 
-/// What the status line says about a command line that could not do what it asked for.
-const UNNAMED: &str = "no file name";
-const UNWRITTEN: &str = "no write since the last change (add `!` to override)";
+/// What the status line says about a command line that could not do what it asked for, or did
+/// something other than what it usually does.
+const UNSENT: &str = "the draft is not sent (`:wq` sends it, add `!` to override)";
+const UNDRAFTED: &str = "the draft is empty, so nothing was sent";
+const QUEUED: &str = "sent, and queued behind the turn that is running";
 const UNSEARCHED: &str = "there is no search to repeat";
 const UNSESSIONED: &str = "there is no session to say that to";
 const UNASKED: &str = "the session is waiting on nothing";
@@ -137,6 +139,30 @@ const UNSAID: &str = "there is nothing to say";
 /// How many rows the transcript panel is walked over looking for the row its cursor is on before a
 /// follow gives up and leaves the panel where it stands.
 const FOLLOWED: usize = 256;
+
+/// What the status line says about the interrupt.
+const INTERRUPTED: &str = "interrupted the turn";
+const UNINTERRUPTED: &str = "no turn is running to interrupt";
+
+/// What the status bar says about a session's turn while it runs and while none does, and what it
+/// puts between the things it says.
+const RESPONDING: &str = "Claude is responding";
+const IDLE: &str = "idle";
+const GAP: &str = "  ";
+
+/// The fewest rows the prompt panel is drawn in, and the most it is drawn in as a percentage of
+/// the window.
+const PROMPT_FLOOR: usize = 3;
+const PROMPT_PERCENT: usize = 40;
+
+/// How the row between the history and the prompt is drawn, and the mark in it naming the panel
+/// that has the keys, drawn that many columns in from the left.
+const DIVIDER: &str = "─";
+const DIVIDER_STYLE: Style = Style::new().fg(Color::DarkGray);
+const HISTORY_MARK: &str = " ▲ history ";
+const PROMPT_MARK: &str = " ▼ prompt ";
+const MARK_STYLE: Style = Style::new().fg(Color::Cyan).add_modifier(Modifier::BOLD);
+const MARK_INDENT: u16 = 2;
 
 /// What a line typed at the status line asks for once it is entered.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -154,12 +180,12 @@ enum Asked {
 /// The key that opened the line is the first character of it, so what the status line says is the
 /// line itself and a reader sees the `:` or the `/` they typed where vim puts it.
 #[derive(Clone, Debug, Eq, PartialEq)]
-struct Prompt {
+struct CommandLine {
     asked: Asked,
     line: String,
 }
 
-impl Prompt {
+impl CommandLine {
     /// # Returns
     ///
     /// A newly opened line asking for `asked`, holding nothing but the key `opened` that opened
@@ -180,6 +206,15 @@ impl Prompt {
 
         characters.as_str()
     }
+}
+
+/// Where each part of a frame is drawn.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct Layout {
+    history: Rect,
+    divider: Rect,
+    prompt: Rect,
+    status: Rect,
 }
 
 /// What a keystroke left the application asking for.
@@ -214,29 +249,29 @@ pub struct App {
     focus: Focus,
     top: Placed,
     revision: u64,
-    path: Option<PathBuf>,
-    saved: String,
-    prompt: Option<Prompt>,
+    command_line: Option<CommandLine>,
     pattern: Option<String>,
     forward: bool,
     selection: Option<(Caret, Caret, Shape)>,
     held: Option<Selected>,
     taking: Option<String>,
-    endofline: bool,
+    windowing: bool,
+    split: bool,
+    fitted: Option<Rect>,
     session: Option<Session>,
     waiting: Option<String>,
     drawn: u64,
     refreshed: bool,
 }
 
-/// Which of the two things the application draws the keys are typed at.
+/// Which of the two panels the application draws the keys are typed at.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Focus {
-    /// The file being edited.
-    Text,
+    /// The prompt, where the draft of the next message is written.
+    Prompt,
 
-    /// The transcript of what was said, which is read rather than written.
-    Transcript,
+    /// The history of what was said, which is read rather than written.
+    History,
 }
 
 impl App {
@@ -265,81 +300,50 @@ impl App {
             status: false,
             notice: None,
             panel,
-            focus: Focus::Text,
+            focus: Focus::Prompt,
             top: Placed::top(0),
             revision: u64::MAX,
-            path: None,
-            saved: String::new(),
-            prompt: None,
+            command_line: None,
             pattern: None,
             forward: true,
             selection: None,
             held: None,
             taking: None,
-            endofline: true,
+            windowing: false,
+            split: false,
+            fitted: None,
             session: None,
             waiting: None,
             drawn: 0,
             refreshed: false,
         };
         app.adopt();
-        app.saved = app.written();
 
         app
     }
 
+    /// Factory function.
+    ///
     /// # Returns
     ///
-    /// This application over the file named `path`, which is the file `:w` writes back.
-    ///
-    /// The read is the write's own inverse, so it takes one line ending off the bytes it read
-    /// rather than every one of them: the write puts exactly one back, and a read that stripped
-    /// them all would let a file whose last lines are empty lose those lines to a `:w` that
-    /// changed nothing. A file that ended in no line ending at all is remembered as such, as vim
-    /// remembers it in `'noendofline'`, and it is written back that way rather than repaired,
-    /// because a `:w` that puts an ending there changes bytes nobody asked it to change. That is
-    /// vim under `'nofixendofline'` rather than vim as it ships, whose `'fixendofline'` adds the
-    /// ending on the way out; adding a byte is the same fault as dropping one, whichever option
-    /// name it is spelled under.
-    ///
-    /// A file of no bytes at all is read as a last line without an ending, because the bytes are
-    /// all this has to read it by. vim knows an empty buffer from a buffer holding one empty line
-    /// and would put an ending back once something was typed into it; `data_integrity.rs` asserts
-    /// what this writes there instead.
-    ///
-    /// # Errors
-    ///
-    /// Forwards [`std::fs::read_to_string`]'s return values on failure.
-    pub fn opened(path: PathBuf) -> std::io::Result<Self> {
-        let read = std::fs::read_to_string(&path)?;
-        let endofline = read.ends_with('\n');
-        let text = read.strip_suffix('\n').unwrap_or(&read);
-
-        Ok(Self::new(Buffer::from_text(text))
-            .with_path(path)
-            .ending_lines(endofline))
+    /// A newly created application over an empty draft, laid out as [`App::composing`] lays one
+    /// out.
+    #[must_use]
+    pub fn chat() -> Self {
+        Self::new(Buffer::new()).composing()
     }
 
     /// # Returns
     ///
-    /// This application editing the file named `path`, which is the file `:w` writes and `:q`
-    /// refuses to leave unwritten.
+    /// This application laid out as the conversation screen: the history panel over the prompt
+    /// panel over the status bar, all three drawn in every frame, with the keys at the prompt in
+    /// insert mode.
     #[must_use]
-    pub fn with_path(mut self, path: PathBuf) -> Self {
-        self.path = Some(path);
-
-        self
-    }
-
-    /// # Returns
-    ///
-    /// This application writing its last line with a line ending after it where `endofline` is
-    /// set and without one where it is not, which is vim's `'endofline'` and is read off the file
-    /// rather than chosen.
-    #[must_use]
-    pub fn ending_lines(mut self, endofline: bool) -> Self {
-        self.endofline = endofline;
-        self.saved = self.written();
+    pub fn composing(mut self) -> Self {
+        self.split = true;
+        self.status = true;
+        self.focus = Focus::Prompt;
+        self.insert();
 
         self
     }
@@ -442,29 +446,6 @@ impl App {
 
     /// # Returns
     ///
-    /// The file the text is written to, and [`None`] where the application was given no file to
-    /// write to.
-    #[must_use]
-    pub fn path(&self) -> Option<&Path> {
-        self.path.as_deref()
-    }
-
-    /// # Returns
-    ///
-    /// Whether the text holds something other than what was last read or written, which is what
-    /// `:q` refuses to leave behind.
-    ///
-    /// What this costs is the text rather than the keystroke, because it is asked once at the end
-    /// of a session rather than after every key: the bytes the editor would write are built and
-    /// compared against the bytes it last wrote, so a change and its undo leave the file unmodified
-    /// exactly as vim does.
-    #[must_use]
-    pub fn modified(&self) -> bool {
-        self.written() != self.saved
-    }
-
-    /// # Returns
-    ///
     /// The part of the text the window shows.
     #[must_use]
     pub fn viewport(&self) -> Viewport {
@@ -497,7 +478,7 @@ impl App {
 
     /// # Returns
     ///
-    /// The transcript panel the keys reach while it has the focus.
+    /// The history panel the keys reach while it has the focus.
     pub fn panel(&mut self) -> &mut Panel {
         &mut self.panel
     }
@@ -530,88 +511,114 @@ impl App {
     /// # Returns
     ///
     /// What the status line says: the line being typed at it, what the last keystroke could not do,
-    /// what the session has stopped and is waiting for, or the mode the editor is in, which is
-    /// nothing at all in normal mode.
+    /// what the session has stopped and is waiting for, or the mode of the panel that has the keys,
+    /// which is nothing at all in the prompt's normal mode.
     ///
     /// A session waits for as long as nobody answers it, so what it is waiting for is said where
     /// the line would otherwise say nothing rather than over the mode. A reader who cannot see
     /// `-- INSERT --` cannot see which keys they are typing, and that is the one thing a status
-    /// line is for.
+    /// line is for. The conversation screen says it beside the mode instead, as [`App::turn`].
     #[must_use]
     pub fn status(&self) -> &str {
-        if let Some(prompt) = &self.prompt {
-            return &prompt.line;
+        if let Some(command) = &self.command_line {
+            return &command.line;
         }
         if let Some(notice) = &self.notice {
             return notice;
         }
-        if Focus::Transcript == self.focus {
-            return self.waiting.as_deref().unwrap_or(READING);
+        let waiting = if self.split {
+            ""
+        } else {
+            self.waiting.as_deref().unwrap_or_default()
+        };
+        if Focus::History == self.focus {
+            if VimMode::Visual == self.panel.mode() {
+                return VISUAL;
+            }
+            if waiting.is_empty() {
+                return READING;
+            }
+
+            return waiting;
         }
 
         match self.mode() {
             VimMode::Insert => INSERTING,
             VimMode::Select => SELECTING,
             VimMode::Visual => VISUAL,
-            _ => self.waiting.as_deref().unwrap_or_default(),
+            _ => waiting,
         }
     }
 
-    /// Measures the window an area draws, which is the area's rows less the status line's, and the
-    /// columns the gutter leaves the text.
+    /// # Returns
+    ///
+    /// What the session's turn is doing: what went wrong with the session, what it is waiting to
+    /// be answered, whether it is responding or idle -- or [`None`] where there is no session.
+    #[must_use]
+    pub fn turn(&self) -> Option<String> {
+        let session = self.session.as_ref()?;
+        let state = if session.responding() {
+            RESPONDING
+        } else {
+            IDLE
+        };
+
+        Some(waited(session).unwrap_or_else(|| state.to_owned()))
+    }
+
+    /// Measures the window the prompt panel draws in an area, which is the rows the layout gives
+    /// it, and the columns the gutter leaves the text.
     ///
     /// # Returns
     ///
-    /// The geometry a frame drawn into `area` is laid out to, or [`None`] where the area is too
-    /// small to draw a column of text or a row of one in.
+    /// The geometry a frame drawn into `area` lays the draft out to, or [`None`] where the area is
+    /// too small to draw a column of text or a row of one in.
     #[must_use]
     pub fn geometry(&self, area: Rect) -> Option<Geometry> {
-        let text = self.split(area).0;
-        let columns = usize::from(text.width).checked_sub(self.gutter_columns())?;
-
-        Some(
-            Geometry::new(
-                NonZeroUsize::new(columns)?,
-                NonZeroUsize::new(usize::from(text.height))?,
-            )
-            .with_metrics(self.metrics)
-            .with_options(self.options.clone())
-            .with_scrolloff(self.scrolloff),
-        )
+        self.text_geometry(self.layout(area).prompt)
     }
 
-    /// Draws one frame: the gutter down the left of the area, the rows of text beside it, the
-    /// status line along the bottom where the application was given one, and nothing at all where
-    /// the area is too small to hold either.
+    /// Draws one frame: the panels the layout draws, the row between them, and the status line
+    /// along the bottom where the application was given one, and nothing at all where the area is
+    /// too small to hold them.
     ///
     /// # Returns
     ///
     /// The cell of `area` a terminal should rest the cursor in, or [`None`] where the frame does
     /// not draw the cursor's own row.
     pub fn draw(&self, cells: &mut Cells, area: Rect) -> Option<Position> {
-        let (body, status) = self.split(area);
-        self.draw_status(cells, status);
-        let drawn = if Focus::Transcript == self.focus {
-            self.draw_panel(cells, body)
+        let layout = self.layout(area);
+        self.draw_status(cells, layout.status);
+        let drawn = if self.split {
+            let history = self.draw_panel(cells, layout.history);
+            self.draw_divider(cells, layout.divider);
+            let prompt = self.draw_text(cells, layout.prompt);
+            match self.focus {
+                Focus::History => history,
+                Focus::Prompt => prompt,
+            }
         } else {
-            self.draw_text(cells, area, body)
+            match self.focus {
+                Focus::History => self.draw_panel(cells, layout.history),
+                Focus::Prompt => self.draw_text(cells, layout.prompt),
+            }
         };
-        if self.prompt.is_some() {
-            return self.prompt_cell(status);
+        if self.command_line.is_some() {
+            return self.command_line_cell(layout.status);
         }
 
         drawn
     }
 
-    /// Draws the file being edited: the gutter, the rows of text beside it, and the selection
-    /// painted over the cells those rows were drawn in.
+    /// Draws the draft: the gutter, the rows of text beside it, and the selection painted over the
+    /// cells those rows were drawn in.
     ///
     /// # Returns
     ///
-    /// The cell of `area` a terminal should rest the cursor in, or [`None`] where the frame does
+    /// The cell of `body` a terminal should rest the cursor in, or [`None`] where the frame does
     /// not draw the cursor's own row.
-    fn draw_text(&self, cells: &mut Cells, area: Rect, body: Rect) -> Option<Position> {
-        let geometry = self.geometry(area)?;
+    fn draw_text(&self, cells: &mut Cells, body: Rect) -> Option<Position> {
+        let geometry = self.text_geometry(body)?;
         let screen = Screen::of(&self.text, &self.viewport, self.cursor, &geometry);
         let gutter = Rect {
             width: narrowed(self.gutter_columns()).min(body.width),
@@ -782,15 +789,12 @@ impl App {
     /// The cell of the status line the cursor rests in while a line is being typed at it, which is
     /// the cell after the last one that line is drawn in, or [`None`] where the application draws
     /// no status line.
-    fn prompt_cell(&self, status: Rect) -> Option<Position> {
-        let prompt = self.prompt.as_ref()?;
+    fn command_line_cell(&self, status: Rect) -> Option<Position> {
+        let command = self.command_line.as_ref()?;
         if status.is_empty() {
             return None;
         }
-        let mut column = 0;
-        for grapheme in graphemes(&prompt.line) {
-            column += self.metrics.grapheme_width(grapheme, column);
-        }
+        let column = self.columns(&command.line);
 
         Some(Position {
             x: status.x + narrowed(column).min(status.width - 1),
@@ -812,11 +816,10 @@ impl App {
     /// lines typed at the status line -- are the ones it bound nothing to, so a key that carries a
     /// sequence further belongs to the sequence rather than to the window. Nor are they read in an
     /// inserting mode, where every key is either text or a key vim answers itself. The interrupt
-    /// is the one key read ahead of the engine, because a program that can only be stopped from
-    /// normal mode is a program insert mode traps a terminal in, and it is refused over an
-    /// unwritten text exactly as `:q` is, because a keystroke that throws a reader's work away is
-    /// worse than one that will not leave. It abandons a line being typed at the status line on
-    /// its way, so that a refusal is said where that line would otherwise be drawn.
+    /// is the one key read ahead of the engine, because a turn that can only be stopped from
+    /// normal mode is a turn insert mode leaves running, and it stops the turn rather than the
+    /// program. It abandons a line being typed at the status line on its way, so that what it did
+    /// is said where that line would otherwise be drawn.
     ///
     /// A key vim reads a further key after and this editor implements nothing for takes that key
     /// here rather than letting it through: `ma` names a mark this editor does not keep and `za`
@@ -831,34 +834,39 @@ impl App {
     pub fn press(&mut self, area: Rect, key: KeyEvent) -> Outcome {
         self.notice = None;
         if interrupts(key) {
-            self.prompt = None;
+            self.command_line = None;
             self.taking = None;
+            self.windowing = false;
+            self.interrupt();
 
-            return self.stop(false);
+            return Outcome::Continues;
+        }
+        if std::mem::take(&mut self.windowing) {
+            self.window(area, key);
+
+            return Outcome::Continues;
         }
         if let Some(taking) = self.taking.take() {
             self.notice = Some(unimplemented(&taking));
 
             return Outcome::Continues;
         }
-        if self.prompt.is_some() {
+        if self.command_line.is_some() {
             return self.typing(area, key);
         }
         if transcribes(key) {
-            self.focus = match self.focus {
-                Focus::Text => Focus::Transcript,
-                Focus::Transcript => Focus::Text,
-            };
-            if Focus::Transcript == self.focus {
-                self.held = self.panel.selection();
-                self.follow_panel(area);
-            }
+            self.focus_on(area, self.other());
 
             return Outcome::Continues;
         }
-        if Focus::Transcript == self.focus {
+        if windows(key) && self.commanding() {
+            self.windowing = true;
+
+            return Outcome::Continues;
+        }
+        if Focus::History == self.focus {
             if commands(key) {
-                self.prompt = Some(Prompt::new(Asked::Command, COMMAND));
+                self.command_line = Some(CommandLine::new(Asked::Command, COMMAND));
 
                 return Outcome::Continues;
             }
@@ -884,7 +892,7 @@ impl App {
         }
         if 1 == typed && VimMode::Insert != self.mode() {
             if let Some((asked, opened)) = opened_by(key) {
-                self.prompt = Some(Prompt::new(asked, opened));
+                self.command_line = Some(CommandLine::new(asked, opened));
 
                 return Outcome::Continues;
             }
@@ -917,23 +925,23 @@ impl App {
     /// Whether the application goes on reading keys.
     fn typing(&mut self, area: Rect, key: KeyEvent) -> Outcome {
         match key.code {
-            KeyCode::Esc => self.prompt = None,
+            KeyCode::Esc => self.command_line = None,
             KeyCode::Backspace => {
-                if let Some(prompt) = self.prompt.as_mut() {
-                    prompt.line.pop();
-                    if prompt.line.is_empty() {
-                        self.prompt = None;
+                if let Some(command) = self.command_line.as_mut() {
+                    command.line.pop();
+                    if command.line.is_empty() {
+                        self.command_line = None;
                     }
                 }
             }
             KeyCode::Enter => {
-                if let Some(prompt) = self.prompt.take() {
-                    return self.entered(area, &prompt);
+                if let Some(command) = self.command_line.take() {
+                    return self.entered(area, &command);
                 }
             }
             KeyCode::Char(character) if types(key) => {
-                if let Some(prompt) = self.prompt.as_mut() {
-                    prompt.line.push(character);
+                if let Some(command) = self.command_line.as_mut() {
+                    command.line.push(character);
                 }
             }
             _ => {}
@@ -947,11 +955,11 @@ impl App {
     /// # Returns
     ///
     /// Whether the application goes on reading keys.
-    fn entered(&mut self, area: Rect, prompt: &Prompt) -> Outcome {
-        match prompt.asked {
-            Asked::Command => self.run(prompt.typed().trim()),
+    fn entered(&mut self, area: Rect, command: &CommandLine) -> Outcome {
+        match command.asked {
+            Asked::Command => self.run(command.typed().trim()),
             Asked::Search(forward) => {
-                let pattern = prompt.typed();
+                let pattern = command.typed();
                 if !pattern.is_empty() {
                     self.pattern = Some(pattern.to_owned());
                 }
@@ -963,7 +971,9 @@ impl App {
         }
     }
 
-    /// Runs one ex command, which is `w`, `q`, `wq` and the `!` that overrides what they refuse.
+    /// Runs one ex command: `wq`, which sends the draft, `q`, which closes the panel that has the
+    /// keys, `qa`, which leaves, the `!` that overrides what they refuse, and the commands that
+    /// answer the session.
     ///
     /// # Returns
     ///
@@ -979,16 +989,10 @@ impl App {
 
         match asked {
             "" => Outcome::Continues,
-            "w" | "write" => {
-                self.write(named);
-
-                Outcome::Continues
-            }
-            "q" | "quit" => self.stop(forced),
-            "wq" | "x" | "xit" => {
-                if self.write(named) {
-                    return self.stop(true);
-                }
+            "q" | "quit" => self.close(forced),
+            "qa" | "qall" | "quita" | "quitall" => self.quit(forced),
+            "wq" | "x" | "xit" | "exit" => {
+                self.send();
 
                 Outcome::Continues
             }
@@ -1070,52 +1074,149 @@ impl App {
         self.decide(&Decision::answering(&asking, answer));
     }
 
-    /// Writes the text to the file it was read from, or to `named` where a command named one.
-    ///
-    /// A write to a file of somebody else's name leaves the text modified, as vim's does: what was
-    /// written elsewhere is not the file the reader is editing, and calling it written would let
-    /// the next `:q` throw the work away.
+    /// Sends the draft to the session as the reader's next message and leaves an empty draft in
+    /// insert mode, saying at the status line why it did not where it could not.
+    fn send(&mut self) {
+        if !self.drafted() {
+            self.notice = Some(UNDRAFTED.to_owned());
+
+            return;
+        }
+        let Some(session) = self.session.as_mut() else {
+            self.notice = Some(UNSESSIONED.to_owned());
+
+            return;
+        };
+        if session.responding() {
+            self.notice = Some(QUEUED.to_owned());
+        }
+        session.ask(&self.text.text());
+        self.clear();
+    }
+
+    /// Closes the panel that has the keys: the history's close leaves the program as `:qa` does,
+    /// and the prompt's leaves it only over an empty draft, discarding the draft instead where the
+    /// command insisted.
     ///
     /// # Returns
     ///
-    /// Whether the file was written.
-    fn write(&mut self, named: &str) -> bool {
-        let path = if named.is_empty() {
-            self.path.clone()
-        } else {
-            Some(PathBuf::from(named))
-        };
-        let Some(path) = path else {
-            self.notice = Some(UNNAMED.to_owned());
-
-            return false;
-        };
-        let written = self.written();
-        if let Err(error) = std::fs::write(&path, &written) {
-            self.notice = Some(format!("{}: {error}", path.display()));
-
-            return false;
+    /// Whether the application goes on reading keys.
+    fn close(&mut self, forced: bool) -> Outcome {
+        if Focus::History == self.focus {
+            return self.quit(forced);
         }
-        if Some(path.as_path()) == self.path.as_deref() {
-            self.saved = written;
-        }
-        self.notice = Some(format!("{} written", path.display()));
+        if forced {
+            self.clear();
 
-        true
+            return Outcome::Continues;
+        }
+
+        self.quit(false)
     }
 
     /// # Returns
     ///
-    /// Whether the application goes on reading keys, which it does where the text holds something
-    /// nothing has written and the command did not insist.
-    fn stop(&mut self, forced: bool) -> Outcome {
-        if !forced && self.modified() {
-            self.notice = Some(UNWRITTEN.to_owned());
+    /// Whether the application goes on reading keys, which it does where the draft holds words
+    /// nothing has sent and the command did not insist.
+    fn quit(&mut self, forced: bool) -> Outcome {
+        if !forced && self.drafted() {
+            self.notice = Some(UNSENT.to_owned());
 
             return Outcome::Continues;
         }
 
         Outcome::Stops
+    }
+
+    /// Empties the draft and leaves the prompt in insert mode, where the next message is typed.
+    fn clear(&mut self) {
+        self.engine.reload(&written(&Buffer::new()));
+        self.adopt();
+        self.viewport = Viewport::new();
+        self.insert();
+    }
+
+    /// Puts the prompt in insert mode, from whichever mode it is in.
+    fn insert(&mut self) {
+        if VimMode::Insert == self.engine.mode() {
+            return;
+        }
+        for key in [KeyCode::Esc, KeyCode::Char('i')] {
+            if let Err(error) = self.engine.press(KeyEvent::new(key, KeyModifiers::NONE)) {
+                self.notice = Some(error.to_string());
+            }
+        }
+        self.adopt();
+    }
+
+    /// Stops the session's running turn and the messages queued behind it, saying at the status
+    /// line whether there was one to stop.
+    fn interrupt(&mut self) {
+        let interrupted = self.session.as_mut().is_some_and(Session::interrupt);
+        let said = if interrupted {
+            INTERRUPTED
+        } else {
+            UNINTERRUPTED
+        };
+        self.notice = Some(said.to_owned());
+    }
+
+    /// # Returns
+    ///
+    /// Whether the draft holds anything but blanks, which is what is worth sending and what
+    /// leaving would throw away.
+    fn drafted(&self) -> bool {
+        self.text.lines().iter().any(|line| !line.trim().is_empty())
+    }
+
+    /// Gives the keys to the panel `focus` names.
+    fn focus_on(&mut self, area: Rect, focus: Focus) {
+        self.focus = focus;
+        if Focus::History == focus {
+            self.held = self.panel.selection();
+            self.follow_panel(area);
+        }
+    }
+
+    /// # Returns
+    ///
+    /// The panel that does not have the keys.
+    fn other(&self) -> Focus {
+        match self.focus {
+            Focus::Prompt => Focus::History,
+            Focus::History => Focus::Prompt,
+        }
+    }
+
+    /// # Returns
+    ///
+    /// Whether the panel that has the keys is in a mode `<C-W>` moves them from, which is normal
+    /// and visual mode: in insert mode the same key deletes a word.
+    fn commanding(&self) -> bool {
+        let mode = match self.focus {
+            Focus::Prompt => self.mode(),
+            Focus::History => self.panel.mode(),
+        };
+
+        matches!(mode, VimMode::Normal | VimMode::Visual)
+    }
+
+    /// Runs the key typed after `<C-W>`, which moves the keys up to the history, down to the
+    /// prompt, or to whichever of the two does not have them.
+    fn window(&mut self, area: Rect, key: KeyEvent) {
+        let focus = match key.code {
+            KeyCode::Char('k') | KeyCode::Up => Focus::History,
+            KeyCode::Char('j') | KeyCode::Down => Focus::Prompt,
+            KeyCode::Char('w' | 'W' | 'p') => self.other(),
+            KeyCode::Esc => return,
+            _ => {
+                let keys = spelled(&[key.into()]);
+                self.notice = Some(format!("`<C-W>{keys}` is bound to nothing"));
+
+                return;
+            }
+        };
+        self.focus_on(area, focus);
     }
 
     /// Carries the cursor to the next place the last pattern typed at the status line is found,
@@ -1210,6 +1311,7 @@ impl App {
     ///
     /// Whether the application goes on reading keys.
     pub fn handle(&mut self, area: Rect, event: &Event) -> Outcome {
+        self.fit(area);
         self.pump(area);
         let outcome = self.acted(area, event);
         self.pump(area);
@@ -1228,7 +1330,7 @@ impl App {
             Event::Key(key) => self.press(area, *key),
             Event::Paste(_) => {
                 self.notice = None;
-                if Focus::Transcript == self.focus {
+                if Focus::History == self.focus {
                     self.notice = Some(REFUSAL.to_owned());
 
                     return Outcome::Continues;
@@ -1326,7 +1428,8 @@ impl App {
     /// A frame that would draw what the last one drew rebuilds nothing, so reading a session that
     /// has stopped talking costs what reading a compiled-in exchange costs; a frame that would
     /// differ costs the conversation, because the panel is built over a transcript rather than
-    /// appended to, and it is drawn from its first row afterwards.
+    /// appended to, and it is drawn from its first row afterwards -- or from its last, where the
+    /// history is drawn beside a prompt that has the keys.
     fn pump(&mut self, area: Rect) {
         let Some(session) = self.session.as_mut() else {
             return;
@@ -1341,7 +1444,12 @@ impl App {
 
         self.waiting = waiting;
         self.adopt_conversation(transcript, tags);
-        self.follow_panel(area);
+        self.fit(area);
+        if self.split && Focus::Prompt == self.focus {
+            self.tail_panel(area);
+        } else {
+            self.follow_panel(area);
+        }
         self.refreshed = true;
     }
 
@@ -1352,6 +1460,38 @@ impl App {
             .sharing(self.engine.register_file().clone())
             .tagged(tags);
         self.top = Placed::top(0);
+        self.held = None;
+        self.fitted = None;
+    }
+
+    /// Lays the history panel out in the area a frame is drawn into, where it was last laid out
+    /// in another or has not been laid out at all.
+    fn fit(&mut self, area: Rect) {
+        if Some(area) == self.fitted {
+            return;
+        }
+        if let Some(geometry) = self.panel_geometry(area) {
+            self.panel.resize(geometry);
+        }
+        self.fitted = Some(area);
+    }
+
+    /// Scrolls the history panel to the last row of what was said, with its cursor on the last
+    /// line, so that what arrived last is drawn along the bottom of the panel.
+    fn tail_panel(&mut self, area: Rect) {
+        if let Err(error) = self.panel.press(typed('G')) {
+            self.notice = Some(error.to_string());
+        }
+        let Some(mut top) = self.panel.last() else {
+            return;
+        };
+        for _ in 1..self.layout(area).history.height {
+            let Some(above) = self.panel.above(top) else {
+                break;
+            };
+            top = above;
+        }
+        self.top = top;
     }
 
     /// Scrolls the transcript panel so that it draws the row its cursor rests on.
@@ -1365,7 +1505,7 @@ impl App {
     /// A scroll is not a follow. `CTRL-E` and `CTRL-Y` move the panel away from its cursor on
     /// purpose, which is why they are answered before this is ever reached.
     fn follow_panel(&mut self, area: Rect) {
-        let rows = usize::from(self.split(area).0.height);
+        let rows = usize::from(self.layout(area).history.height);
         if 0 == rows {
             return;
         }
@@ -1531,11 +1671,11 @@ impl App {
 
     /// # Returns
     ///
-    /// The geometry the transcript panel is laid out in, which is the whole of the area the text
-    /// would be drawn in because a transcript is drawn without a gutter, or [`None`] where the
+    /// The geometry the transcript panel is laid out in, which is the whole of the area the layout
+    /// gives the history because a transcript is drawn without a gutter, or [`None`] where the
     /// area is too small to draw a column of text or a row of one in.
     fn panel_geometry(&self, area: Rect) -> Option<Geometry> {
-        let text = self.split(area).0;
+        let text = self.layout(area).history;
 
         Some(
             Geometry::new(
@@ -1548,7 +1688,9 @@ impl App {
     }
 
     /// Draws the status line into the row it was given, which is nothing at all where it was given
-    /// no row.
+    /// no row. The conversation screen's says what the session's turn is doing beside it, and
+    /// along the right the model and the identifier the session runs under, as much of those two
+    /// as the row has room for.
     fn draw_status(&self, cells: &mut Cells, area: Rect) {
         if area.is_empty() {
             return;
@@ -1556,12 +1698,66 @@ impl App {
         for x in area.x..area.right() {
             cells[(x, area.y)].reset();
         }
+        let width = usize::from(area.width);
+        if !self.split || self.command_line.is_some() {
+            cells.set_stringn(area.x, area.y, self.status(), width, Style::default());
+
+            return;
+        }
+
+        let mut said = self.status().to_owned();
+        if let Some(turn) = self.turn() {
+            if !said.is_empty() {
+                said.push_str(GAP);
+            }
+            said.push_str(&turn);
+        }
+        cells.set_stringn(area.x, area.y, &said, width, Style::default());
+
+        let Some(session) = self.session.as_ref() else {
+            return;
+        };
+        let used = self.columns(&said) + self.columns(GAP);
+        let id = session.id();
+        let named = session.model().map(|model| format!("{model}{GAP}{id}"));
+        for right in named.iter().map(String::as_str).chain([id]) {
+            let needed = self.columns(right);
+            if used + needed <= width {
+                cells.set_stringn(
+                    area.right() - narrowed(needed),
+                    area.y,
+                    right,
+                    needed,
+                    Style::default(),
+                );
+
+                return;
+            }
+        }
+    }
+
+    /// Draws the row between the history and the prompt, with the mark in it naming the panel that
+    /// has the keys, which is nothing at all where the layout left no row for it.
+    fn draw_divider(&self, cells: &mut Cells, area: Rect) {
+        if area.is_empty() {
+            return;
+        }
+        for x in area.x..area.right() {
+            cells[(x, area.y)].reset();
+        }
+        let width = usize::from(area.width);
+        cells.set_stringn(area.x, area.y, DIVIDER.repeat(width), width, DIVIDER_STYLE);
+        let mark = match self.focus {
+            Focus::History => HISTORY_MARK,
+            Focus::Prompt => PROMPT_MARK,
+        };
+        let indent = MARK_INDENT.min(area.width);
         cells.set_stringn(
-            area.x,
+            area.x + indent,
             area.y,
-            self.status(),
-            usize::from(area.width),
-            Style::default(),
+            mark,
+            usize::from(area.width - indent),
+            MARK_STYLE,
         );
     }
 
@@ -1622,20 +1818,6 @@ impl App {
 
     /// # Returns
     ///
-    /// The bytes the editor would write the text out as, which is every line of it followed by a
-    /// line ending, and the last ending left off where the file it was read from ended without
-    /// one, as vim writes a file with `'noendofline'` and `'nofixendofline'`.
-    fn written(&self) -> String {
-        let mut written = written(&self.text);
-        if !self.endofline {
-            written.pop();
-        }
-
-        written
-    }
-
-    /// # Returns
-    ///
     /// Whether `key` is one vim reads a further key after that this editor implements nothing for,
     /// so that the further key is the application's to consume rather than the engine's to run.
     fn takes_argument(&self, key: KeyEvent) -> bool {
@@ -1656,8 +1838,13 @@ impl App {
         let Some(geometry) = self.geometry(area) else {
             return;
         };
-        let screen = Screen::of(&self.text, &self.viewport, self.cursor, &geometry);
         let rows = geometry.window().height().get();
+        if self.split && self.drafted_rows(geometry.columns(), rows) <= rows {
+            self.viewport = Viewport::new();
+
+            return;
+        }
+        let screen = Screen::of(&self.text, &self.viewport, self.cursor, &geometry);
         let kept = self.scrolloff.min((rows - 1) / 2);
         let above = match screen.cursor_row() {
             Some(row) if kept <= row && row + kept < rows => return,
@@ -1680,24 +1867,109 @@ impl App {
 
     /// # Returns
     ///
-    /// The rows of `area` the text is drawn into, and the row the status line is drawn into, which
-    /// is empty where the application draws no status line or the area holds no row to spare.
-    fn split(&self, area: Rect) -> (Rect, Rect) {
-        if !self.status || area.height < 2 {
-            return (area, Rect::ZERO);
+    /// Where each part of a frame drawn into `area` goes. The status line takes the bottom row,
+    /// where the application draws one and the area has a row to spare. Laid out as the
+    /// conversation screen, the prompt is as tall as its draft is drawn, never shorter than
+    /// [`PROMPT_FLOOR`] rows nor taller than [`PROMPT_PERCENT`] of the area, a row divides it from
+    /// the history, and the history takes what is left above them. Laid out otherwise, the history
+    /// and the prompt are each the whole of what is above the status line, and only the one that
+    /// has the keys is drawn.
+    fn layout(&self, area: Rect) -> Layout {
+        let (body, status) = if !self.status || area.height < 2 {
+            (area, Rect::ZERO)
+        } else {
+            (
+                Rect {
+                    height: area.height - 1,
+                    ..area
+                },
+                Rect {
+                    y: area.bottom() - 1,
+                    height: 1,
+                    ..area
+                },
+            )
+        };
+        if !self.split {
+            return Layout {
+                history: body,
+                divider: Rect::ZERO,
+                prompt: body,
+                status,
+            };
         }
 
-        (
-            Rect {
-                height: area.height - 1,
-                ..area
+        let cap = PROMPT_FLOOR.max(usize::from(area.height) * PROMPT_PERCENT / 100);
+        let wanted = usize::from(body.width)
+            .checked_sub(self.gutter_columns())
+            .and_then(NonZeroUsize::new)
+            .map_or(PROMPT_FLOOR, |columns| self.drafted_rows(columns, cap));
+        let prompt = narrowed(wanted.clamp(PROMPT_FLOOR, cap)).min(body.height);
+        let rest = body.height - prompt;
+        let divider = u16::from(2 <= rest);
+        let history = rest - divider;
+
+        Layout {
+            history: Rect {
+                height: history,
+                ..body
             },
-            Rect {
-                y: area.bottom() - 1,
-                height: 1,
-                ..area
+            divider: Rect {
+                y: body.y + history,
+                height: divider,
+                ..body
             },
+            prompt: Rect {
+                y: body.y + history + divider,
+                height: prompt,
+                ..body
+            },
+            status,
+        }
+    }
+
+    /// # Returns
+    ///
+    /// The rows the draft is drawn in when it is wrapped into `columns`, counted from its first
+    /// row and no further than one row past `cap`.
+    fn drafted_rows(&self, columns: NonZeroUsize, cap: usize) -> usize {
+        let geometry = Geometry::new(columns, NonZeroUsize::MIN.saturating_add(cap))
+            .with_metrics(self.metrics)
+            .with_options(self.options.clone());
+
+        Screen::of(&self.text, &Viewport::new(), self.cursor, &geometry)
+            .rows()
+            .len()
+    }
+
+    /// # Returns
+    ///
+    /// The geometry the draft is laid out to in `body`, which is the columns the gutter leaves and
+    /// every row, or [`None`] where it is too small to draw a column of text or a row of one in.
+    fn text_geometry(&self, body: Rect) -> Option<Geometry> {
+        let columns = usize::from(body.width).checked_sub(self.gutter_columns())?;
+
+        Some(
+            Geometry::new(
+                NonZeroUsize::new(columns)?,
+                NonZeroUsize::new(usize::from(body.height))?,
+            )
+            .with_metrics(self.metrics)
+            .with_options(self.options.clone())
+            .with_scrolloff(self.scrolloff),
         )
+    }
+
+    /// # Returns
+    ///
+    /// The display columns `text` is drawn in, measured as the layout measures a row.
+    fn columns(&self, text: &str) -> usize {
+        let mut column = 0;
+        for grapheme in graphemes(text) {
+            column += self.metrics.grapheme_width(grapheme, column);
+        }
+
+        column
     }
 
     /// # Returns
@@ -1771,19 +2043,26 @@ fn unimplemented(keys: &str) -> String {
 
 /// # Returns
 ///
-/// Whether `key` is the interrupt a terminal sends, which stops the program from any mode over a
-/// text that has been written.
+/// Whether `key` is the interrupt a terminal sends, which stops the session's turn from any panel
+/// and any mode.
 fn interrupts(key: KeyEvent) -> bool {
     KeyCode::Char('c') == key.code && key.modifiers.contains(KeyModifiers::CONTROL)
 }
 
 /// # Returns
 ///
-/// Whether `key` moves the keys between the file and the transcript, which `<C-T>` does from
+/// Whether `key` moves the keys between the prompt and the history, which `<C-T>` does from
 /// either of them and from any mode, because a panel that could only be reached from normal mode
 /// is a panel insert mode hides.
 fn transcribes(key: KeyEvent) -> bool {
     KeyCode::Char('t') == key.code && key.modifiers.contains(KeyModifiers::CONTROL)
+}
+
+/// # Returns
+///
+/// Whether `key` is `<C-W>`, which moves the keys between the panels by the key typed after it.
+fn windows(key: KeyEvent) -> bool {
+    matches!(key.code, KeyCode::Char('w' | 'W')) && key.modifiers.contains(KeyModifiers::CONTROL)
 }
 
 /// # Returns
@@ -1807,7 +2086,7 @@ fn waited(session: &Session) -> Option<String> {
     let ask = session.outstanding().first()?;
 
     Some(format!(
-        "-- WAITING ON `{}` -- `:allow`, `:deny`",
+        "waiting on `{}` -- `:allow` or `:deny`",
         ask.tool()
     ))
 }

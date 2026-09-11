@@ -1,17 +1,16 @@
-//! The two ways a keystroke used to take a reader's work away from them, and the bytes a write
-//! puts on disk.
+//! The two ways a keystroke used to take a reader's work away from them.
 //!
 //! The interrupt used to end the program from wherever it was typed. `q` and `:q` had always
 //! refused to leave a text nothing had written and said why, and the one key that reached the
 //! application ahead of everything else walked past both of them, so the fastest way to lose an
-//! afternoon's editing was the key a terminal sends when a reader means "stop". What is checked
-//! here is the refusal and the two cases it must not swallow: a text that was written, and a text
-//! nothing ever changed.
+//! afternoon's editing was the key a terminal sends when a reader means "stop". It now stops the
+//! session's turn and never the program, so what is checked here is that it leaves the text and
+//! the program where they stand whether or not there was a turn for it to stop.
 //!
 //! The second way is quieter. vim reads the key after `m`, `q`, `@`, `'` and `` ` `` as the name
 //! of a mark or a register, and the key after `Z`, `z`, `[`, `]` and `CTRL-W` as the rest of a
-//! command, rather than as a command in its own right. This editor keeps no marks, no macros, no
-//! folds and no windows, so that further key fell through to normal mode and ran there: `ma` and
+//! command, rather than as a command in its own right. This editor keeps no marks, no macros and
+//! no folds of its text, so that further key fell through to normal mode and ran there: `ma` and
 //! `za` alike opened insert mode, and everything typed after went into the file. Nothing said so,
 //! because the notice the unbound `m` left was wiped by the very keystroke it was warning about.
 //! So the cases here type the whole gesture a reader would type -- `majjd'a`, not `m` on its own
@@ -22,19 +21,14 @@
 //! back exactly where it was. So every such key is enumerated and each is required to be read one
 //! of three ways: bound only as the beginning of a longer sequence, read by the machine ahead of
 //! the table as a register prefix is, or bound nowhere and therefore consumed. A binding that
-//! answers the key on its own is a fourth way, and it fails here.
-//!
-//! The write is checked in bytes rather than in lines. vim writes back the file it read, and a
-//! file whose last line ends in no line ending is written back without one; an editor that adds
-//! one has changed a byte of somebody's file that nobody asked it to change, which no assertion
-//! about the text it holds can see.
+//! answers the key on its own is a fourth way, and it fails here. `CTRL-W` is bound nowhere in the
+//! table because the application reads it itself, to move between its panels, and it is held to
+//! taking the key after it all the same.
 
-use anyhow::Result;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use modalkit::env::vim::VimMode;
 use modalkit::key::TerminalKey;
 use ratatui::layout::Rect;
-use tempfile::TempDir;
 use vbc_editor::app::{App, Outcome};
 use vbc_editor::engine::typed;
 use vbc_editor::keys::{named, Argument, Bindings, ARGUMENTS};
@@ -47,11 +41,11 @@ const ROWS: u16 = 6;
 /// The text every case is typed at, whose lines are told apart by the words in them.
 const FIXTURE: &str = "the first line\nthe second line\nthe third line";
 
-/// The name the file a write is read back off is held under.
-const FILE: &str = "draft.txt";
+/// What the status line says about an interrupt there was no turn for.
+const UNINTERRUPTED: &str = "no turn is running to interrupt";
 
-/// What the status line says about a text nothing has written, which is vim's own wording.
-const UNWRITTEN: &str = "no write since the last change (add `!` to override)";
+/// The key the application moves between its panels by, rather than the table.
+const WINDOWED: &str = "<C-W>";
 
 /// The modes the application reads a key it may have to take a further key for in, which are
 /// every mode but the inserting one, where a key is text.
@@ -62,51 +56,36 @@ const READ_IN: [VimMode; 2] = [VimMode::Normal, VimMode::Visual];
 ///
 /// `m` sets a mark, `'` and `` ` `` jump to one, and `q` and `@` record and run a macro; this
 /// editor keeps neither marks nor macros. `Z` writes and leaves, `z` folds, `[` and `]` jump by
-/// structure and `CTRL-W` moves between windows; this editor has no windows, folds no file and
-/// leaves by the ex commands alone. The character searches, the replace and the register prefix
-/// are the keys of the list it does implement.
+/// structure and `CTRL-W` moves between windows; this editor folds no text, leaves by the ex
+/// commands alone, and moves between its panels by a `CTRL-W` the application reads rather than
+/// the table. The character searches, the replace and the register prefix are the keys of the list
+/// it does implement.
 const UNIMPLEMENTED: [&str; 10] = ["m", "q", "@", "'", "`", "Z", "z", "[", "]", "<C-W>"];
 
-/// Validation 1: the interrupt refuses a text nothing has written, says so, and takes nothing
-/// away.
+/// Validation 1: the interrupt leaves an edited text and the program where they stand, and says
+/// there was no turn for it to stop.
 #[test]
-fn the_interrupt_refuses_an_unwritten_text() {
-    let mut app = holding(FIXTURE);
-    typing(&mut app, "dd");
-
-    assert_ne!(
-        FIXTURE,
-        app.text().text(),
-        "the edit never reached the text"
-    );
-
-    let edited = app.text().text();
+fn the_interrupt_leaves_the_text_and_the_program_where_they_stand() {
+    let mut untouched = holding(FIXTURE);
 
     assert_eq!(
         Outcome::Continues,
-        app.press(area(), interrupt()),
-        "the interrupt threw away a text nothing had written"
+        untouched.press(area(), interrupt()),
+        "the interrupt ended the program over a text nothing had changed"
     );
-    assert_eq!(Some(UNWRITTEN), app.notice());
+
+    let mut app = holding(FIXTURE);
+    typing(&mut app, "dd");
+    let edited = app.text().text();
+
+    assert_ne!(FIXTURE, edited, "the edit never reached the text");
+    assert_eq!(
+        Outcome::Continues,
+        app.press(area(), interrupt()),
+        "the interrupt ended the program over an edited text"
+    );
+    assert_eq!(Some(UNINTERRUPTED), app.notice());
     assert_eq!(edited, app.text().text());
-    assert!(app.modified());
-}
-
-/// Validation 1: the interrupt leaves a text nothing has changed, and one a `:w` has written.
-#[test]
-fn the_interrupt_leaves_a_text_nothing_is_owed() -> Result<()> {
-    let mut untouched = holding(FIXTURE);
-
-    assert_eq!(Outcome::Stops, untouched.press(area(), interrupt()));
-
-    let held = TempDir::new()?;
-    let (mut written, _path) = opened(&held, &format!("{FIXTURE}\n"))?;
-    typing(&mut written, "dd:w\r");
-
-    assert!(!written.modified(), "`:w` left the text modified");
-    assert_eq!(Outcome::Stops, written.press(area(), interrupt()));
-
-    Ok(())
 }
 
 /// Validation 2: the gesture that sets a mark and deletes to it leaves the file as it was and says
@@ -186,9 +165,29 @@ fn no_key_that_takes_an_argument_lets_its_argument_through() {
                  runs as a command of its own"
             );
         }
-        for spelled in UNIMPLEMENTED {
+        let opened = if VimMode::Visual == mode { "v" } else { "" };
+        let mut windowed = holding(FIXTURE);
+        typing(&mut windowed, opened);
+        windowed.press(area(), pressed(WINDOWED));
+        typing(&mut windowed, "x");
+
+        assert_eq!(
+            FIXTURE,
+            windowed.text().text(),
+            "the key after `{WINDOWED}` reached the text in {mode:?}"
+        );
+        assert_eq!(
+            Some("`<C-W>x` is bound to nothing"),
+            windowed.notice(),
+            "`{WINDOWED}` said nothing about the key it was given in {mode:?}"
+        );
+
+        for spelled in UNIMPLEMENTED
+            .into_iter()
+            .filter(|spelled| WINDOWED != *spelled)
+        {
             let mut app = holding(FIXTURE);
-            typing(&mut app, if VimMode::Visual == mode { "v" } else { "" });
+            typing(&mut app, opened);
             app.press(area(), pressed(spelled));
 
             assert_eq!(
@@ -281,7 +280,7 @@ fn the_interrupt_abandons_a_key_that_was_waiting_to_be_taken() {
     app.press(area(), typed('m'));
 
     assert_eq!(Outcome::Continues, app.press(area(), interrupt()));
-    assert_eq!(Some(UNWRITTEN), app.notice());
+    assert_eq!(Some(UNINTERRUPTED), app.notice());
 
     typing(&mut app, "x");
 
@@ -290,69 +289,6 @@ fn the_interrupt_abandons_a_key_that_was_waiting_to_be_taken() {
         app.text().text(),
         "the keystroke after the refusal was eaten by the `m` the interrupt abandoned"
     );
-}
-
-/// Validation 4: a `:w` writes back the bytes it read, whether or not the file ended in a line
-/// ending.
-///
-/// This is `'nofixendofline'` rather than the `'fixendofline'` vim has had on by default since
-/// 8.0, which would put the missing ending back. The whole fault being fixed here is a `:w` that
-/// changes a byte nobody asked it to change, and adding a byte is that fault whichever option
-/// name it is spelled under.
-#[test]
-fn a_write_keeps_the_last_line_ending_the_file_was_read_with() -> Result<()> {
-    for read in [FIXTURE.to_owned(), format!("{FIXTURE}\n")] {
-        let held = TempDir::new()?;
-        let (mut app, path) = opened(&held, &read)?;
-        typing(&mut app, ":w\r");
-
-        assert_eq!(
-            read.as_bytes(),
-            std::fs::read(&path)?,
-            "`:w` wrote bytes the file it read never held"
-        );
-        assert!(!app.modified(), "the text is still modified after `:w`");
-
-        typing(&mut app, "x:w\r");
-
-        assert_eq!(
-            read.replacen("the", "he", 1).as_bytes(),
-            std::fs::read(&path)?,
-            "an edited text was written with a different last line ending than it was read with"
-        );
-    }
-
-    Ok(())
-}
-
-/// Validation 4: what a file of no bytes at all is written back as, which is the one place this
-/// editor writes bytes vim under `'nofixendofline'` does not.
-///
-/// vim tells a buffer it knows to be empty apart from a buffer holding one empty line, and this
-/// editor tells them apart only by the bytes it read. So a file of no bytes is read as a last
-/// line without an ending, and an edit typed into it is written without the ending vim would put
-/// there. What both write for a file nothing edited is the same nothing, which is the case a
-/// reader can reach without editing anything, and the divergence is one byte on a file that had
-/// none rather than a byte taken off a file that had one.
-#[test]
-fn a_file_of_no_bytes_is_written_back_as_the_exact_bytes_listed_here() -> Result<()> {
-    let untouched = TempDir::new()?;
-    let (mut app, path) = opened(&untouched, "")?;
-    typing(&mut app, ":w\r");
-
-    assert_eq!(b"", std::fs::read(&path)?.as_slice());
-
-    let edited = TempDir::new()?;
-    let (mut app, path) = opened(&edited, "")?;
-    typing(&mut app, "iabc\u{1b}:w\r");
-
-    assert_eq!(
-        b"abc",
-        std::fs::read(&path)?.as_slice(),
-        "vim writes `abc\\n` here and this editor writes `abc`; the divergence moved"
-    );
-
-    Ok(())
 }
 
 /// Validation 5: the keys that do read an argument still read it.
@@ -389,24 +325,6 @@ fn the_argument_keys_the_editor_implements_still_read_their_argument() {
 /// An application over `text`, with nothing typed at it yet.
 fn holding(text: &str) -> App {
     App::new(Buffer::from_text(text)).with_status(true)
-}
-
-/// # Returns
-///
-/// An application over a file in `held` holding exactly `read`, and the file it writes back to.
-///
-/// # Errors
-///
-/// Returns an error if:
-///
-/// * Forwards [`std::fs::write`]'s return values on failure.
-/// * Forwards [`App::opened`]'s return values on failure.
-fn opened(held: &TempDir, read: &str) -> Result<(App, std::path::PathBuf)> {
-    let path = held.path().join(FILE);
-    std::fs::write(&path, read)?;
-    let app = App::opened(path.clone())?.with_status(true);
-
-    Ok((app, path))
 }
 
 /// Types the characters of `keys` at `app`, one at a time, a carriage return standing for the

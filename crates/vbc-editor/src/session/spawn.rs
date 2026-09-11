@@ -141,6 +141,16 @@ impl Spawn {
         self.standing
     }
 
+    #[must_use]
+    pub fn identity(&self) -> &Identity {
+        &self.identity
+    }
+
+    #[must_use]
+    pub fn model(&self) -> Option<&str> {
+        self.model.as_deref()
+    }
+
     /// # Returns
     ///
     /// Every argument the child is started with, in order.

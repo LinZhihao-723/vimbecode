@@ -194,7 +194,7 @@ fn yac_takes_the_code_a_session_sent_and_p_puts_it_in_the_file() -> Result<()> {
     cross(&mut app);
     press(&mut app, "p");
 
-    assert_eq!(Focus::Text, app.focus(), "`<C-T>` did not come back");
+    assert_eq!(Focus::Prompt, app.focus(), "`<C-T>` did not come back");
     assert_eq!(format!("{FILE}\n{CODE}"), app.text().text());
 
     Ok(())
@@ -267,7 +267,7 @@ fn reading(long: Option<usize>) -> Result<App> {
     app.press(area(), control('t'));
     app.press(area(), typed('0'));
 
-    if Focus::Transcript != app.focus() {
+    if Focus::History != app.focus() {
         return Err(anyhow!("`<C-T>` reached no panel"));
     }
 

@@ -198,7 +198,7 @@ fn yac_takes_the_code_a_live_session_sent_and_p_puts_it_in_the_file() -> Result<
     );
 
     cross(&mut app);
-    assert_eq!(Focus::Transcript, app.focus(), "`<C-T>` reached no panel");
+    assert_eq!(Focus::History, app.focus(), "`<C-T>` reached no panel");
     let down = line_of(&mut app, CODE).ok_or(anyhow!("the code left the panel"))?;
     for _ in 0..down {
         press(&mut app, typed('j'));
@@ -239,7 +239,7 @@ fn a_session_that_stops_for_an_approval_is_answered_from_the_panel() -> Result<(
     );
 
     cross(&mut app);
-    assert_eq!(Focus::Transcript, app.focus(), "`<C-T>` reached no panel");
+    assert_eq!(Focus::History, app.focus(), "`<C-T>` reached no panel");
     say(&mut app, "");
     let wrote = settled(&mut app, |_| directory.path().join(WRITTEN_FILE).exists());
 
@@ -441,7 +441,7 @@ fn a_frame_deep_in_a_long_live_session_asks_for_what_one_at_its_top_asks_for() -
         "the session sent no long message in {PATIENCE:?}"
     );
     cross(&mut app);
-    assert_eq!(Focus::Transcript, app.focus(), "`<C-T>` reached no panel");
+    assert_eq!(Focus::History, app.focus(), "`<C-T>` reached no panel");
 
     let mut cells = Cells::empty(area());
     scrolled(&mut app, SHALLOW);
