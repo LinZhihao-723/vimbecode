@@ -1759,6 +1759,21 @@ fn insert_table() -> Vec<Entry> {
                 None,
             ),
         ),
+        entry(
+            &INSERT_MODES,
+            "<C-W>",
+            run(
+                vec![Change::Register(Register::Blackhole)],
+                vec![target(
+                    Specifier::Exact(EditAction::Delete),
+                    EditTarget::Motion(
+                        MoveType::WordBegin(WordStyle::Little, MoveDir1D::Previous),
+                        Count::Contextual,
+                    ),
+                )],
+                None,
+            ),
+        ),
     ]);
 
     entries

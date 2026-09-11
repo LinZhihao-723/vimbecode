@@ -225,7 +225,7 @@ fn reading() -> App {
     let mut app = App::new(Buffer::from_text(FILE)).with_transcript(said());
     app.press(area(), control('t'));
 
-    assert_eq!(Focus::Transcript, app.focus(), "`<C-T>` reached no panel");
+    assert_eq!(Focus::History, app.focus(), "`<C-T>` reached no panel");
 
     app
 }

@@ -9,7 +9,8 @@
 #
 # Everything it is steered by and everything it records lives in the directory it was started in,
 # which is the one thing about a spawn a test can choose through the client's own interface. It
-# writes `args` and `env` there, and it reads three files from there:
+# writes `args` and `env` there, and every line it is sent to `heard`, and it reads three files
+# from there:
 #
 #   reject  refuse the permission flag and exit, as a release that dropped it would
 #   drop    take the permission flag and do nothing about it
@@ -71,6 +72,7 @@ while IFS= read -r line; do
     if [ -z "$line" ]; then
         continue
     fi
+    printf '%s\n' "$line" >> heard
     turn=$((turn + 1))
 
     if [ -f "said.$turn" ]; then

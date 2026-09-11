@@ -39,10 +39,10 @@ use crate::chat::transcript::Transcript;
 
 use super::blocks::Conversation;
 use super::client::Client;
-use super::control::{Answer, Ask, Decision, Question, Subject};
+use super::control::{Answer, Ask, Decision, Question, Request, Subject};
 use super::error::Error;
-use super::event::Event;
-use super::identity::Identity;
+use super::event::{Event, Kind};
+use super::identity::{Identity, SessionId};
 use super::queue::Queue;
 use super::spawn::Spawn;
 use super::trust::{Admission, Answer as Trusted, Gate, Standing};
@@ -161,6 +161,9 @@ pub struct Session {
     standing: Standing,
     failure: Option<String>,
     revision: u64,
+    id: SessionId,
+    model: Option<String>,
+    responding: bool,
 }
 
 impl Session {
@@ -223,6 +226,9 @@ impl Session {
             standing: spawn.standing(),
             failure: None,
             revision: 0,
+            id: spawn.identity().session_id().clone(),
+            model: spawn.model().map(str::to_owned),
+            responding: false,
         })
     }
 
@@ -233,7 +239,22 @@ impl Session {
     pub fn ask(&mut self, text: &str) {
         self.conversation.asked(text);
         self.live.ask(text);
+        self.responding = true;
         self.revision += 1;
+    }
+
+    /// Stops the turn in flight and every message queued behind it.
+    ///
+    /// # Returns
+    ///
+    /// Whether a turn was running to be stopped.
+    pub fn interrupt(&mut self) -> bool {
+        if !self.responding {
+            return false;
+        }
+        self.live.interrupt();
+
+        true
     }
 
     /// Takes everything the session has said since it was last read, which is nothing at all where
@@ -245,6 +266,14 @@ impl Session {
             arrived = true;
             match arrival {
                 Ok(event) => {
+                    match event.kind() {
+                        Kind::Turn(_) => {
+                            self.responding = false;
+                            self.queue = Queue::new();
+                        }
+                        Kind::Init(_) | Kind::Assistant | Kind::User => self.responding = true,
+                        Kind::Control | Kind::System(_) | Kind::Other(_) => {}
+                    }
                     self.conversation.read(&event);
                     self.queue.read(&event);
                 }
@@ -307,6 +336,34 @@ impl Session {
     #[must_use]
     pub fn failure(&self) -> Option<&str> {
         self.failure.as_deref()
+    }
+
+    /// # Returns
+    ///
+    /// The identifier the session runs under, which is the one it last announced and the one it
+    /// was started under until it has announced one.
+    #[must_use]
+    pub fn id(&self) -> &str {
+        self.conversation
+            .session_id()
+            .unwrap_or_else(|| self.id.as_str())
+    }
+
+    /// # Returns
+    ///
+    /// The model the session last announced it runs on, the one it was started on until it has
+    /// announced one, and [`None`] where it was started on none and has announced none.
+    #[must_use]
+    pub fn model(&self) -> Option<&str> {
+        self.conversation.model().or(self.model.as_deref())
+    }
+
+    /// # Returns
+    ///
+    /// Whether a turn is running: one was asked for or has begun, and has not yet ended.
+    #[must_use]
+    pub fn responding(&self) -> bool {
+        self.responding
     }
 
     /// # Returns
@@ -379,6 +436,11 @@ impl Live {
         self.send(Errand::Answer(answer.clone()));
     }
 
+    /// Stops the turn in flight and the queue behind it.
+    fn interrupt(&self) {
+        self.send(Errand::Interrupt);
+    }
+
     /// # Returns
     ///
     /// Everything the session has said since it was last read, which is nothing at all where it
@@ -419,6 +481,9 @@ enum Errand {
 
     /// Answer a question the session is waiting on.
     Answer(Answer),
+
+    /// Stop the turn in flight and the queue behind it.
+    Interrupt,
 }
 
 /// Drives the child until it ends or nobody is holding it any more: everything asked of it is sent
@@ -434,6 +499,7 @@ fn pump(mut client: Client, errands: &Receiver<Errand>, arrivals: &Sender<Result
                 let sent = match errand {
                     Errand::Ask(text) => client.ask(&text),
                     Errand::Answer(answer) => client.answer(&answer),
+                    Errand::Interrupt => client.send(&Request::interrupt().frame()),
                 };
                 if let Err(error) = sent {
                     let _ignored = arrivals.send(Err(error));

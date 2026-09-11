@@ -458,7 +458,7 @@ fn a_paste_while_the_transcript_has_the_keys_reaches_neither_it_nor_the_file() {
     );
 
     app.press(area(), control('t'));
-    assert_eq!(Focus::Text, app.focus());
+    assert_eq!(Focus::Prompt, app.focus());
     assert_eq!(FILE, app.text().text());
 }
 
@@ -612,7 +612,7 @@ fn reading() -> App {
         .with_status(true)
         .with_transcript(said());
     app.press(area(), control('t'));
-    assert_eq!(Focus::Transcript, app.focus(), "`<C-T>` reached no panel");
+    assert_eq!(Focus::History, app.focus(), "`<C-T>` reached no panel");
 
     app
 }

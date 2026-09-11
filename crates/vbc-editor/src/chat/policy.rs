@@ -450,6 +450,17 @@ impl Panel {
 
     /// # Returns
     ///
+    /// The last row of the folded transcript, or [`None`] where it holds nothing.
+    #[must_use]
+    pub fn last(&self) -> Option<Placed> {
+        let view = View::of(&self.folds, &self.transcript);
+        let entry = view.entries().len().checked_sub(1)?;
+
+        Some(Placed::new(entry, view.bottom(entry, &self.wrapping())))
+    }
+
+    /// # Returns
+    ///
     /// Where the cursor rests in the text the folds leave drawn.
     pub fn cursor(&mut self) -> Caret {
         self.engine.cursor()
