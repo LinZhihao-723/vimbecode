@@ -222,7 +222,7 @@ pub struct Yanked {
 #[derive(Clone, Default)]
 pub struct Registers {
     held: Rc<Cell<RegisterStore>>,
-    fills: Rc<Cell<u64>>,
+    clipboard_fills: Rc<Cell<u64>>,
     yanked: Rc<Cell<Yanked>>,
 }
 
@@ -260,21 +260,24 @@ impl Registers {
         let mut file = self.held.take();
         let _ = file.put(&slot(name), cell, flags);
         self.held.set(file);
-        self.fills.set(self.fills.get() + 1);
+        if clipboard::REGISTER == name {
+            self.clipboard_fills.set(self.clipboard_fills.get() + 1);
+        }
     }
 
     /// # Returns
     ///
-    /// The number of times the editor has itself filled a register of this file, which moves
-    /// whenever [`Registers::fill`] is called and stays as it was over an edit modalkit ran.
+    /// The number of times the editor has itself filled the clipboard's register of this file,
+    /// which moves whenever [`Registers::fill`] fills that register and stays as it was over an
+    /// edit modalkit ran.
     ///
-    /// What it is for is telling a reader of one register that it need not read it. A register
-    /// holds as much as was yanked into it, so a caller that compared what it holds after every
-    /// keystroke would make a keystroke cost the yank; this costs nothing and answers the only
-    /// question such a caller has.
+    /// What it is for is telling a keystroke that filled the clipboard's register from one that
+    /// left it alone without reading it. A register holds as much as was yanked into it, so a
+    /// caller that compared what it holds after every keystroke would make a keystroke cost the
+    /// yank; this costs nothing.
     #[must_use]
-    pub fn fills(&self) -> u64 {
-        self.fills.get()
+    pub fn clipboard_fills(&self) -> u64 {
+        self.clipboard_fills.get()
     }
 
     /// # Returns

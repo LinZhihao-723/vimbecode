@@ -251,6 +251,45 @@ fn lines_yanked_visually_in_the_history_reach_windows() -> Result<()> {
     Ok(())
 }
 
+/// A code block yanked a second time in the history panel reaches the Windows clipboard again,
+/// after another window has copied something over the first yank.
+#[test]
+fn a_code_block_yanked_again_after_another_window_copied_reaches_windows() -> Result<()> {
+    let _turn = turn();
+    let Some(oracle) = Oracle::open()? else {
+        return Ok(());
+    };
+
+    let code = rewritten(CODE);
+    let mut app = reading(Bridge::windows());
+    press(&mut app, "yac");
+    let deadline = Instant::now() + SETTLE_BUDGET;
+    while code != oracle.text()? {
+        ensure!(
+            Instant::now() < deadline,
+            "the first `yac` never reached the Windows clipboard"
+        );
+        thread::sleep(TICK);
+    }
+    put_raw(&utf16le(COPIED))?;
+
+    ensure!(
+        COPIED == oracle.text()?,
+        "what another window copied never reached the Windows clipboard"
+    );
+
+    press(&mut app, "yac");
+    drop(app);
+
+    assert_eq!(
+        code,
+        oracle.text()?,
+        "a second `yac` of the same block left what another window copied on the clipboard"
+    );
+
+    Ok(())
+}
+
 /// `"*` is the same clipboard as `"+`.
 ///
 /// This asks nothing of Windows, because the two names being one register is a fact about the
@@ -378,6 +417,54 @@ fn a_yank_naming_the_clipboard_in_the_history_reaches_the_writer() -> Result<()>
         format!("{TODO}\n"),
         yanked_through_writer("\"+yy")?,
         "`\"+yy` in the history handed the writer something other than the line"
+    );
+
+    Ok(())
+}
+
+/// The same text yanked twice is handed to the desktop's writer twice, because another window may
+/// have copied something over the first yank in between.
+#[test]
+fn the_same_text_yanked_twice_reaches_the_writer_twice() -> Result<()> {
+    for (keys, in_the_history) in [("yacyac", true), ("yyyy", true), ("\"+yy\"+yy", false)] {
+        let directory = Directory::create()?;
+        let capture = directory.join("capture.bin");
+        let clipboard = captured(&capture, "");
+        let mut app = if in_the_history {
+            reading(clipboard)
+        } else {
+            prompting(clipboard)
+        };
+        press(&mut app, keys);
+
+        assert_eq!(
+            Some(2),
+            app.clipboard().map(Bridge::writes_issued),
+            "`{keys}` handed the writer its second yank some number of times other than once"
+        );
+    }
+
+    Ok(())
+}
+
+/// Neither a put from the desktop nor a keystroke that names `"+` and writes nothing into it hands
+/// the desktop's writer anything, so what another window copied is not replaced by what the editor
+/// last held.
+#[test]
+fn a_clipboard_register_named_but_not_written_hands_the_writer_nothing() -> Result<()> {
+    let directory = Directory::create()?;
+    let capture = directory.join("capture.bin");
+    let mut app = prompting(captured(&capture, COPIED));
+    press(&mut app, "\"+p");
+    settle(&mut app)?;
+    press(&mut app, "\"+");
+    app.press(area(), key(KeyCode::Esc));
+    press(&mut app, "\"+j");
+
+    assert_eq!(
+        Some(0),
+        app.clipboard().map(Bridge::writes_issued),
+        "a keystroke that wrote nothing into `\"+` was handed to the desktop"
     );
 
     Ok(())

@@ -231,6 +231,19 @@ struct Layout {
     status: Rect,
 }
 
+/// A put held until the desktop's clipboard answers, and what was typed while it waits.
+///
+/// What is typed is kept rather than run, so that the put a reader asked for first is the edit that
+/// happens first. It is handed to the editor again, in the order it arrived, on the frame the put
+/// is over. What is not kept is what a terminal says about itself rather than about the text: a
+/// resize changes the window a frame is drawn in and there is nothing to be gained by drawing the
+/// old one until the desktop answers.
+#[derive(Clone, Debug)]
+struct Put {
+    key: KeyEvent,
+    behind: VecDeque<Event>,
+}
+
 /// What a keystroke left the application asking for.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Outcome {
@@ -278,19 +291,6 @@ pub struct App {
     refreshed: bool,
     clipboard: Option<Bridge>,
     put: Option<Put>,
-}
-
-/// A put held until the desktop's clipboard answers, and what was typed while it waits.
-///
-/// What is typed is kept rather than run, so that the put a reader asked for first is the edit that
-/// happens first. It is handed to the editor again, in the order it arrived, on the frame the put
-/// is over. What is not kept is what a terminal says about itself rather than about the text: a
-/// resize changes the window a frame is drawn in and there is nothing to be gained by drawing the
-/// old one until the desktop answers.
-#[derive(Clone, Debug)]
-struct Put {
-    key: KeyEvent,
-    behind: VecDeque<Event>,
 }
 
 /// Which of the two panels the application draws the keys are typed at.

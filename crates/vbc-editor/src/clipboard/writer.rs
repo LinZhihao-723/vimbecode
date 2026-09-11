@@ -101,6 +101,8 @@ impl Writer {
     pub fn shutdown(&mut self) {
         self.yanks = None;
         if let Some(worker) = self.worker.take() {
+            // A worker that panicked has lost what it was handed, and the session it would report
+            // that to is ending.
             let _ = worker.join();
         }
     }

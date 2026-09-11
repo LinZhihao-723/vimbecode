@@ -21,10 +21,11 @@
 //! stale; the write is [`Writer`]'s, handed over and not waited for. What the render loop does is
 //! ask how far along things are.
 //!
-//! The mirror is by content rather than by event. What was last sent to the desktop is kept here,
-//! and a yank that leaves `"+` holding what the desktop already holds writes nothing, so a paste
-//! fetched from Windows is not sent straight back to it and a register the reader keeps re-yanking
-//! the same text into costs one process rather than one per keystroke.
+//! The mirror is by event. Every yank into `"+` is written out, the same text as the last one
+//! included, because the desktop holds whatever another window copied since and nothing here can
+//! see that. What did not come from a yank is not written: a paste fetched from Windows is not sent
+//! straight back to it, and a keystroke that named `"+` without writing into it leaves the desktop
+//! holding what it held.
 
 use std::path::PathBuf;
 
@@ -72,18 +73,19 @@ pub struct Bridge {
     reading: Option<Request>,
     mirrored: Option<String>,
     filled: u64,
+    yanked: u64,
 }
 
 impl Bridge {
     /// Factory function.
     ///
+    /// Neither end is started here. The helper is built on the reader's own worker, because
+    /// starting it is what costs, and the writer's program is started once per yank.
+    ///
     /// # Returns
     ///
     /// A newly created bridge over the Windows clipboard: read through the helper that lives as
     /// long as the session, and written by `clip.exe`.
-    ///
-    /// Neither end is started here. The helper is built on the reader's own worker, because
-    /// starting it is what costs, and the writer's program is started once per yank.
     #[must_use]
     pub fn windows() -> Self {
         let directory: PathBuf = std::env::temp_dir();
@@ -96,26 +98,25 @@ impl Bridge {
 
     /// Factory function.
     ///
-    /// # Returns
-    ///
-    /// A newly created bridge over a clipboard read from `factory`'s source and written to `sink`,
-    /// which is how a desktop that is not this machine's is stood in for.
-    ///
     /// # Type Parameters
     ///
     /// * `SourceType` - What the clipboard is read from.
     /// * `FactoryType` - What builds it, on the reader's worker thread.
     /// * `SinkType` - Where a yank is put.
+    ///
+    /// # Returns
+    ///
+    /// A newly created bridge over a clipboard read from `factory`'s source and written to `sink`,
+    /// which is how a desktop that is not this machine's is stood in for.
     #[must_use]
-    pub fn served_by<SourceType, FactoryType, SinkType>(
-        factory: FactoryType,
-        sink: SinkType,
-    ) -> Self
-    where
+    pub fn served_by<
         SourceType: Source,
         FactoryType: FnOnce() -> Result<SourceType, Error> + Send + 'static,
         SinkType: Sink,
-    {
+    >(
+        factory: FactoryType,
+        sink: SinkType,
+    ) -> Self {
         Self {
             registers: Registers::new(),
             reader: Reader::start(factory),
@@ -123,6 +124,7 @@ impl Bridge {
             reading: None,
             mirrored: None,
             filled: 0,
+            yanked: 0,
         }
     }
 
@@ -132,7 +134,8 @@ impl Bridge {
     /// that the register a keystroke names is the register the desktop is reached through.
     #[must_use]
     pub fn sharing(mut self, registers: Registers) -> Self {
-        self.filled = registers.fills();
+        self.filled = registers.clipboard_fills();
+        self.yanked = registers.yanked().count;
         self.registers = registers;
 
         self
@@ -186,19 +189,25 @@ impl Bridge {
         Settled::Ready(notice)
     }
 
-    /// Writes what `"+` holds out to the desktop, where a keystroke has left it holding something
-    /// the desktop does not already hold.
+    /// Writes what `"+` holds out to the desktop, where the keystroke just run wrote into it.
     ///
-    /// `addressed` is the register the keystroke named, which is what says whether a yank could
-    /// have reached the clipboard's own through modalkit; a fill the editor made itself is found
-    /// by the register file's own count instead. Neither is read out of the register file unless
-    /// one of them says something may have changed, because what a register holds is as large as
-    /// what was yanked into it and a keystroke may not cost that.
+    /// A yank into `"+` is written every time, the same text as the last one included, because the
+    /// desktop may hold something another window copied since. A fill the editor made itself is
+    /// found by the register file's count of them and a yank modalkit ran by its count of yanks.
+    /// `addressed` is the register the keystroke named, which is what finds a delete into `"+`;
+    /// that is written only where it left `"+` holding something other than what was last sent,
+    /// because a keystroke that named `"+` and then wrote nothing is told apart from one that did by
+    /// what the register holds. The register is not read unless one of the three says it may have
+    /// changed, because what it holds is as large as what was yanked into it and a keystroke may not
+    /// cost that.
     pub fn mirror(&mut self, addressed: Option<char>) {
-        let filled = self.registers.fills();
-        let touched = filled != self.filled || addressed.is_some_and(Self::serves);
+        let filled = self.registers.clipboard_fills();
+        let yanked = self.registers.yanked();
+        let written = filled != self.filled
+            || (yanked.count != self.yanked && yanked.register.is_some_and(Self::serves));
         self.filled = filled;
-        if !touched {
+        self.yanked = yanked.count;
+        if !written && !addressed.is_some_and(Self::serves) {
             return;
         }
 
@@ -208,7 +217,7 @@ impl Bridge {
 
             return;
         };
-        if self.mirrored.as_ref() == Some(&text) {
+        if !written && self.mirrored.as_ref() == Some(&text) {
             return;
         }
         self.mirrored = Some(text.clone());
@@ -272,7 +281,7 @@ impl Bridge {
                 shape,
             },
         );
-        self.filled = self.registers.fills();
+        self.filled = self.registers.clipboard_fills();
         self.mirrored = Some(text);
     }
 }
