@@ -78,7 +78,7 @@ use vbc_layout::line::{self, DisplayRow, Options};
 
 use crate::chat::highlight::Language;
 use crate::chat::palette::Palette;
-use crate::chat::{ansi, diff};
+use crate::chat::{ansi, diff, markdown};
 use crate::style::{self, Span, StyledRow};
 
 /// The bytes a line whose rows are its length over the width may be written from: the printable
@@ -106,6 +106,15 @@ const PROBE_BYTES_PER_COLUMN: usize = 1;
 /// The characters a logical line's indent is written from, which a prefix of the line reaches past
 /// so that a continuation row of it carries the decoration the whole line gives it.
 const BLANK: [char; 2] = [' ', '\t'];
+
+/// What a diff's header calls the edit it was.
+const EDIT: &str = "Edit";
+
+/// The most of a call's argument a header reads, which is more than a row of any terminal holds.
+const HEADER_REACH: usize = 512;
+
+/// The characters other than a blank a path may follow in a header and still start a word.
+const PATH_OPENERS: [char; 4] = ['"', '\'', '=', '('];
 
 /// Who a message was said by.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -151,6 +160,15 @@ pub enum Kind {
         /// The path of the file the edit was to, which is what a patch written from the block
         /// names.
         path: String,
+    },
+
+    /// A call the session stopped to ask the reader about, which it is still waiting on.
+    Waiting {
+        /// The name of the tool the session is waiting to call.
+        name: String,
+
+        /// Whether the reader answers it in words rather than by allowing or refusing the call.
+        words: bool,
     },
 }
 
@@ -378,6 +396,35 @@ impl Block {
     ///
     /// # Returns
     ///
+    /// A message Claude said, holding `source` as it was written and styled by the markdown it is
+    /// written in.
+    #[must_use]
+    pub fn reply(source: String) -> Self {
+        let spans = markdown::spans(&source, Palette::detected());
+
+        Self::with_spans(Kind::Message(Role::Assistant), source, spans)
+    }
+
+    /// # Returns
+    ///
+    /// The line a call to a tool is headed by where it is drawn: the tool, and in brackets what it
+    /// was called on, on one line, with every path inside `directory` written relative to it. A
+    /// diff is headed by the edit it was, and every other block by nothing.
+    #[must_use]
+    pub fn header(&self, directory: Option<&str>) -> Option<String> {
+        let (name, subject) = match &self.kind {
+            Kind::ToolCall { name } => (name.as_str(), self.body.source()),
+            Kind::Diff { path } => (EDIT, path.as_str()),
+            _ => return None,
+        };
+
+        Some(format!("{name}({})", subject_of(subject, directory)))
+    }
+
+    /// Factory function.
+    ///
+    /// # Returns
+    ///
     /// A block of `kind` drawn from `body`.
     fn of(kind: Kind, body: style::Block) -> Self {
         let plain = is_plain(body.source());
@@ -535,6 +582,33 @@ impl Block {
         let (_, counted) = self.counted_line(start, line, wrapping);
 
         RowAnchor::new(start, line, counted - 1)
+    }
+
+    /// Finds the row drawing the byte `offset` of the block's source, laying out the one logical
+    /// line holding it and nothing else.
+    ///
+    /// # Returns
+    ///
+    /// Where that row begins, which is the last row of that line where `offset` ends it.
+    #[must_use]
+    pub fn row_of(&self, offset: usize, wrapping: &Wrapping) -> RowAnchor {
+        let source = self.body.source();
+        let offset = boundary(source, offset);
+        let start = source[..offset]
+            .rfind(LINE_SEPARATOR)
+            .map_or(0, |at| at + LINE_SEPARATOR.len_utf8());
+        let line = source[..start].matches(LINE_SEPARATOR).count();
+        let rows = laid_out(line_at(source, start), line, wrapping);
+
+        let mut reached = start;
+        for (row, drawn) in rows.iter().enumerate() {
+            reached += drawn.text().len();
+            if offset < reached {
+                return RowAnchor::new(start, line, row);
+            }
+        }
+
+        RowAnchor::new(start, line, rows.len().saturating_sub(1))
     }
 
     /// Draws the rows `window` asks for from `anchor` downward.
@@ -870,6 +944,42 @@ fn breaks_at_the_column(options: &Options) -> bool {
     !options.break_indent() && !options.line_break() && options.show_break().is_empty()
 }
 
+/// # Returns
+///
+/// What a header says a call was made on: the start of `argument` on one line, its blanks and
+/// line breaks run together, and every path inside `directory` written relative to it. A directory
+/// that is not absolute names nothing a path could be written relative to.
+fn subject_of(argument: &str, directory: Option<&str>) -> String {
+    let reached = &argument[..boundary(argument, HEADER_REACH)];
+    let subject = reached.split_whitespace().collect::<Vec<&str>>().join(" ");
+    let Some(directory) = directory
+        .map(|directory| directory.trim_end_matches('/'))
+        .filter(|directory| directory.starts_with('/'))
+    else {
+        return subject;
+    };
+    if subject == directory {
+        return ".".to_owned();
+    }
+
+    let inside = format!("{directory}/");
+    let mut written = String::with_capacity(subject.len());
+    let mut copied = 0;
+    for (at, _) in subject.match_indices(&inside) {
+        let opens = subject[..at]
+            .chars()
+            .next_back()
+            .is_none_or(|before| before.is_whitespace() || PATH_OPENERS.contains(&before));
+        if opens {
+            written.push_str(&subject[copied..at]);
+            copied = at + inside.len();
+        }
+    }
+    written.push_str(&subject[copied..]);
+
+    written
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeSet;
@@ -883,7 +993,7 @@ mod tests {
 
     use crate::style::{Span, StyledSegment};
 
-    use super::{Block, Kind, Rendered, RenderedRow, Role, RowAnchor, RowWindow};
+    use super::{subject_of, Block, Kind, Rendered, RenderedRow, Role, RowAnchor, RowWindow};
 
     /// The width the fixtures wrap at, narrow enough that most of them take several rows.
     const WIDTH: usize = 5;
@@ -908,6 +1018,29 @@ mod tests {
 
     /// The markers a continuation row is decorated with where the options ask for one.
     const SHOW_BREAK: &str = "> ";
+
+    #[test]
+    fn a_header_writes_only_the_paths_inside_the_session_relative_to_it() {
+        let directory = Some("/tmp/work/");
+
+        for (argument, written) in [
+            ("/tmp/work/src/main.rs", "src/main.rs"),
+            ("/tmp/work", "."),
+            (
+                "cat /tmp/work/a.rs /var/tmp/work/b.rs",
+                "cat a.rs /var/tmp/work/b.rs",
+            ),
+            ("/var/tmp/work/notes.txt", "/var/tmp/work/notes.txt"),
+            ("grep -r x \"/tmp/work/src\"", "grep -r x \"src\""),
+            ("/tmp/workshop/notes.txt", "/tmp/workshop/notes.txt"),
+        ] {
+            assert_eq!(
+                written,
+                subject_of(argument, directory),
+                "{argument:?} was headed wrongly"
+            );
+        }
+    }
 
     #[test]
     fn every_kind_of_block_round_trips_through_a_render() {

@@ -35,6 +35,7 @@ use ratatui::buffer::Buffer as Cells;
 use ratatui::layout::Rect;
 use serde_json::json;
 use vbc_editor::app::{App, Focus};
+use vbc_editor::chat::chrome::GUTTER;
 use vbc_editor::chat::selection::{Mode, Source};
 use vbc_editor::session::blocks::Conversation;
 use vbc_editor::session::event::Event;
@@ -62,6 +63,9 @@ const WROTE: &str = "   Compiling vimbecode v0.0.0\n    Finished `dev` profile i
 
 /// The byte an escape sequence opens with, which is the one byte a yank may not hand back.
 const ESCAPE: char = '\u{1b}';
+
+/// What the row a closed thinking block is folded into says first.
+const THOUGHT: &str = "thinking:";
 
 /// What the subagent the recorded session started said, which is a line of the panel only once
 /// the call that started it has been opened.
@@ -127,14 +131,19 @@ fn a_session_is_what_the_panel_draws() -> Result<()> {
     app.draw(&mut cells, area());
     let drawn = frame(&cells);
 
-    assert_eq!(Some(&QUESTION.to_owned()), drawn.first());
+    let texts: Vec<String> = drawn
+        .iter()
+        .map(|row| row.chars().skip(GUTTER).collect())
+        .collect();
+
+    assert_eq!(Some(&QUESTION.to_owned()), texts.first());
     assert_eq!(
         Some(&"fn main() {".to_owned()),
-        drawn.get(INSIDE_THE_CODE),
+        texts.get(INSIDE_THE_CODE),
         "the code the session fenced is not drawn where the panel says it is: {drawn:?}"
     );
     assert!(
-        drawn.iter().any(|row| row.starts_with("+--")),
+        texts.iter().any(|row| row.starts_with(THOUGHT)),
         "nothing the session said folded away, so the panel drew a thinking block and a tool \
          result in full: {drawn:?}"
     );

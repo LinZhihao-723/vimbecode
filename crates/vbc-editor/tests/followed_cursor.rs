@@ -25,6 +25,7 @@ use ratatui::buffer::Buffer as Cells;
 use ratatui::layout::{Position, Rect};
 use vbc_editor::app::{App, Focus};
 use vbc_editor::chat::block::{Block, Kind, Role};
+use vbc_editor::chat::chrome::GUTTER;
 use vbc_editor::chat::transcript::Transcript;
 use vbc_editor::engine::typed;
 use vbc_layout::buffer::Buffer;
@@ -179,8 +180,9 @@ fn the_panel_follows_its_cursor_onto_the_one_row_a_closed_fold_is_drawn_in() {
         at.y
     );
     assert_eq!(
-        0, at.x,
-        "the cursor on a fold's row is not in its first column"
+        GUTTER,
+        usize::from(at.x),
+        "the cursor on a fold's row is not in the first column of its text"
     );
 }
 

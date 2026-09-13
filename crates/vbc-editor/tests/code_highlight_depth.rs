@@ -12,6 +12,7 @@ use ratatui::layout::Rect;
 use ratatui::style::Color;
 use serde_json::json;
 use vbc_editor::app::{App, Focus};
+use vbc_editor::chat::chrome::GUTTER;
 use vbc_editor::chat::palette::COLORTERM;
 use vbc_editor::session::blocks::Conversation;
 use vbc_editor::session::event::Event;
@@ -104,9 +105,10 @@ fn drawn() -> Result<Vec<Color>> {
     let mut cells = Cells::empty(area);
     app.draw(&mut cells, area);
 
+    let gutter = u16::try_from(GUTTER)?;
     let rows: Vec<u16> = (area.y..area.bottom())
         .filter(|y| {
-            let drawn: String = (area.x..area.right())
+            let drawn: String = (area.x + gutter..area.right())
                 .map(|x| cells[(x, *y)].symbol())
                 .collect();
             CODE.lines().any(|line| drawn.trim_end() == line)

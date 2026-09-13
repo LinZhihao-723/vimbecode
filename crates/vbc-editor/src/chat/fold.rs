@@ -34,26 +34,21 @@
 //! position instead is what leaves a frame costing the screenful it draws and a scroll costing the
 //! one logical line it steps onto, however deep in a transcript either happens.
 
+use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 
 use vbc_layout::anchor::Wrapping;
 
 use crate::chat::block::{Block, Kind, RenderedRow, RowAnchor, RowWindow};
+use crate::chat::chrome::{self, Chrome};
 use crate::chat::transcript::Transcript;
 
-/// What is written before the summary of a fold, and the character repeated once per depth after
-/// it, which is how vim draws a fold's own line.
-const SUMMARY_MARK: char = '+';
-const SUMMARY_DEPTH_MARK: char = '-';
+/// What a summary says a tool that answered nothing answered, and what it says before a thought.
+const SILENT_LABEL: &str = "(no output)";
+const THINKING_LABEL: &str = "thinking:";
 
-/// The depth marks a fold at the outermost depth is drawn with.
-const SUMMARY_DEPTH_MARKS: usize = 2;
-
-/// What a summary calls a block that is not named by the tool it called.
-const RESULT_LABEL: &str = "result";
-const THINKING_LABEL: &str = "thinking";
-
-/// What a summary counts what it folded away in, in the singular and in the plural.
+/// What a summary counts the lines it folds away beyond the one it shows in, in the singular and
+/// in the plural.
 const LINE_UNIT: &str = "line";
 const LINES_UNIT: &str = "lines";
 
@@ -167,6 +162,7 @@ pub struct Folds {
     roots: Vec<usize>,
     children: Vec<Vec<usize>>,
     heads: BTreeMap<usize, usize>,
+    answers: BTreeMap<usize, usize>,
     open: BTreeSet<usize>,
 }
 
@@ -200,6 +196,7 @@ impl Folds {
 
         self.roots = Vec::new();
         self.children = vec![Vec::new(); blocks];
+        self.answers = BTreeMap::new();
         for index in 0..blocks {
             let beneath = tags
                 .get(index)
@@ -207,9 +204,13 @@ impl Folds {
                 .and_then(|parent| answered.get(parent))
                 .copied()
                 .filter(|beneath| *beneath < index);
-            match beneath {
-                Some(parent) => self.children[parent].push(index),
-                None => self.roots.push(index),
+            let Some(parent) = beneath else {
+                self.roots.push(index);
+                continue;
+            };
+            self.children[parent].push(index);
+            if answers(transcript, tags, parent, index) {
+                self.answers.entry(parent).or_insert(index);
             }
         }
 
@@ -224,7 +225,7 @@ impl Folds {
                 self.folds.push(Fold {
                     head: block,
                     depth,
-                    covered: covered_by(&self.children, block),
+                    covered: covered_by(&self.children, block, self.answers.get(&block).copied()),
                 });
             }
 
@@ -378,7 +379,7 @@ impl Entry {
 }
 
 /// Where a reader is in a folded transcript: which entry, and where in that entry's own source the
-/// row they are on begins.
+/// row they are on begins -- or that the row is the one of [`Chrome`] standing above the entry.
 ///
 /// The row is named by an anchor rather than by an ordinal, which is what lets a panel scrolled
 /// deep into a block be drawn without the block above it being laid out first. A summary is drawn
@@ -387,6 +388,7 @@ impl Entry {
 pub struct Position {
     entry: usize,
     at: RowAnchor,
+    chrome: bool,
 }
 
 impl Position {
@@ -397,17 +399,35 @@ impl Position {
     /// The position of the row of the entry `entry` that begins where `at` names.
     #[must_use]
     pub fn new(entry: usize, at: RowAnchor) -> Self {
-        Self { entry, at }
+        Self {
+            entry,
+            at,
+            chrome: false,
+        }
     }
 
     /// Factory function.
     ///
     /// # Returns
     ///
-    /// The position of the first row of the entry `entry`.
+    /// The position of the first row of the entry `entry`'s own, below the chrome standing above
+    /// it where any does.
     #[must_use]
     pub fn top(entry: usize) -> Self {
         Self::new(entry, RowAnchor::top())
+    }
+
+    /// Factory function.
+    ///
+    /// # Returns
+    ///
+    /// The position of the row of chrome standing above the entry `entry`.
+    #[must_use]
+    pub fn above(entry: usize) -> Self {
+        Self {
+            chrome: true,
+            ..Self::top(entry)
+        }
     }
 
     #[must_use]
@@ -418,6 +438,15 @@ impl Position {
     #[must_use]
     pub fn at(&self) -> RowAnchor {
         self.at
+    }
+
+    /// # Returns
+    ///
+    /// The same row of the entry numbered `entry`, which is where it stands once entries above it
+    /// were added or taken away.
+    #[must_use]
+    pub fn moved_to(self, entry: usize) -> Self {
+        Self { entry, ..self }
     }
 }
 
@@ -437,6 +466,9 @@ pub enum Row<'view> {
         /// The row itself, naming the bytes of that block it shows.
         row: RenderedRow,
     },
+
+    /// A row holding no byte of any block, standing above the entry it belongs to.
+    Chrome(Chrome),
 }
 
 /// A transcript as its folds leave it: the entries a reader sees, in the order they are drawn.
@@ -448,7 +480,7 @@ pub enum Row<'view> {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct View<'transcript> {
     transcript: &'transcript Transcript,
-    entries: Vec<Entry>,
+    entries: Cow<'transcript, [Entry]>,
 }
 
 impl<'transcript> View<'transcript> {
@@ -457,7 +489,8 @@ impl<'transcript> View<'transcript> {
     /// # Returns
     ///
     /// The view of `transcript` left by `folds`, in which a closed fold is one summary entry and
-    /// every other block is an entry of its own, the blocks nested beneath a block following it.
+    /// every other block is an entry of its own, the blocks nested beneath a block following it
+    /// and what a closed call was answered with following the call's summary.
     #[must_use]
     pub fn of(folds: &Folds, transcript: &'transcript Transcript) -> Self {
         let mut entries = Vec::new();
@@ -466,6 +499,9 @@ impl<'transcript> View<'transcript> {
             match folds.at(block) {
                 Some(fold) if !folds.is_open(fold.head) => {
                     entries.push(Entry::Summary(summarize(transcript, fold)));
+                    if let Some(answer) = folds.answers.get(&block) {
+                        pending.push(*answer);
+                    }
                 }
                 _ => {
                     entries.push(Entry::Body(block));
@@ -478,8 +514,31 @@ impl<'transcript> View<'transcript> {
 
         Self {
             transcript,
-            entries,
+            entries: Cow::Owned(entries),
         }
+    }
+
+    /// Factory function.
+    ///
+    /// # Returns
+    ///
+    /// The view of `transcript` whose entries are `entries`, which are what a [`View::of`] the
+    /// same folds over it handed over with [`View::into_entries`].
+    #[must_use]
+    pub fn over(transcript: &'transcript Transcript, entries: &'transcript [Entry]) -> Self {
+        Self {
+            transcript,
+            entries: Cow::Borrowed(entries),
+        }
+    }
+
+    /// # Returns
+    ///
+    /// The entries a reader sees, top to bottom, which is what [`View::over`] views again without
+    /// working them out again.
+    #[must_use]
+    pub fn into_entries(self) -> Vec<Entry> {
+        self.entries.into_owned()
     }
 
     /// # Returns
@@ -488,6 +547,19 @@ impl<'transcript> View<'transcript> {
     #[must_use]
     pub fn entries(&self) -> &[Entry] {
         &self.entries
+    }
+
+    /// # Returns
+    ///
+    /// The position of the first row the entry `entry` is drawn in, which is the row of chrome
+    /// standing above it where one does.
+    #[must_use]
+    pub fn first(&self, entry: usize) -> Position {
+        if chrome::heads(self.transcript, &self.entries, entry) {
+            Position::above(entry)
+        } else {
+            Position::top(entry)
+        }
     }
 
     /// Steps one row down the folded transcript.
@@ -502,6 +574,9 @@ impl<'transcript> View<'transcript> {
     #[must_use]
     pub fn down(&self, at: Position, wrapping: &Wrapping) -> Option<Position> {
         let entry = self.entries.get(at.entry)?;
+        if at.chrome {
+            return Some(Position::top(at.entry));
+        }
         if let Entry::Body(block) = entry {
             let below = self
                 .transcript
@@ -512,7 +587,7 @@ impl<'transcript> View<'transcript> {
             }
         }
 
-        (at.entry + 1 < self.entries.len()).then(|| Position::top(at.entry + 1))
+        (at.entry + 1 < self.entries.len()).then(|| self.first(at.entry + 1))
     }
 
     /// Steps one row up the folded transcript.
@@ -527,13 +602,18 @@ impl<'transcript> View<'transcript> {
     /// the first row of its own, or `None` where `at` is the first row of the first entry.
     #[must_use]
     pub fn up(&self, at: Position, wrapping: &Wrapping) -> Option<Position> {
-        if let Some(Entry::Body(block)) = self.entries.get(at.entry) {
-            let above = self
-                .transcript
-                .block(*block)
-                .and_then(|block| block.above(at.at, wrapping));
-            if let Some(above) = above {
-                return Some(Position::new(at.entry, above));
+        if !at.chrome {
+            if let Some(Entry::Body(block)) = self.entries.get(at.entry) {
+                let above = self
+                    .transcript
+                    .block(*block)
+                    .and_then(|block| block.above(at.at, wrapping));
+                if let Some(above) = above {
+                    return Some(Position::new(at.entry, above));
+                }
+            }
+            if chrome::heads(self.transcript, &self.entries, at.entry) {
+                return Some(Position::above(at.entry));
             }
         }
 
@@ -563,17 +643,20 @@ impl<'transcript> View<'transcript> {
     ///
     /// # Returns
     ///
-    /// The number of rows the entry is drawn in, or zero where the view holds no such entry.
+    /// The number of rows the entry is drawn in, the row of chrome above it included, or zero
+    /// where the view holds no such entry.
     #[must_use]
     pub fn rows(&self, entry: usize, wrapping: &Wrapping) -> usize {
-        match self.entries.get(entry) {
+        let own = match self.entries.get(entry) {
             Some(Entry::Summary(_)) => 1,
             Some(Entry::Body(block)) => self
                 .transcript
                 .block(*block)
                 .map_or(0, |block| block.row_count(wrapping)),
             None => 0,
-        }
+        };
+
+        own + usize::from(chrome::heads(self.transcript, &self.entries, entry))
     }
 
     /// Draws `rows` rows of the folded transcript from `from` downward.
@@ -594,6 +677,13 @@ impl<'transcript> View<'transcript> {
             let Some(entry) = self.entries.get(at.entry) else {
                 break;
             };
+            if at.chrome {
+                if let Some(chrome) = chrome::above(self.transcript, &self.entries, at.entry) {
+                    drawn.push(Row::Chrome(chrome));
+                }
+                at = Position::top(at.entry);
+                continue;
+            }
 
             match entry {
                 Entry::Summary(summary) => {
@@ -614,7 +704,7 @@ impl<'transcript> View<'transcript> {
                 }
             }
 
-            at = Position::top(at.entry + 1);
+            at = self.first(at.entry + 1);
         }
 
         drawn
@@ -650,12 +740,31 @@ fn folds_away(block: &Block) -> bool {
 
 /// # Returns
 ///
-/// The index of every block beneath `head` in the nesting `children` describes, `head` included,
-/// in the order they were said.
-fn covered_by(children: &[Vec<usize>], head: usize) -> Vec<usize> {
+/// Whether the block `index` is what the call `parent` it arrived beneath was answered with, which
+/// is a tool's result carrying the id the call was made under.
+fn answers(transcript: &Transcript, tags: &[Tag], parent: usize, index: usize) -> bool {
+    let called = transcript
+        .block(parent)
+        .is_some_and(|block| matches!(block.kind(), Kind::ToolCall { .. }));
+    let answered = transcript
+        .block(index)
+        .is_some_and(|block| Kind::ToolResult == *block.kind());
+    let id = |block: usize| tags.get(block).and_then(Tag::id);
+
+    called && answered && id(index).is_some() && id(index) == id(parent)
+}
+
+/// # Returns
+///
+/// The index of every block beneath `head` in the nesting `children` describes, `head` included
+/// and the block `answer` and everything beneath it left out, in the order they were said.
+fn covered_by(children: &[Vec<usize>], head: usize, answer: Option<usize>) -> Vec<usize> {
     let mut covered = Vec::new();
     let mut pending = vec![head];
     while let Some(block) = pending.pop() {
+        if Some(block) == answer {
+            continue;
+        }
         covered.push(block);
         if let Some(beneath) = children.get(block) {
             pending.extend(beneath.iter().copied());
@@ -668,8 +777,8 @@ fn covered_by(children: &[Vec<usize>], head: usize) -> Vec<usize> {
 
 /// # Returns
 ///
-/// The summary the closed fold `fold` of `transcript` is drawn as: how deep it sits, how many
-/// lines it covers between every block it holds, and what the block it heads was.
+/// The summary the closed fold `fold` of `transcript` is drawn as: what the block it heads was,
+/// and how many lines it folds away beyond the one it shows.
 fn summarize(transcript: &Transcript, fold: &Fold) -> Summary {
     let lines: usize = fold
         .covered
@@ -677,13 +786,15 @@ fn summarize(transcript: &Transcript, fold: &Fold) -> Summary {
         .filter_map(|block| transcript.block(*block))
         .map(|block| lines_of(block.source()))
         .sum();
-    let label = transcript.block(fold.head).map_or(String::new(), label_of);
-    let marks: String =
-        std::iter::repeat_n(SUMMARY_DEPTH_MARK, SUMMARY_DEPTH_MARKS + fold.depth).collect();
-    let unit = if 1 == lines { LINE_UNIT } else { LINES_UNIT };
-    let text = format!("{SUMMARY_MARK}{marks} {lines} {unit}: {label}")
-        .trim_end()
-        .to_owned();
+    let label = transcript
+        .block(fold.head)
+        .map_or(String::new(), |head| label_of(head, transcript.directory()));
+    let hidden = lines.saturating_sub(1);
+    let text = match hidden {
+        0 => label,
+        1 => format!("{label} (+{hidden} {LINE_UNIT})"),
+        _ => format!("{label} (+{hidden} {LINES_UNIT})"),
+    };
 
     Summary {
         head: fold.head,
@@ -701,13 +812,17 @@ fn lines_of(source: &str) -> usize {
 
 /// # Returns
 ///
-/// What a summary calls `block`: what it was, and the first line of what it said.
-fn label_of(block: &Block) -> String {
+/// What a summary calls `block`: the header of a call, with paths inside `directory` written
+/// relative to it, and the first line of what anything else said.
+fn label_of(block: &Block, directory: Option<&str>) -> String {
+    if let Some(header) = block.header(directory) {
+        return header;
+    }
     let said = block.source().lines().next().unwrap_or_default().trim();
+
     match block.kind() {
-        Kind::ToolCall { name } => format!("{name} {said}"),
-        Kind::ToolResult => format!("{RESULT_LABEL} {said}"),
         Kind::Thinking => format!("{THINKING_LABEL} {said}"),
+        _ if said.is_empty() => SILENT_LABEL.to_owned(),
         _ => said.to_owned(),
     }
 }
@@ -874,16 +989,57 @@ mod tests {
         assert_eq!(
             vec![
                 "reporting on the anchor",
+                "Bash(cargo test -p vbc-layout)",
                 "cargo test -p vbc-layout",
-                "+---- 1 line: result ok",
-                "+--- 1 line: thinking the anchor holds",
+                "ok",
+                "thinking: the anchor holds",
             ],
-            drawn(&View::of(&folds, &transcript), &wrapping(UNWRAPPED))[1..5]
+            drawn(&View::of(&folds, &transcript), &wrapping(UNWRAPPED))[2..7]
         );
 
         folds.apply(Command::CloseAll, 0);
         assert_eq!(
-            vec!["+-- 5 lines: Task review the anchor", "afterwards"],
+            vec!["Task(review the anchor) (+4 lines)", "afterwards"],
+            drawn(&View::of(&folds, &transcript), &wrapping(UNWRAPPED))
+        );
+    }
+
+    #[test]
+    fn what_a_call_was_answered_with_is_drawn_below_it_and_folds_on_its_own() {
+        let transcript: Transcript = vec![
+            Block::new(
+                Kind::ToolCall {
+                    name: "Bash".to_owned(),
+                },
+                "cargo build".to_owned(),
+            ),
+            Block::from_ansi(Kind::ToolResult, "Compiling\nFinished"),
+        ]
+        .into_iter()
+        .collect();
+        let tags = vec![
+            Tag::new(Some(OUTER.to_owned()), None),
+            Tag::new(Some(OUTER.to_owned()), Some(OUTER.to_owned())),
+        ];
+        let mut folds = Folds::of(&transcript, &tags);
+
+        assert_eq!(
+            vec![(0, 0, vec![0]), (1, 1, vec![1])],
+            folds
+                .folds()
+                .iter()
+                .map(|fold| (fold.head(), fold.depth(), fold.covered().to_vec()))
+                .collect::<Vec<(usize, usize, Vec<usize>)>>()
+        );
+        assert_eq!(
+            vec!["Bash(cargo build)", "Compiling (+1 line)"],
+            drawn(&View::of(&folds, &transcript), &wrapping(UNWRAPPED))
+        );
+
+        folds.apply(Command::Toggle, 1);
+        assert!(folds.is_open(1) && !folds.is_open(0));
+        assert_eq!(
+            vec!["Bash(cargo build)", "Compiling", "Finished"],
             drawn(&View::of(&folds, &transcript), &wrapping(UNWRAPPED))
         );
     }
@@ -914,7 +1070,7 @@ mod tests {
         let view = View::of(&folds, &transcript);
         let wrapping = wrapping(NARROW);
 
-        let mut walked = vec![Position::top(0)];
+        let mut walked = vec![view.first(0)];
         while let Some(next) =
             view.down(*walked.last().expect("the walk began somewhere"), &wrapping)
         {
@@ -953,17 +1109,18 @@ mod tests {
         let whole = drawn(&view, &wrapping);
         assert_eq!(
             vec![
+                "Task(review the anchor)",
                 "review the anchor",
                 "reporting on the anchor",
-                "+--- 2 lines: Bash cargo test -p vbc-layout",
-                "+--- 1 line: thinking the anchor holds",
+                "Bash(cargo test -p vbc-layout) (+1 line)",
+                "thinking: the anchor holds",
                 "afterwards",
             ],
             whole
         );
 
         let below = view.render(Position::top(1), 2, &wrapping);
-        assert_eq!(whole[1..3], texts(&below));
+        assert_eq!(whole[2..4], texts(&below));
         assert_eq!(
             Vec::<String>::new(),
             texts(&view.render(Position::top(9), 4, &wrapping)),
@@ -1048,7 +1205,7 @@ mod tests {
             .map(|entry| view.rows(entry, wrapping))
             .sum();
 
-        texts(&view.render(Position::top(0), rows, wrapping))
+        texts(&view.render(view.first(0), rows, wrapping))
     }
 
     /// # Returns
@@ -1059,6 +1216,7 @@ mod tests {
             .map(|row| match row {
                 Row::Summary(summary) => summary.text().to_owned(),
                 Row::Body { row, .. } => row.styled().row().text().to_owned(),
+                Row::Chrome(chrome) => chrome.text().to_owned(),
             })
             .collect()
     }

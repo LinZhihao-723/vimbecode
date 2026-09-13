@@ -39,10 +39,12 @@
 
 pub mod ansi;
 pub mod block;
+pub mod chrome;
 pub mod diff;
 pub mod dispatch;
 pub mod fold;
 pub mod highlight;
+pub mod markdown;
 pub mod object;
 pub mod palette;
 pub mod policy;

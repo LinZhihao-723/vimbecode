@@ -12,6 +12,7 @@ use crate::chat::block::Block;
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct Transcript {
     blocks: Vec<Block>,
+    directory: Option<String>,
 }
 
 impl Transcript {
@@ -22,12 +23,28 @@ impl Transcript {
     /// A newly created transcript holding nothing.
     #[must_use]
     pub fn new() -> Self {
-        Self { blocks: Vec::new() }
+        Self {
+            blocks: Vec::new(),
+            directory: None,
+        }
     }
 
     /// Appends `block` to the end of the transcript.
     pub fn push(&mut self, block: Block) {
         self.blocks.push(block);
+    }
+
+    /// Records `directory` as the one the session the transcript records works in.
+    pub fn set_directory(&mut self, directory: String) {
+        self.directory = Some(directory);
+    }
+
+    /// # Returns
+    ///
+    /// The directory the session works in, or `None` where the transcript was never told one.
+    #[must_use]
+    pub fn directory(&self) -> Option<&str> {
+        self.directory.as_deref()
     }
 
     /// # Returns
@@ -61,6 +78,7 @@ impl FromIterator<Block> for Transcript {
     fn from_iter<BlocksType: IntoIterator<Item = Block>>(blocks: BlocksType) -> Self {
         Self {
             blocks: blocks.into_iter().collect(),
+            directory: None,
         }
     }
 }

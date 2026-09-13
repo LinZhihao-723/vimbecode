@@ -290,9 +290,15 @@ fn a_call_pairs_with_its_result_and_a_subagents_work_nests_beneath_the_call_that
     );
 
     assert_eq!(
-        Some(&[BUILD_CALL, BUILD_RESULT] as &[usize]),
+        Some(&[BUILD_CALL] as &[usize]),
         folds.at(BUILD_CALL).map(Fold::covered),
-        "the result of the build is not folded away under the call that asked for it"
+        "the call's fold holds the result it was answered with, so a closed call hides what came \
+         of it"
+    );
+    assert_eq!(
+        Some(&[BUILD_RESULT] as &[usize]),
+        folds.at(BUILD_RESULT).map(Fold::covered),
+        "the result of the build does not fold on its own"
     );
     assert_eq!(
         Some(&[
@@ -302,13 +308,12 @@ fn a_call_pairs_with_its_result_and_a_subagents_work_nests_beneath_the_call_that
             NESTED_CALL,
             NESTED_RESULT,
             AGENT_REPORTED,
-            AGENT_RESULT
         ] as &[usize]),
         folds.at(AGENT_CALL).map(Fold::covered),
         "the call that started the subagent does not fold away everything the subagent did"
     );
     assert_eq!(
-        Some(&[NESTED_CALL, NESTED_RESULT] as &[usize]),
+        Some(&[NESTED_CALL] as &[usize]),
         folds.at(NESTED_CALL).map(Fold::covered),
         "the call the subagent made does not fold away on its own inside the call that started it"
     );

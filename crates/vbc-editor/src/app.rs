@@ -103,20 +103,22 @@ use vbc_layout::viewport::{Command, Viewport};
 use vbc_layout::width::{grapheme_indices, graphemes, Metrics};
 
 use crate::chat::block::RenderedRow;
+use crate::chat::chrome::{self, Label, GUTTER};
 use crate::chat::fold::{Position as Placed, Tag};
 use crate::chat::object::Position as Resting;
+use crate::chat::palette::Palette;
 use crate::chat::policy::{Drawn, Panel, Selected, REFUSAL};
 use crate::chat::selection::Source as Selectable;
 use crate::chat::transcript::Transcript;
 use crate::chat::yank::{CLIPBOARD, YANK};
 use crate::clipboard::register::{Bridge, Settled};
-use crate::engine::{self, typed, Engine, Position as Caret, Shape, Yanked};
+use crate::engine::{self, Engine, Position as Caret, Shape, Yanked};
 use crate::event::{Event, KeyEvent};
 use crate::gutter::{Gutter, Options as GutterOptions};
 use crate::keys::Argument;
 use crate::render::{cursor_cell, paint, painted_columns, Renderer};
 use crate::screen::{self, Error, Geometry, Screen};
-use crate::session::control::Decision;
+use crate::session::control::{Decision, Subject};
 use crate::session::live::{Session, REFUSED};
 use crate::style::StyledRow;
 
@@ -267,6 +269,7 @@ pub struct App {
     viewport: Viewport,
     cursor: LogicalPosition,
     metrics: Metrics,
+    palette: Palette,
     options: Options,
     gutter: GutterOptions,
     scrolloff: usize,
@@ -323,6 +326,7 @@ impl App {
                 grapheme: 0,
             },
             metrics: Metrics::default(),
+            palette: Palette::detected(),
             options: Options::new(),
             gutter: GutterOptions::new().with_number(true),
             scrolloff: 0,
@@ -417,6 +421,7 @@ impl App {
         self.drawn = session.revision();
         self.session = Some(session);
         self.adopt_conversation(transcript, tags);
+        self.panel.to_end();
 
         self
     }
@@ -1115,6 +1120,7 @@ impl App {
             return;
         };
         session.ask(text);
+        self.panel.to_end();
     }
 
     /// Answers the question the session has been waiting on longest, saying at the status line
@@ -1163,6 +1169,7 @@ impl App {
             self.notice = Some(QUEUED.to_owned());
         }
         session.ask(&self.text.text());
+        self.panel.to_end();
         self.clear();
     }
 
@@ -1622,11 +1629,13 @@ impl App {
     ///
     /// Nothing here waits. A turn takes as long as a model takes and the keys go on arriving
     /// through all of it, so what is read is whatever has landed and the frame is drawn over that.
-    /// A frame that would draw what the last one drew rebuilds nothing, so reading a session that
-    /// has stopped talking costs what reading a compiled-in exchange costs; a frame that would
-    /// differ costs the conversation, because the panel is built over a transcript rather than
-    /// appended to, and it is drawn from its first row afterwards -- or from its last, where the
-    /// history is drawn beside a prompt that has the keys.
+    /// A frame that would draw what the last one drew takes nothing in, so reading a session that
+    /// has stopped talking costs what reading a compiled-in exchange costs.
+    ///
+    /// What arrived is taken into the panel where it stands, so the folds, the cursor and the
+    /// selection are where the reader left them. A panel whose cursor rested on its last line
+    /// follows what arrived, drawing the new last line along its bottom; one whose reader moved up
+    /// from there moves neither its rows nor its cursor.
     fn pump(&mut self, area: Rect) {
         let Some(session) = self.session.as_mut() else {
             return;
@@ -1640,12 +1649,11 @@ impl App {
         let (transcript, tags) = session.panel();
 
         self.waiting = waiting;
-        self.adopt_conversation(transcript, tags);
-        self.fit(area);
-        if self.split && Focus::Prompt == self.focus {
+        let following = self.panel.at_end();
+        self.top = self.panel.update(transcript, tags, self.top);
+        self.held = self.panel.selection();
+        if following {
             self.tail_panel(area);
-        } else {
-            self.follow_panel(area);
         }
         self.refreshed = true;
     }
@@ -1671,14 +1679,15 @@ impl App {
             self.panel.resize(geometry);
         }
         self.fitted = Some(area);
+        if self.panel.at_end() {
+            self.tail_panel(area);
+        }
     }
 
     /// Scrolls the history panel to the last row of what was said, with its cursor on the last
     /// line, so that what arrived last is drawn along the bottom of the panel.
     fn tail_panel(&mut self, area: Rect) {
-        if let Err(error) = self.panel.press(typed('G')) {
-            self.notice = Some(error.to_string());
-        }
+        self.panel.to_end();
         let Some(mut top) = self.panel.last() else {
             return;
         };
@@ -1696,8 +1705,8 @@ impl App {
     /// The panel follows its cursor the way the file's window does, and for the same reason: a `j`
     /// past the bottom row moves a cursor nobody can see. What it costs is the rows it walks over
     /// rather than the transcript it walks through, so a step over a closed fold costs one row
-    /// however many lines that fold hides -- and a cursor carried further than a follow walks
-    /// leaves the panel where it stands rather than walking the whole of what was said.
+    /// however many lines that fold hides -- and a cursor carried further than a follow walks, as
+    /// `gg` and `G` carry it, is leapt to rather than walked to, which costs the line it rests on.
     ///
     /// A scroll is not a follow. `CTRL-E` and `CTRL-Y` move the panel away from its cursor on
     /// purpose, which is why they are answered before this is ever reached.
@@ -1733,7 +1742,7 @@ impl App {
         let mut top = self.top;
         for _ in 0..FOLLOWED {
             let Some(next) = self.panel.above(top) else {
-                return;
+                break;
             };
             top = next;
             if self
@@ -1747,49 +1756,121 @@ impl App {
                 return;
             }
         }
+        self.leap_panel(area);
+    }
+
+    /// Scrolls the transcript panel straight to the row its cursor rests on, drawing that row along
+    /// the top of the panel where the cursor went up past it and along its bottom where the cursor
+    /// went down.
+    fn leap_panel(&mut self, area: Rect) {
+        let Some(row) = self.panel.cursor_row() else {
+            return;
+        };
+        let upward = (row.entry(), row.at().offset(), row.at().row())
+            < (
+                self.top.entry(),
+                self.top.at().offset(),
+                self.top.at().row(),
+            );
+        self.top = row;
+        if upward {
+            return;
+        }
+        for _ in 1..self.layout(area).history.height {
+            let Some(above) = self.panel.above(self.top) else {
+                break;
+            };
+            self.top = above;
+        }
     }
 
     /// Draws the rows of the transcript panel, top to bottom, and blanks what is left of the area
     /// below them.
     ///
-    /// A closed fold is drawn in the one row its summary is, unwrapped and cut to the columns
-    /// there are, and every other row is drawn from the block's own source in the styles the
-    /// block carries.
+    /// Every row keeps the gutter at its left for the mark saying who said the block it belongs
+    /// to. A closed fold is drawn in the one row its summary is, unwrapped and cut to the columns
+    /// there are, a row of chrome in the one row it says, and every other row is drawn from the
+    /// block's own source in the styles the block carries, over the style its kind is drawn in.
     fn draw_panel(&self, cells: &mut Cells, area: Rect) -> Option<Position> {
-        let renderer = Renderer::new(self.metrics);
+        let (gutter, text) = guttered(area);
         let drawn = self.panel.rows(self.top, usize::from(area.height));
         for (index, row) in drawn.iter().enumerate() {
             let Ok(at) = u16::try_from(index) else {
                 break;
             };
             match row {
+                Drawn::Chrome(chrome) => {
+                    let label = chrome.label(self.palette);
+                    self.draw_said(cells, (gutter, text), at, label, chrome.text());
+                }
                 Drawn::Summary(summary) => {
-                    for x in area.x..area.right() {
-                        cells[(x, area.y + at)].reset();
-                    }
-                    cells.set_stringn(
-                        area.x,
-                        area.y + at,
-                        summary.text(),
-                        usize::from(area.width),
-                        Style::default(),
-                    );
+                    let label = self
+                        .panel
+                        .transcript()
+                        .block(summary.head())
+                        .map_or_else(Label::default, |head| {
+                            chrome::folded(head.kind(), self.palette)
+                        });
+                    self.draw_said(cells, (gutter, text), at, label, summary.text());
                 }
                 Drawn::Body { block, row } => {
-                    renderer.draw_styled_row(
-                        cells,
-                        area,
-                        at,
-                        row.styled(),
-                        continues(drawn.get(index + 1), *block, row),
-                    );
+                    let label = self
+                        .panel
+                        .transcript()
+                        .block(*block)
+                        .map_or_else(Label::default, |said| {
+                            chrome::body(said.kind(), 0 == row.start(), self.palette)
+                        });
+                    Renderer::new(self.metrics)
+                        .with_style(label.style())
+                        .draw_styled_row(
+                            cells,
+                            text,
+                            at,
+                            row.styled(),
+                            continues(drawn.get(index + 1), *block, row),
+                        );
+                    self.draw_mark(cells, gutter, at, label);
                 }
             }
         }
         blank(cells, area, narrowed(drawn.len()));
-        self.paint_panel(cells, area, &drawn);
+        self.paint_panel(cells, text, &drawn);
 
-        self.panel_cursor(&drawn, area)
+        self.panel_cursor(&drawn, text)
+    }
+
+    /// Draws one row of the panel holding no text of a block's own: `label`'s mark in the gutter
+    /// and `said` in the columns beside it, the name of the tool it opens with drawn in
+    /// [`chrome::NAMED`] where the label says it opens with one.
+    fn draw_said(
+        &self,
+        cells: &mut Cells,
+        (gutter, text): (Rect, Rect),
+        at: u16,
+        label: Label,
+        said: &str,
+    ) {
+        let renderer = Renderer::new(self.metrics).with_style(label.style());
+        renderer.draw_blank(cells, text, at);
+        self.draw_mark(cells, gutter, at, label);
+        let (name, rest) = if label.titled() {
+            chrome::titled(said)
+        } else {
+            ("", said)
+        };
+        let named = label.style().patch(chrome::NAMED);
+        let column = renderer.draw_text(cells, text, at, 0, name, named);
+        renderer.draw_text(cells, text, at, column, rest, label.style());
+    }
+
+    /// Draws `label`'s mark into the gutter of the screen row `at`, over the style the row is
+    /// drawn in.
+    fn draw_mark(&self, cells: &mut Cells, gutter: Rect, at: u16, label: Label) {
+        let renderer = Renderer::new(self.metrics).with_style(label.style());
+        renderer.draw_blank(cells, gutter, at);
+        let marked = label.style().patch(label.marked());
+        renderer.draw_text(cells, gutter, at, 0, label.mark(), marked);
     }
 
     /// Paints the selection the panel's keys are making over the rows it was drawn in.
@@ -1855,12 +1936,14 @@ impl App {
                 continue;
             }
 
-            return match drawn_row {
-                Drawn::Summary(_) => folded_cell(area, narrowed(index)),
+            match drawn_row {
+                Drawn::Summary(_) => return folded_cell(area, narrowed(index)),
                 Drawn::Body { row, .. } => {
-                    cursor_cell(area, narrowed(index), row.styled().row(), grapheme)
+                    return cursor_cell(area, narrowed(index), row.styled().row(), grapheme);
                 }
-            };
+                // A row of chrome holds no byte, so `holds` never lets the cursor reach one.
+                Drawn::Chrome(_) => {}
+            }
         }
 
         None
@@ -1868,16 +1951,17 @@ impl App {
 
     /// # Returns
     ///
-    /// The geometry the transcript panel is laid out in, which is the whole of the area the layout
-    /// gives the history because a transcript is drawn without a gutter, or [`None`] where the
-    /// area is too small to draw a column of text or a row of one in.
+    /// The geometry the transcript panel is laid out in, which is the area the layout gives the
+    /// history less the gutter its marks are drawn in, or [`None`] where the area is too small to
+    /// draw a column of text or a row of one in.
     fn panel_geometry(&self, area: Rect) -> Option<Geometry> {
-        let text = self.layout(area).history;
+        let history = self.layout(area).history;
+        let columns = usize::from(history.width).checked_sub(GUTTER)?;
 
         Some(
             Geometry::new(
-                NonZeroUsize::new(usize::from(text.width))?,
-                NonZeroUsize::new(usize::from(text.height))?,
+                NonZeroUsize::new(columns)?,
+                NonZeroUsize::new(usize::from(history.height))?,
             )
             .with_metrics(self.metrics)
             .with_options(self.options.clone()),
@@ -2200,6 +2284,23 @@ fn folded_cell(area: Rect, screen_row: u16) -> Option<Position> {
 
 /// # Returns
 ///
+/// `area` split into the gutter the history's marks are drawn in and the columns beside it its
+/// text is drawn in.
+fn guttered(area: Rect) -> (Rect, Rect) {
+    let width = narrowed(GUTTER).min(area.width);
+
+    (
+        Rect { width, ..area },
+        Rect {
+            x: area.x + width,
+            width: area.width - width,
+            ..area
+        },
+    )
+}
+
+/// # Returns
+///
 /// `columns` as a terminal coordinate, saturated at the widest a terminal can be.
 fn narrowed(columns: usize) -> u16 {
     u16::try_from(columns).unwrap_or(u16::MAX)
@@ -2281,10 +2382,12 @@ fn waited(session: &Session) -> Option<String> {
         return Some(failure.to_owned());
     }
     let ask = session.outstanding().first()?;
+    let words = matches!(ask.subject(), Subject::Questions(_));
 
     Some(format!(
-        "waiting on `{}` -- `:allow` or `:deny`",
-        ask.tool()
+        "waiting on `{}` -- {}",
+        ask.tool(),
+        chrome::answered_by(words)
     ))
 }
 
@@ -2398,6 +2501,7 @@ fn holds(row: &Drawn, at: Resting) -> bool {
 
             at.block() == *block && source.start <= at.offset() && at.offset() <= source.end
         }
+        Drawn::Chrome(_) => false,
     }
 }
 
